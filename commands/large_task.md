@@ -8,9 +8,9 @@ You are managing Large Task Mode - a comprehensive workflow system for complex p
 ## Command Usage
 
 - `/large_task init` - Initialize infrastructure without starting a task
-- `/large_task "description"` - Start a new large task with description
+- `/large_task "description"` - Start a new large task (auto-resets any previous task)
 - `/large_task status` - Check current mode and validation status
-- `/large_task complete` - Complete and deactivate mode
+- `/large_task complete` - (Optional) Generate final reports and insights
 
 ## MCP Server Auto-Detection
 
@@ -104,11 +104,19 @@ def detect_mcp_servers(project_path):
 
 ### For task description:
 **ORCHESTRATION ONLY - DELEGATE ALL WORK**
+
+**AUTO-RESET: Starting a new task automatically clears previous task state**
+
 1. Initialize infrastructure if not exists (same as init)
-2. Detect available MCP servers and log them
-3. Set `.claude/LARGE_TASK_MODE.json` to active with task description
-4. Create/update `.claude/PROJECT_CONTEXT.md` with the task
-5. Detect project state:
+2. **Clear any previous task state** (fresh start)
+   - Reset WORKFLOW_STATE.json
+   - Clear PARALLEL_STATUS.json
+   - Clear RECOVERY_STATE.json
+   - Keep documentation (project_notes) intact
+3. Detect available MCP servers and log them
+4. Set `.claude/LARGE_TASK_MODE.json` to active with task description
+5. Create/update `.claude/PROJECT_CONTEXT.md` with the task
+6. Detect project state:
    ```python
    # Determine if Proof of Life needed
    project_state = detect_project_state()
@@ -283,7 +291,10 @@ def detect_mcp_servers(project_path):
 2. Show validation history if exists
 3. Display current boundaries and active work
 
-### For `complete`:
+### For `complete` (OPTIONAL):
+**Note: Completion is optional. Starting a new task auto-resets state.**
+
+If you want final reports and insights:
 1. Use Task tool to launch validator-master for final validation
 2. Review detailed validation report from validator-master
 3. If validation fails, YOU orchestrate recovery:
@@ -293,8 +304,10 @@ def detect_mcp_servers(project_path):
    - Track recovery attempts (max 3) in RECOVERY_STATE.json
    - Re-validate after fixes
 4. Use Task tool to launch quality-checker agent
-5. If all passed: deactivate mode in LARGE_TASK_MODE.json, generate report
-6. If still failing after 3 attempts: document issues, ask user for guidance
+5. Generate final report with insights
+6. Mark as complete in LARGE_TASK_MODE.json
+
+**Remember: You can skip this and just start a new task anytime**
 
 ## Project Structure Created
 

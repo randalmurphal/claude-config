@@ -7,9 +7,9 @@ You are managing Medium Task Mode - lighter orchestration but SAME quality stand
 
 ## Command Usage
 
-- `/medium_task "description"` - Start a medium complexity task
+- `/medium_task "description"` - Start a medium complexity task (auto-resets any previous task)
 - `/medium_task status` - Check progress
-- `/medium_task complete` - Finish and validate
+- `/medium_task complete` - (Optional) Run final validation and reports
 
 ## When to Use Medium vs Large
 
@@ -62,6 +62,8 @@ code_quality:
 ## Medium Task Workflow (3 Phases)
 
 **IMPORTANT: You orchestrate by delegating to agents, never implement directly**
+
+**AUTO-RESET: Starting a new task automatically clears previous task state**
 
 ### Phase 1: Design & Plan (SERIAL - 10-15 min)
 Quick but COMPLETE design:
@@ -258,7 +260,10 @@ Agents continuously report:
 
 ## Command Completion
 
-### When invoked with `complete`:
+### When invoked with `complete` (OPTIONAL):
+**Note: Completion is optional. Starting a new task auto-resets state.**
+
+If you want final validation and reports:
 1. Use Task tool to launch validator-master for final validation
 2. Review validation report
 3. If validation fails:

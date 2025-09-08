@@ -69,6 +69,14 @@ def detect_mcp_servers(project_path):
 3. Track workflow progress and phase transitions
 4. Coordinate between agents and manage handoffs
 5. Report status back to the user
+6. **For parallel phases: YOU identify and launch parallel agents directly**
+
+**PARALLEL EXECUTION CLARIFICATION:**
+- DO NOT use `parallel-task-dispatcher` agent (it's deprecated for this workflow)
+- YOU read BOUNDARIES.json and DEPENDENCY_GRAPH.json yourself
+- YOU identify what can be parallelized
+- YOU launch multiple Task agents in one message
+- Each agent gets a specific, non-overlapping scope
 
 ## When Invoked
 
@@ -185,9 +193,13 @@ def detect_mcp_servers(project_path):
      "Define test specifications for all modules with coverage targets"
    - Track completion in WORKFLOW_STATE.json
    
-   Phase 2C: Test Implementation (PARALLEL - DELEGATE)
-   - Use Task tool to launch parallel-task-dispatcher agent with instruction:
-     "Coordinate parallel test implementation using specifications from Phase 2B"
+   Phase 2C: Test Implementation (PARALLEL - ORCHESTRATE DIRECTLY)
+   - Read test specifications from Phase 2B results
+   - Read BOUNDARIES.json to identify independent test modules
+   - **Launch multiple Task agents IN ONE MESSAGE** for parallel test writing:
+     * Each agent gets specific module(s) to test
+     * Example: "Write tests for /src/features/auth using specs from Phase 2B"
+   - Update RESOURCE_LOCKS.json before launching agents
    - Monitor PARALLEL_STATUS.json for progress
    - Track completion in WORKFLOW_STATE.json
    
@@ -196,19 +208,30 @@ def detect_mcp_servers(project_path):
      "Validate all tests pass and coverage targets are met"
    - Track completion in WORKFLOW_STATE.json
    
-   **Phase 3: Implementation (PARALLEL - DELEGATE)**
-   - Use Task tool to launch parallel-task-dispatcher agent with instruction:
-     "Implement all features using BOUNDARIES.json, coordinate parallel work"
-   - Monitor PARALLEL_STATUS.json for progress
+   **Phase 3: Implementation (PARALLEL - ORCHESTRATE DIRECTLY)**
+   - Read BOUNDARIES.json to identify independent modules
+   - Read DEPENDENCY_GRAPH.json for execution strategy
+   - Identify parallel groups that can be implemented simultaneously
+   - **Launch multiple Task agents IN ONE MESSAGE:**
+     * Each agent gets a specific module/feature to implement
+     * Example instructions per agent:
+       - "Implement auth feature in /src/features/auth following architecture from Phase 1"
+       - "Implement trading API in /api/trading following contracts from Phase 1"
+       - "Implement user management in /api/users following contracts from Phase 1"
+   - Update RESOURCE_LOCKS.json with file ownership per agent
+   - Monitor PARALLEL_STATUS.json for all agents
    - DO NOT write any code yourself
-   - Track completion in WORKFLOW_STATE.json
+   - Track completions in WORKFLOW_STATE.json
    
-   **Phase 4: Integration & Enhancement (PARALLEL - DELEGATE)**
-   - Use Task tool to launch multiple agents in parallel:
-     - Integration testing agent
-     - Documentation agent
-     - Performance optimization agent
-   - Monitor all agent progress
+   **Phase 4: Integration & Enhancement (PARALLEL - ORCHESTRATE DIRECTLY)**
+   - Identify completed modules from Phase 3
+   - **Launch multiple specialized agents IN ONE MESSAGE:**
+     * Integration testing: "Run integration tests on completed auth and trading modules"
+     * Documentation: "Document the implemented auth and trading features"
+     * Performance: "Optimize database queries in user and product modules"
+     * Security: "Audit auth implementation for security vulnerabilities"
+   - Each agent works on different aspects (no file conflicts)
+   - Monitor all agent progress in PARALLEL_STATUS.json
    - Track completions in WORKFLOW_STATE.json
    
    **Phase 5: Final Validation (SERIAL - DELEGATE)**
@@ -265,6 +288,31 @@ def detect_mcp_servers(project_path):
 - Common code goes in project's `/common/` directory
 - This creates project isolation - no context bleeding
 
+## Parallel Execution Instructions
+
+**CRITICAL FOR PARALLEL PHASES:**
+1. YOU (the orchestrator) must identify what can be parallelized
+2. YOU read BOUNDARIES.json and DEPENDENCY_GRAPH.json
+3. YOU launch multiple Task agents in ONE message
+4. Never delegate parallelization to another agent
+
+**Example of CORRECT parallel execution:**
+```python
+# After reading BOUNDARIES.json and identifying 3 independent modules:
+# Launch all three agents IN ONE MESSAGE:
+
+Task 1: "Implement auth module in /src/features/auth"
+Task 2: "Implement trading module in /src/features/trading"  
+Task 3: "Implement reporting module in /src/features/reporting"
+```
+
+**Example of INCORRECT parallel execution:**
+```python
+# DON'T DO THIS:
+Task: "Use parallel-task-dispatcher to coordinate implementation"
+# This just creates one agent that works sequentially!
+```
+
 ## Agent Instructions Template
 
 When launching agents, always provide:
@@ -273,12 +321,15 @@ When launching agents, always provide:
 3. Dependencies or prerequisites from previous phases
 4. Expected deliverables
 5. Quality standards that must be met
+6. **For parallel agents:** Specific scope/paths they own
 
 Example:
 ```
 "You are part of a large task workflow. Current phase: [PHASE].
 Your task: [SPECIFIC TASK].
+Your scope: [SPECIFIC FILES/MODULES YOU OWN].
 Prerequisites: [WHAT WAS COMPLETED BEFORE].
 Deliverables: [WHAT YOU MUST PRODUCE].
 Quality standards: [COVERAGE/VALIDATION REQUIREMENTS].
+Do not modify files outside your scope.
 Update .claude/WORKFLOW_STATE.json when complete."

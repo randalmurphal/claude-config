@@ -224,17 +224,20 @@ Create `.claude/DEPENDENCY_GRAPH.json`:
 
 ## Integration with Workflow
 
-The parallel-task-dispatcher will read your analysis to make informed decisions:
+The orchestrator will read your analysis to make informed decisions about parallel execution:
 
 ```python
-# parallel-task-dispatcher reads your output
+# Orchestrator reads your output
 deps = read_dependency_graph()
 
-# Uses your strategy
-if component in deps.parallel_safe:
-    launch_parallel_tasks(deps.parallel_groups)
+# Uses your strategy to launch multiple agents
+if deps.parallel_groups:
+    # Launch multiple Task agents in one message
+    for group in deps.parallel_groups:
+        launch_agent(group.scope, group.task)
 else:
-    execute_serial(component)
+    # Execute serially
+    launch_agent_sequential(component)
 ```
 
 ## What You Must Check

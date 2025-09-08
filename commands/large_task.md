@@ -72,11 +72,11 @@ def detect_mcp_servers(project_path):
 6. **For parallel phases: YOU identify and launch parallel agents directly**
 
 **PARALLEL EXECUTION CLARIFICATION:**
-- DO NOT use `parallel-task-dispatcher` agent (it's deprecated for this workflow)
 - YOU read BOUNDARIES.json and DEPENDENCY_GRAPH.json yourself
 - YOU identify what can be parallelized
 - YOU launch multiple Task agents in one message
 - Each agent gets a specific, non-overlapping scope
+- Never delegate parallelization to another agent
 
 ## When Invoked
 
@@ -309,8 +309,14 @@ Task 3: "Implement reporting module in /src/features/reporting"
 **Example of INCORRECT parallel execution:**
 ```python
 # DON'T DO THIS:
-Task: "Use parallel-task-dispatcher to coordinate implementation"
+Task: "Coordinate parallel implementation of all features"
 # This just creates one agent that works sequentially!
+
+# ALSO DON'T DO THIS:
+Task: "Implement auth feature"
+# Wait for completion...
+Task: "Implement trading feature"
+# This is serial execution, not parallel!
 ```
 
 ## Agent Instructions Template

@@ -179,7 +179,7 @@ Points where ALL parallel work must complete:
 ## Troubleshooting
 
 ### Issue: "Parallel" but runs serially
-**Solution**: Use parallel-task-dispatcher agent which enforces multiple Task tools in single response
+**Solution**: Orchestrator must launch multiple Task agents in a single message (not delegate to another agent)
 
 ### Issue: Resource conflicts
 **Solution**: Check BOUNDARIES.json, ensure no overlapping paths
@@ -202,11 +202,12 @@ The `parallel_execution_validator.py` will:
 ## Best Practices
 
 1. **Always check phase** before claiming parallel execution
-2. **Use parallel-task-dispatcher** for coordinated parallel work
+2. **Orchestrator directly launches** multiple Task agents for parallel work
 3. **Lock resources** before modification
 4. **Monitor PARALLEL_STATUS.json** for progress
 5. **Clear locks** after completion
 6. **Synchronize** at defined points
+7. **Never delegate parallelization** to another agent
 
 ## Example Workflow
 

@@ -55,9 +55,25 @@ def detect_mcp_servers(project_path):
     return available_mcp
 ```
 
+## CRITICAL: Your Role as Orchestrator
+
+**YOU ARE AN ORCHESTRATOR ONLY. You must NEVER:**
+- Write any production code yourself
+- Implement any features directly  
+- Modify any source files (except .claude/ infrastructure)
+- Run tests or builds directly (delegate to agents)
+
+**YOUR ONLY RESPONSIBILITIES:**
+1. Set up and maintain `.claude/` infrastructure
+2. Delegate ALL implementation work to specialized agents via Task tool
+3. Track workflow progress and phase transitions
+4. Coordinate between agents and manage handoffs
+5. Report status back to the user
+
 ## When Invoked
 
 ### For `init`:
+**SETUP ONLY - NO CODE CHANGES**
 1. Check if you're in a project directory (has .git or is a clear project folder)
 2. Create `.claude/` directory structure in current project
 3. Copy validator templates from `~/.claude/templates/` to `.claude/validators/`:
@@ -76,13 +92,15 @@ def detect_mcp_servers(project_path):
    - `.claude/PROJECT_CONTEXT.md` with project overview
 5. Set up project-local hooks in `.claude/settings.local.json`
 6. Inform user that project is ready for automatic workflow activation
+7. **STOP** - Do not proceed to any implementation
 
 ### For task description:
+**ORCHESTRATION ONLY - DELEGATE ALL WORK**
 1. Initialize infrastructure if not exists (same as init)
 2. Detect available MCP servers and log them
 3. Set `.claude/LARGE_TASK_MODE.json` to active with task description
-3. Create/update `.claude/PROJECT_CONTEXT.md` with the task
-4. Detect project state:
+4. Create/update `.claude/PROJECT_CONTEXT.md` with the task
+5. Detect project state:
    ```python
    # Determine if Proof of Life needed
    project_state = detect_project_state()
@@ -93,7 +111,7 @@ def detect_mcp_servers(project_path):
    elif project_state == "working_project":
        start_phase = "architecture"  # Skip proof of life
    ```
-5. Initialize workflow state in `.claude/WORKFLOW_STATE.json`:
+6. Initialize workflow state in `.claude/WORKFLOW_STATE.json`:
    ```json
    {
      "current_phase": "architecture",
@@ -115,7 +133,7 @@ def detect_mcp_servers(project_path):
      }
    }
    ```
-5. Quality Standards (NON-NEGOTIABLE):
+7. Quality Standards (NON-NEGOTIABLE):
    ```yaml
    test_coverage:
      lines: 95%         # Must cover 95% of code lines
@@ -135,63 +153,70 @@ def detect_mcp_servers(project_path):
      blocking: Failures prevent phase completion
    ```
 
-6. Execute Phased Workflow:
+8. **ORCHESTRATE Phased Workflow (DO NOT IMPLEMENT - ONLY DELEGATE):**
 
    **Phase 0: Proof of Life (CONDITIONAL - When Applicable)**
    - **ONLY RUN IF**: New project, major rewrite, or no working code exists
    - **SKIP IF**: Adding features to existing working codebase
-   - When run: Create minimal working functionality
-   - Adapt to project type (script, service, processor, etc.)
-   - Must produce real, verifiable output
-   - Creates foundation all other work extends
+   - **DELEGATE TO**: Use Task tool to launch proof-of-life agent
+   - Agent instruction: "Create minimal working functionality for [project type]"
+   - Wait for agent completion before proceeding
+   - Update WORKFLOW_STATE.json when complete
 
-   **Phase 1: Architecture (SERIAL)**
-   - Run architecture-planner to define `/common/` structure
-   - Run api-contract-designer for API contracts
-   - Run error-designer for error hierarchy
-   - Run dependency-analyzer to map real dependencies
-   - Run context-builder to initialize critical context tracking
-   - Check available MCP servers and include in context
-   - Wait for ALL to complete before proceeding
+   **Phase 1: Architecture (SERIAL - DELEGATE EACH)**
+   - Use Task tool to launch architecture-planner agent
+   - Use Task tool to launch api-contract-designer agent
+   - Use Task tool to launch error-designer agent
+   - Use Task tool to launch dependency-analyzer agent
+   - Use Task tool to launch context-builder agent
+   - Include MCP server detection results in context for agents
+   - Track each agent's completion in WORKFLOW_STATE.json
+   - Wait for ALL to complete before proceeding to Phase 2
 
    **Phase 2: Test Creation (HYBRID)**
    
-   Phase 2A: Test Infrastructure (SERIAL)
-   - Run test-orchestrator to create shared test utilities
-   - Define test fixtures, mocks, and factories
-   - Establish test patterns and configuration
+   Phase 2A: Test Infrastructure (SERIAL - DELEGATE)
+   - Use Task tool to launch test-orchestrator agent with instruction:
+     "Create shared test infrastructure including utilities, fixtures, mocks"
+   - Track completion in WORKFLOW_STATE.json
    
-   Phase 2B: Test Specification (SERIAL)
-   - Run test-orchestrator to define what to test
-   - Create detailed test specifications per module
-   - Set coverage targets and requirements
+   Phase 2B: Test Specification (SERIAL - DELEGATE)
+   - Use Task tool to launch test-orchestrator agent with instruction:
+     "Define test specifications for all modules with coverage targets"
+   - Track completion in WORKFLOW_STATE.json
    
-   Phase 2C: Test Implementation (PARALLEL)
-   - Run parallel-task-dispatcher for test writing
-   - Multiple agents implement tests from specs
-   - Each agent uses shared test infrastructure
+   Phase 2C: Test Implementation (PARALLEL - DELEGATE)
+   - Use Task tool to launch parallel-task-dispatcher agent with instruction:
+     "Coordinate parallel test implementation using specifications from Phase 2B"
+   - Monitor PARALLEL_STATUS.json for progress
+   - Track completion in WORKFLOW_STATE.json
    
-   Phase 2D: Test Validation (SERIAL)
-   - Validate all tests pass
-   - Verify coverage targets met
-   - Ensure pattern consistency
+   Phase 2D: Test Validation (SERIAL - DELEGATE)
+   - Use Task tool to launch validator-master agent with instruction:
+     "Validate all tests pass and coverage targets are met"
+   - Track completion in WORKFLOW_STATE.json
    
-   **Phase 3: Implementation (PARALLEL)**
-   - Run parallel-task-dispatcher to:
-     - Analyze BOUNDARIES.json for independent modules
-     - Launch parallel agents for non-conflicting work
-     - Track execution in PARALLEL_STATUS.json
+   **Phase 3: Implementation (PARALLEL - DELEGATE)**
+   - Use Task tool to launch parallel-task-dispatcher agent with instruction:
+     "Implement all features using BOUNDARIES.json, coordinate parallel work"
+   - Monitor PARALLEL_STATUS.json for progress
+   - DO NOT write any code yourself
+   - Track completion in WORKFLOW_STATE.json
    
-   **Phase 4: Integration & Enhancement (PARALLEL)**
-   - Run parallel validation and enhancement:
-     - Integration testing on completed modules
-     - Documentation updates
-     - Performance optimization
+   **Phase 4: Integration & Enhancement (PARALLEL - DELEGATE)**
+   - Use Task tool to launch multiple agents in parallel:
+     - Integration testing agent
+     - Documentation agent
+     - Performance optimization agent
+   - Monitor all agent progress
+   - Track completions in WORKFLOW_STATE.json
    
-   **Phase 5: Final Validation (SERIAL)**
-   - Run validator-master for comprehensive validation
-   - Run quality-checker with ~/.claude/quality-tools
-   - Generate final reports
+   **Phase 5: Final Validation (SERIAL - DELEGATE)**
+   - Use Task tool to launch validator-master agent for comprehensive validation
+   - Use Task tool to launch quality-checker agent
+   - Collect reports from agents
+   - Update WORKFLOW_STATE.json with final status
+   - Report completion to user
 
 ### For `status`:
 1. Check `.claude/LARGE_TASK_MODE.json` for current state
@@ -199,10 +224,11 @@ def detect_mcp_servers(project_path):
 3. Display current boundaries and active work
 
 ### For `complete`:
-1. Run validator-master for final validation
-2. Run quality-checker using ~/.claude/quality-tools
-3. If passed: deactivate mode, generate report
-4. If failed: show failures, ask user to continue or force complete
+1. Use Task tool to launch validator-master for final validation
+2. Use Task tool to launch quality-checker agent
+3. Collect validation results from agents
+4. If passed: deactivate mode in LARGE_TASK_MODE.json, generate report
+5. If failed: show failures, ask user to continue or force complete
 
 ## Project Structure Created
 
@@ -227,9 +253,32 @@ def detect_mcp_servers(project_path):
 └── VALIDATION_HISTORY.json # Validation log
 ```
 
-## Important
+## Important Rules for Orchestrator
 
+- **YOU MUST NEVER WRITE CODE** - Only orchestrate and delegate
+- **ALWAYS USE TASK TOOL** - Every implementation action must be delegated
+- **TRACK EVERYTHING** - Update WORKFLOW_STATE.json after each agent completes
+- **PROVIDE CLEAR INSTRUCTIONS** - Each agent needs specific, actionable instructions
+- Include workflow context in agent prompts (current phase, dependencies, etc.)
 - ALL context stays in project's `.claude/` directory
 - Never reference `~/.claude/` for project state
 - Common code goes in project's `/common/` directory
 - This creates project isolation - no context bleeding
+
+## Agent Instructions Template
+
+When launching agents, always provide:
+1. The specific task to complete
+2. Reference to `.claude/WORKFLOW_STATE.json` for context
+3. Dependencies or prerequisites from previous phases
+4. Expected deliverables
+5. Quality standards that must be met
+
+Example:
+```
+"You are part of a large task workflow. Current phase: [PHASE].
+Your task: [SPECIFIC TASK].
+Prerequisites: [WHAT WAS COMPLETED BEFORE].
+Deliverables: [WHAT YOU MUST PRODUCE].
+Quality standards: [COVERAGE/VALIDATION REQUIREMENTS].
+Update .claude/WORKFLOW_STATE.json when complete."

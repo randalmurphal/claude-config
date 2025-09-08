@@ -61,13 +61,16 @@ code_quality:
 
 ## Medium Task Workflow (3 Phases)
 
+**IMPORTANT: You orchestrate by delegating to agents, never implement directly**
+
 ### Phase 1: Design & Plan (SERIAL - 10-15 min)
 Quick but COMPLETE design:
 
-1. **Dependency Analysis**
-   - Run dependency analyzer
-   - Map affected components
-   - Identify integration points
+1. **Dependency Analysis** (DELEGATE)
+   - Use Task tool to launch dependency-analyzer agent:
+     "Analyze dependencies for [feature description]. Map affected components and integration points."
+   - Review analysis results
+   - Document in MEDIUM_TASK_PLAN.md
 
 2. **Interface Definition** (MUST BE COMPLETE)
    ```typescript
@@ -108,18 +111,22 @@ Output: `.claude/MEDIUM_TASK_PLAN.md` with FULL specifications
 
 **SAME STANDARDS as large task:**
 
-2A. **Test Creation (Can be parallel per component)**
+2A. **Test Creation** (DELEGATE)
+- Use Task tool to launch tdd-enforcer agent:
+  "Create comprehensive tests for [component]. Requirements:
+   - Unit tests: One test class per function, mock all dependencies
+   - Integration tests: Use REAL APIs when available
+   - Follow existing patterns in fisio/tests/
+   - 95% line coverage, 100% function coverage
+   - Test every possible case"
 - Tests MUST be written first (TDD enforced)
-- 95% line coverage minimum
-- 100% function coverage required
-- ALL error paths tested
-- ALL edge cases covered
+- Review test specifications from agent
 
-2B. **Implementation**
-- Full implementation, no placeholders
-- Comprehensive error handling
-- Complete documentation
-- No technical debt
+2B. **Implementation** (DELEGATE) 
+- After tests are ready, launch implementation agent:
+  "Implement [feature] following test specifications. Full implementation required - no placeholders, comprehensive error handling."
+- Can run parallel implementations for independent components
+- Monitor progress via agent reports
 
 **Quality Gates During Implementation:**
 ```python
@@ -138,49 +145,75 @@ def validate_implementation(component):
 
 **SAME VALIDATION as large task:**
 
-1. **Test Execution**
-   ```bash
-   # Must pass 100% of tests
-   npm test -- --coverage
-   # Coverage must meet requirements:
-   # - Lines: 95%+
-   # - Branches: 90%+
-   # - Functions: 100%
-   ```
+1. **Validation** (DELEGATE)
+   - Use Task tool to launch validator-master agent:
+     "Run comprehensive validation for medium task. Check tests, coverage (95%+ lines, 100% functions), code quality, and integration."
+   - Review validation report from agent
+   
+2. **Recovery Handling** (ORCHESTRATOR RESPONSIBILITY)
+   If validation fails:
+   - Analyze report by severity (CRITICAL/HIGH/MEDIUM/LOW)
+   - Attempt fixes (max 2 attempts for medium tasks):
+     * Missing tests → delegate to tdd-enforcer
+     * Failed tests → delegate to implementation agent
+     * Quality issues → delegate to quality-checker
+   - Track attempts in `.claude/MEDIUM_RECOVERY_STATE.json`
+   - Re-validate after each fix
+   - After 2 attempts: ask user for guidance
 
-2. **Quality Validation**
-   - No console.logs in production code
-   - No commented-out code
-   - No debugging artifacts
-   - All types properly defined
+3. **Final Verification**
+   - Ensure all validation checks passed:
+     * Tests: 100% passing
+     * Coverage: 95%+ lines, 90%+ branches, 100% functions
+     * Quality: No placeholders, proper error handling
+     * Security: No vulnerabilities
+   - If all passed: Proceed to documentation
+   - If still issues: Document and request user input
 
-3. **Integration Verification**
-   - Integrates with existing components
-   - No regressions in existing tests
-   - Performance acceptable
-   - Security checks pass
+4. **Documentation & Audit** (After validation passes)
+   - Use Task tool to launch doc-maintainer agent:
+     "Update documentation in project_notes/[appropriate_path]/:
+      - Update README.md with current implementation only
+      - Add insights to REVIEW_NOTES.md if applicable
+      - Remove outdated information from README.md"
+   - Optionally launch completion-auditor (ask user):
+     "Would you like insights and recommendations? (recommended for new patterns)"
+   - If yes: Use Task tool to launch completion-auditor agent
 
-4. **Final Checks**
-   ```python
-   def final_validation():
-       checks = {
-           "tests_pass": all_tests_passing(),
-           "coverage_met": coverage_meets_requirements(),
-           "no_placeholders": scan_for_todos() == 0,
-           "errors_handled": all_errors_have_handlers(),
-           "documented": all_public_functions_documented(),
-           "secure": security_scan_passes()
-       }
-       
-       if not all(checks.values()):
-           return "BLOCKED - Fix issues before completing"
-       return "PASSED - Ready for production"
-   ```
+## Orchestration Rules
+
+### You (Main Orchestrator) Must:
+- **NEVER write code directly** - Always delegate to agents
+- **MAINTAIN CONTROL** - All agents report back to you
+- **HANDLE RECOVERY** - You decide fix strategies
+- **TRACK PROGRESS** - Update MEDIUM_TASK_STATUS.json
+
+### Agent Instructions Template:
+When delegating, provide:
+1. Specific task description
+2. Quality requirements (coverage, standards)
+3. Scope boundaries (which files/components)
+4. Expected deliverables
+
+### Recovery Process:
+1. **First Attempt**: Delegate targeted fixes
+2. **Second Attempt**: Try alternative approach
+3. **After 2 Attempts**: Ask user for guidance
+
+Track in `.claude/MEDIUM_RECOVERY_STATE.json`:
+```json
+{
+  "current_attempt": 1,
+  "max_attempts": 2,
+  "issues_found": [],
+  "fixes_attempted": []
+}
+```
 
 ## Enforcement Mechanisms
 
 ### Automatic Blocks
-The system will BLOCK progress if:
+The validator-master will report if:
 - Test coverage < 95% lines
 - Any function lacks tests (< 100% function coverage)
 - TODO/FIXME found in code
@@ -189,11 +222,11 @@ The system will BLOCK progress if:
 - Placeholder implementations found
 
 ### Progressive Validation
-During Phase 2, continuously check:
-- Coverage trending toward 95%+
-- All new functions have tests
-- Error handling is specific
-- No accumulating technical debt
+Agents continuously report:
+- Coverage metrics
+- Test completion status
+- Implementation progress
+- Quality issues found
 
 ## File Structure (Lightweight)
 
@@ -222,6 +255,30 @@ During Phase 2, continuously check:
 | **Error Handling** | Comprehensive | Comprehensive |
 | **Code Quality** | No placeholders | No placeholders |
 | **Security** | Full validation | Full validation |
+
+## Command Completion
+
+### When invoked with `complete`:
+1. Use Task tool to launch validator-master for final validation
+2. Review validation report
+3. If validation fails:
+   - Attempt recovery (max 2 attempts)
+   - Delegate fixes to appropriate agents
+   - Re-validate after each fix
+4. If all validations pass:
+   - Use Task tool to launch doc-maintainer agent:
+     "Update docs at project_notes/[path]/ using two-document approach"
+   - Ask user: "Run completion audit for insights?"
+   - If yes: Use Task tool to launch completion-auditor agent
+   - Update MEDIUM_TASK_STATUS.json to "completed"
+   - Generate summary report with docs location (project_notes/[path]/)
+   - Deactivate medium task mode
+5. If still failing after 2 attempts:
+   - Document remaining issues
+   - Ask user whether to:
+     * Continue with another attempt
+     * Accept current state
+     * Escalate to large_task mode
 
 ## Example Flow
 

@@ -139,7 +139,7 @@ Create `.claude/VALIDATION_REPORT.json`:
 ### If All Validations Pass:
 - Update `.claude/VALIDATION_HISTORY.json`
 - Report: "All validations passed successfully"
-- Recommend marking task complete
+- Return success status to main orchestrator
 
 ### If Validations Fail:
 1. Categorize failures by severity:
@@ -148,13 +148,13 @@ Create `.claude/VALIDATION_REPORT.json`:
    - MEDIUM: Low coverage, integration issues
    - LOW: Code quality issues
 
-2. Determine recovery strategy:
-   - For security issues: Trigger security-validator
-   - For missing tests: Trigger tdd-enforcer
-   - For implementation issues: Trigger appropriate feature agent
-   - For integration issues: Trigger recovery-orchestrator
+2. Document recommended recovery strategies:
+   - For security issues: Note that security-auditor should review
+   - For missing tests: Note that tdd-enforcer should create tests
+   - For implementation issues: Note which components need completion
+   - For integration issues: Note which interfaces need alignment
 
-3. Update `.claude/RECOVERY_PLAN.json` with specific tasks
+3. Update `.claude/VALIDATION_REPORT.json` with detailed findings
 
 ## What You Must NOT Do
 
@@ -162,16 +162,16 @@ Create `.claude/VALIDATION_REPORT.json`:
 - NEVER modify code directly
 - NEVER skip security validation
 - NEVER pass validation with known issues
+- NEVER delegate to other agents - only report back to main orchestrator
+- NEVER trigger recovery agents yourself
 
 ## After Completion
 
-Report validation results clearly:
-- If passed: "Validation complete. All checks passed."
-- If failed: "Validation failed. [X] critical, [Y] high, [Z] medium issues found. Recovery plan created."
+Report validation results to main orchestrator with:
+- Summary: "Validation complete. [PASSED/FAILED]"
+- If passed: List all checks that passed
+- If failed: Detailed breakdown of issues by severity
+- Recommendations: Suggested agents and fixes for each issue
+- Context: Files and components affected
 
-## Recovery Orchestration
-
-When issues are found, delegate to appropriate agents:
-1. Create specific prompts for each issue
-2. Use Task tool to trigger appropriate agent
-3. Document recovery attempts in `.claude/RECOVERY_STATE.json`
+The main orchestrator will decide how to proceed based on your report.

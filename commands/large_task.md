@@ -137,7 +137,8 @@ def detect_mcp_servers(project_path):
        "test_2d_validation": {"parallel_allowed": false},
        "implementation": {"parallel_allowed": true},
        "integration": {"parallel_allowed": true},
-       "validation": {"parallel_allowed": false}
+       "validation": {"parallel_allowed": false},
+       "documentation_audit": {"parallel_allowed": false}
      }
    }
    ```
@@ -190,7 +191,11 @@ def detect_mcp_servers(project_path):
    
    Phase 2B: Test Specification (SERIAL - DELEGATE)
    - Use Task tool to launch test-orchestrator agent with instruction:
-     "Define test specifications for all modules with coverage targets"
+     "Define test specifications for all modules. Requirements:
+      - Unit tests: One test class per function, mock all dependencies
+      - Integration tests: Use REAL APIs (especially Tenable), test all cases
+      - Follow existing patterns in fisio/tests/
+      - 95% line coverage, 100% function coverage"
    - Track completion in WORKFLOW_STATE.json
    
    Phase 2C: Test Implementation (PARALLEL - ORCHESTRATE DIRECTLY)
@@ -198,7 +203,12 @@ def detect_mcp_servers(project_path):
    - Read BOUNDARIES.json to identify independent test modules
    - **Launch multiple Task agents IN ONE MESSAGE** for parallel test writing:
      * Each agent gets specific module(s) to test
-     * Example: "Write tests for /src/features/auth using specs from Phase 2B"
+     * Example: "Write tests for [module] following:
+       - One test class per function for unit tests
+       - Mock all dependencies in unit tests
+       - Use real Tenable API for integration tests
+       - Follow patterns in fisio/tests/
+       - Test every possible case"
    - Update RESOURCE_LOCKS.json before launching agents
    - Monitor PARALLEL_STATUS.json for progress
    - Track completion in WORKFLOW_STATE.json
@@ -206,6 +216,11 @@ def detect_mcp_servers(project_path):
    Phase 2D: Test Validation (SERIAL - DELEGATE)
    - Use Task tool to launch validator-master agent with instruction:
      "Validate all tests pass and coverage targets are met"
+   - Review validation report from agent
+   - If failures found, YOU decide recovery strategy:
+     * For missing tests: delegate to tdd-enforcer
+     * For failing tests: delegate to appropriate fix agent
+     * For coverage gaps: delegate to test-orchestrator
    - Track completion in WORKFLOW_STATE.json
    
    **Phase 3: Implementation (PARALLEL - ORCHESTRATE DIRECTLY)**
@@ -236,10 +251,32 @@ def detect_mcp_servers(project_path):
    
    **Phase 5: Final Validation (SERIAL - DELEGATE)**
    - Use Task tool to launch validator-master agent for comprehensive validation
+   - Review detailed validation report from validator-master
+   - If validation fails, YOU orchestrate recovery:
+     * Analyze issues by severity (CRITICAL/HIGH/MEDIUM/LOW)
+     * Decide recovery strategy based on failure type
+     * Delegate fixes to appropriate agents:
+       - Security issues → security-auditor
+       - Missing tests → tdd-enforcer  
+       - Implementation gaps → relevant feature agents
+       - Integration issues → specific integration agents
+     * Track recovery attempts (max 3) in RECOVERY_STATE.json
+     * Re-run validation after each fix attempt
    - Use Task tool to launch quality-checker agent
-   - Collect reports from agents
+   - Once all validation passes, proceed to Phase 6
+   
+   **Phase 6: Documentation & Completion Audit (SERIAL - FINAL)**
+   - Use Task tool to launch doc-maintainer agent:
+     "Create/update documentation in project_notes/[appropriate_path]/:
+      - Update README.md with current implementation only
+      - Add insights to REVIEW_NOTES.md if applicable
+      - Remove any outdated information from README.md
+      - Follow two-document approach (technical vs historical)"
+   - Use Task tool to launch completion-auditor agent:
+     "Audit the completed implementation and provide insights for future improvements"
+   - Collect all reports
    - Update WORKFLOW_STATE.json with final status
-   - Report completion to user
+   - Report completion to user with documentation location and audit insights
 
 ### For `status`:
 1. Check `.claude/LARGE_TASK_MODE.json` for current state
@@ -248,10 +285,16 @@ def detect_mcp_servers(project_path):
 
 ### For `complete`:
 1. Use Task tool to launch validator-master for final validation
-2. Use Task tool to launch quality-checker agent
-3. Collect validation results from agents
-4. If passed: deactivate mode in LARGE_TASK_MODE.json, generate report
-5. If failed: show failures, ask user to continue or force complete
+2. Review detailed validation report from validator-master
+3. If validation fails, YOU orchestrate recovery:
+   - Analyze failure severity (CRITICAL/HIGH/MEDIUM/LOW)
+   - Create recovery plan based on issues
+   - Delegate specific fixes to appropriate agents
+   - Track recovery attempts (max 3) in RECOVERY_STATE.json
+   - Re-validate after fixes
+4. Use Task tool to launch quality-checker agent
+5. If all passed: deactivate mode in LARGE_TASK_MODE.json, generate report
+6. If still failing after 3 attempts: document issues, ask user for guidance
 
 ## Project Structure Created
 
@@ -276,12 +319,59 @@ def detect_mcp_servers(project_path):
 └── VALIDATION_HISTORY.json # Validation log
 ```
 
+## Recovery Handling (Main Orchestrator Responsibility)
+
+When any validation or test fails, YOU (the main orchestrator) handle recovery:
+
+### Recovery Process:
+1. **Analyze Validation Report**
+   - Read validation results from agent
+   - Categorize issues by severity
+   - Check RECOVERY_STATE.json for attempt history
+
+2. **Decide Recovery Strategy**
+   - CRITICAL (Security): Immediate fix via security-auditor
+   - HIGH (No tests/build broken): Fix via tdd-enforcer or implementation agents
+   - MEDIUM (Low coverage/integration): Targeted fixes via specific agents
+   - LOW (Code quality): Quick fixes via quality-checker
+
+3. **Preserve Working Code**
+   - Document working components in WORKING_COMPONENTS.json
+   - Instruct fix agents to not modify working code
+   - Maintain list of protected files
+
+4. **Execute Recovery**
+   - Create specific prompts for each issue
+   - Delegate to appropriate agents with clear scope
+   - Include context about what to preserve
+   - Track attempt count (max 3 attempts)
+
+5. **Re-validate**
+   - After fixes, re-run validation
+   - If still failing, try different approach
+   - After 3 attempts, report to user for guidance
+
+### Recovery State Tracking:
+Maintain `.claude/RECOVERY_STATE.json`:
+```json
+{
+  "current_attempt": 1,
+  "max_attempts": 3,
+  "issues_found": [],
+  "fixes_attempted": [],
+  "working_components": [],
+  "next_strategy": ""
+}
+```
+
 ## Important Rules for Orchestrator
 
 - **YOU MUST NEVER WRITE CODE** - Only orchestrate and delegate
 - **ALWAYS USE TASK TOOL** - Every implementation action must be delegated
+- **YOU HANDLE ALL RECOVERY** - Never delegate orchestration decisions
 - **TRACK EVERYTHING** - Update WORKFLOW_STATE.json after each agent completes
 - **PROVIDE CLEAR INSTRUCTIONS** - Each agent needs specific, actionable instructions
+- **AGENTS ONLY REPORT BACK** - Sub-agents never delegate to other agents
 - Include workflow context in agent prompts (current phase, dependencies, etc.)
 - ALL context stays in project's `.claude/` directory
 - Never reference `~/.claude/` for project state

@@ -1,0 +1,46 @@
+{
+  "always_preserve": [
+    "README.md",
+    "CONTRIBUTING.md",
+    "LICENSE",
+    ".github/workflows/*",
+    "docker-compose.yml",
+    "Dockerfile"
+  ],
+  "keyword_boost": [
+    "TODO",
+    "FIXME",
+    "HACK",
+    "BUG",
+    "SECURITY",
+    "DEPRECATED",
+    "BREAKING CHANGE"
+  ],
+  "file_pattern_boost": [
+    "**/migrations/**",
+    "**/*_test.*",
+    "**/*.test.*",
+    "**/*_spec.*",
+    "**/*.spec.*",
+    "**/tests/**",
+    "**/test/**",
+    "**/__tests__/**",
+    "**/config/**",
+    "**/settings/**"
+  ],
+  "error_keywords": [
+    "AssertionError",
+    "TypeError",
+    "ReferenceError",
+    "SyntaxError",
+    "FAILED",
+    "FAIL",
+    "compilation failed",
+    "build failed",
+    "test failed"
+  ],
+  "max_context_lines": 100,
+  "max_files_to_preserve": 20,
+  "max_requirements": 15,
+  "max_issues": 10
+}

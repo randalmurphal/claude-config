@@ -1,0 +1,130 @@
+{
+  "global_protection": {
+    "never_delete_patterns": [
+      "**/*.db",
+      "**/*.sqlite",
+      "**/*.sqlite3",
+      "**/*.pkl",
+      "**/*.h5",
+      "**/*.hdf5",
+      "**/*.parquet",
+      "**/*.feather",
+      "**/data/*.csv",
+      "**/data/*.json",
+      "**/archive/**",
+      "**/backups/**",
+      "**/old/**",
+      "**/legacy/**",
+      "**/historical/**",
+      "**/.git/**",
+      "**/.env*",
+      "**/secrets/**",
+      "**/credentials/**",
+      "**/keys/**",
+      "**/certs/**",
+      "**/*.key",
+      "**/*.pem",
+      "**/*.crt"
+    ],
+    "critical_files": [
+      "package.json",
+      "package-lock.json",
+      "yarn.lock",
+      "go.mod",
+      "go.sum",
+      "requirements.txt",
+      "Pipfile",
+      "Pipfile.lock",
+      "Cargo.toml",
+      "Cargo.lock",
+      "pom.xml",
+      "build.gradle",
+      "docker-compose.yml",
+      "docker-compose.yaml",
+      "Dockerfile",
+      ".dockerignore",
+      ".gitignore",
+      ".gitmodules",
+      "README.md",
+      "LICENSE",
+      "CHANGELOG.md",
+      "CLAUDE.md",
+      "Makefile",
+      "CMakeLists.txt"
+    ],
+    "require_confirmation_commands": [
+      "rm -rf",
+      "rm -r",
+      "git reset --hard",
+      "git clean",
+      "truncate",
+      "dd if=/dev/zero",
+      "shred",
+      "find .* -delete",
+      "find .* -exec rm",
+      "xargs rm"
+    ],
+    "protected_directories": [
+      "node_modules",
+      "venv",
+      "env",
+      ".venv",
+      ".env",
+      "vendor",
+      "target",
+      "dist",
+      "build",
+      "out",
+      ".git",
+      ".svn",
+      ".hg",
+      ".vscode",
+      ".idea",
+      "__pycache__",
+      ".pytest_cache",
+      ".coverage",
+      ".tox"
+    ]
+  },
+  "safety_rules": {
+    "max_files_per_delete": 5,
+    "max_files_per_modify": 20,
+    "require_git_status_check": true,
+    "require_backup_for_bulk_ops": true,
+    "prevent_force_push_to": ["main", "master", "production", "release"],
+    "auto_backup_threshold": 5,
+    "preserve_file_permissions": true,
+    "preserve_timestamps": true,
+    "verify_paths_before_operation": true
+  },
+  "backup_strategy": {
+    "auto_backup": true,
+    "backup_before_destructive_ops": true,
+    "keep_backups_count": 20,
+    "backup_locations": [
+      ".backups",
+      "~/.claude/backups"
+    ],
+    "exclude_from_backup": [
+      "node_modules",
+      "venv",
+      ".git/objects",
+      "*.log",
+      "*.tmp",
+      "*.cache"
+    ]
+  },
+  "recovery_options": {
+    "check_git_reflog": true,
+    "check_system_trash": true,
+    "check_backup_dirs": true,
+    "maintain_undo_log": true,
+    "max_undo_operations": 10
+  },
+  "enforcement": {
+    "level": "strict",
+    "allow_override_with_confirmation": true,
+    "log_all_deletions": true,
+    "require_reason_for_force": true
+  }
+}

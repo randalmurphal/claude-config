@@ -1,0 +1,43 @@
+# Temporary files
+*.tmp
+*.log
+*.swp
+.DS_Store
+
+# Cache directories
+*_cache/
+__pycache__/
+*.pyc
+
+# Credentials and sensitive data
+.credentials.json
+settings.local.json
+
+# Session and state files
+statsig/
+shell-snapshots/
+projects/
+todos/
+
+# Local environment files (if any contain secrets)
+.env.local
+*.local
+
+# Validation history (may contain project-specific data)
+VALIDATION_HISTORY.json
+
+# Any backup files
+*.backup
+*-backup-*
+
+# IDE files
+.vscode/
+.idea/
+
+# Node modules (if any MCP servers get installed locally)
+node_modules/
+
+# Keep the structure but not temporary state files
+ACTIVE_WORK.json
+PARALLEL_STATUS.json
+RESOURCE_LOCKS.json

@@ -1,0 +1,138 @@
+{
+  "boundaries": {
+    "common-infrastructure": {
+      "owner": "architecture-planner",
+      "paths": ["/common/"],
+      "locked": true,
+      "parallel_safe": false,
+      "description": "Common code - read-only during parallel execution",
+      "dependencies": []
+    },
+    "feature-trading": {
+      "owner": "unassigned",
+      "paths": [
+        "/src/features/trading/",
+        "/api/trading/",
+        "/tests/trading/"
+      ],
+      "locked": false,
+      "parallel_safe": true,
+      "description": "Trading feature - can be developed in parallel",
+      "dependencies": ["/common/types", "/common/utils"],
+      "conflicts_with": []
+    },
+    "feature-analysis": {
+      "owner": "unassigned", 
+      "paths": [
+        "/src/features/analysis/",
+        "/api/analysis/",
+        "/tests/analysis/"
+      ],
+      "locked": false,
+      "parallel_safe": true,
+      "description": "Analysis feature - can be developed in parallel",
+      "dependencies": ["/common/types", "/common/utils"],
+      "conflicts_with": []
+    },
+    "database": {
+      "owner": "unassigned",
+      "paths": [
+        "/migrations/",
+        "/models/",
+        "/seeds/"
+      ],
+      "locked": false,
+      "parallel_safe": false,
+      "description": "Database layer - serial execution only",
+      "dependencies": [],
+      "conflicts_with": ["all"]
+    },
+    "configuration": {
+      "owner": "unassigned",
+      "paths": [
+        "/config/",
+        "/.env",
+        "/package.json",
+        "/go.mod",
+        "/requirements.txt"
+      ],
+      "locked": false,
+      "parallel_safe": false,
+      "description": "Configuration files - serial execution only",
+      "dependencies": [],
+      "conflicts_with": ["all"]
+    },
+    "api-gateway": {
+      "owner": "unassigned",
+      "paths": [
+        "/api/gateway/",
+        "/api/middleware/"
+      ],
+      "locked": false,
+      "parallel_safe": false,
+      "description": "API gateway - depends on all API endpoints",
+      "dependencies": ["all-apis"],
+      "conflicts_with": []
+    }
+  },
+  "parallel_groups": {
+    "independent_features": {
+      "members": ["feature-trading", "feature-analysis", "feature-reporting"],
+      "can_run_parallel": true,
+      "max_parallel": 3
+    },
+    "api_endpoints": {
+      "members": ["api-users", "api-products", "api-orders"],
+      "can_run_parallel": true,
+      "max_parallel": 3
+    },
+    "frontend_components": {
+      "members": ["ui-dashboard", "ui-charts", "ui-forms"],
+      "can_run_parallel": true,
+      "max_parallel": 2
+    }
+  },
+  "synchronization_points": [
+    {
+      "name": "post_architecture",
+      "after_phases": ["architecture"],
+      "blocks_all": true,
+      "reason": "All agents must wait for common infrastructure"
+    },
+    {
+      "name": "post_test_definition",
+      "after_phases": ["test_definition"],
+      "blocks": ["implementation"],
+      "reason": "Tests must exist before implementation"
+    },
+    {
+      "name": "pre_integration",
+      "after_phases": ["implementation"],
+      "blocks": ["integration_testing"],
+      "reason": "Components must be complete before integration"
+    },
+    {
+      "name": "pre_deployment",
+      "after_phases": ["validation"],
+      "blocks_all": true,
+      "reason": "All validation must pass before deployment"
+    }
+  ],
+  "conflict_resolution": {
+    "strategy": "prevent",
+    "rules": [
+      {
+        "type": "file_lock",
+        "description": "No two agents can modify the same file"
+      },
+      {
+        "type": "path_lock", 
+        "description": "Agents get exclusive access to their boundary paths"
+      },
+      {
+        "type": "dependency_wait",
+        "description": "Agent waits if dependency is being modified"
+      }
+    ]
+  }
+}

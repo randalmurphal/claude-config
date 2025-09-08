@@ -1,0 +1,163 @@
+# Makefile for Python projects with comprehensive quality checks
+# Uses Ruff for linting/formatting and Pyright for type checking
+
+.PHONY: all test lint format typecheck coverage clean help validate security install
+
+# Variables
+PYTHON := python3
+PIP := pip
+VENV := .venv
+MIN_COVERAGE := 80
+
+# Colors
+RED := \033[0;31m
+GREEN := \033[0;32m
+YELLOW := \033[1;33m
+NC := \033[0m
+
+## help: Display this help message
+help:
+	@echo "Available targets:"
+	@grep -E '^##' Makefile | sed 's/## //'
+
+## all: Run all quality checks
+all: validate
+
+## venv: Create virtual environment
+venv:
+	@echo "$(GREEN)Creating virtual environment...$(NC)"
+	$(PYTHON) -m venv $(VENV)
+	@echo "$(GREEN)✅ Virtual environment created. Activate with: source $(VENV)/bin/activate$(NC)"
+
+## install: Install dependencies
+install:
+	@echo "$(GREEN)Installing dependencies...$(NC)"
+	$(PIP) install -r requirements.txt
+	$(PIP) install -r requirements-dev.txt 2>/dev/null || true
+	@echo "$(GREEN)✅ Dependencies installed$(NC)"
+
+## install-dev: Install development tools
+install-dev:
+	@echo "$(GREEN)Installing development tools...$(NC)"
+	$(PIP) install --upgrade pip
+	$(PIP) install ruff pyright mypy pytest pytest-cov hypothesis
+	@echo "$(GREEN)✅ Development tools installed$(NC)"
+
+## format: Format code with Ruff
+format:
+	@echo "$(GREEN)Formatting code with Ruff...$(NC)"
+	ruff format .
+	ruff check --fix .
+	@echo "$(GREEN)✅ Code formatted$(NC)"
+
+## lint: Run Ruff linter
+lint:
+	@echo "$(GREEN)Running Ruff linter...$(NC)"
+	ruff check .
+	@echo "$(GREEN)✅ Linting passed$(NC)"
+
+## typecheck: Run type checking with Pyright
+typecheck:
+	@echo "$(GREEN)Running Pyright type checker...$(NC)"
+	pyright
+	@echo "$(GREEN)✅ Type checking passed$(NC)"
+
+## typecheck-mypy: Alternative type checking with mypy
+typecheck-mypy:
+	@echo "$(GREEN)Running mypy type checker...$(NC)"
+	mypy --strict .
+	@echo "$(GREEN)✅ Type checking with mypy passed$(NC)"
+
+## test: Run tests
+test:
+	@echo "$(GREEN)Running tests...$(NC)"
+	pytest -v
+
+## test-watch: Run tests in watch mode
+test-watch:
+	@echo "$(GREEN)Running tests in watch mode...$(NC)"
+	pytest-watch -- -v
+
+## coverage: Run tests with coverage
+coverage:
+	@echo "$(GREEN)Running tests with coverage...$(NC)"
+	pytest --cov=. --cov-report=term-missing --cov-report=html --cov-report=xml --cov-fail-under=$(MIN_COVERAGE)
+	@echo "$(GREEN)✅ Coverage report generated: htmlcov/index.html$(NC)"
+
+## test-hypothesis: Run property-based tests
+test-hypothesis:
+	@echo "$(GREEN)Running property-based tests with Hypothesis...$(NC)"
+	pytest -v -m hypothesis --hypothesis-show-statistics
+
+## security: Run security checks
+security:
+	@echo "$(GREEN)Running security checks...$(NC)"
+	@which bandit > /dev/null || $(PIP) install bandit
+	bandit -r . -f json -o security-report.json
+	@echo "$(GREEN)Security report generated: security-report.json$(NC)"
+	@which safety > /dev/null || $(PIP) install safety
+	safety check --json --output safety-report.json
+	@echo "$(GREEN)Dependency security report generated: safety-report.json$(NC)"
+	@echo "$(GREEN)✅ Security checks completed$(NC)"
+
+## validate: Run all validation checks
+validate: format lint typecheck test coverage
+	@echo "$(GREEN)✅ All validation checks passed!$(NC)"
+
+## clean: Clean build artifacts
+clean:
+	@echo "$(YELLOW)Cleaning build artifacts...$(NC)"
+	rm -rf __pycache__ .pytest_cache .mypy_cache .ruff_cache
+	rm -rf htmlcov coverage.xml .coverage
+	rm -rf dist build *.egg-info
+	rm -rf security-report.json safety-report.json
+	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+	find . -type f -name "*.pyc" -delete
+	find . -type f -name "*.pyo" -delete
+	@echo "$(GREEN)✅ Cleaned$(NC)"
+
+## build: Build distribution packages
+build: clean
+	@echo "$(GREEN)Building distribution packages...$(NC)"
+	$(PYTHON) -m build
+	@echo "$(GREEN)✅ Packages built in dist/$(NC)"
+
+## docs: Generate documentation
+docs:
+	@echo "$(GREEN)Generating documentation...$(NC)"
+	@which sphinx-build > /dev/null || $(PIP) install sphinx
+	sphinx-build -b html docs docs/_build
+	@echo "$(GREEN)✅ Documentation generated in docs/_build$(NC)"
+
+## profile: Profile code performance
+profile:
+	@echo "$(GREEN)Profiling code...$(NC)"
+	@which py-spy > /dev/null || $(PIP) install py-spy
+	py-spy record -o profile.svg -- $(PYTHON) -m pytest
+	@echo "$(GREEN)✅ Profile generated: profile.svg$(NC)"
+
+## complexity: Check code complexity
+complexity:
+	@echo "$(GREEN)Checking code complexity...$(NC)"
+	@which radon > /dev/null || $(PIP) install radon
+	radon cc . -a -nb
+	radon mi . -nb
+	@echo "$(GREEN)✅ Complexity analysis complete$(NC)"
+
+## docker-build: Build Docker image
+docker-build:
+	@echo "$(GREEN)Building Docker image...$(NC)"
+	docker build -t myapp:latest .
+
+## ci: Run CI pipeline locally
+ci: install-dev validate security
+	@echo "$(GREEN)✅ CI pipeline completed successfully$(NC)"
+
+# Watch for changes and run tests
+watch:
+	@which watchdog > /dev/null || $(PIP) install watchdog[watchmedo]
+	watchmedo shell-command \
+		--patterns="*.py" \
+		--recursive \
+		--command='clear && make test' \
+		.

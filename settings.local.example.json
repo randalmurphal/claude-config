@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(~/.claude-code-docs/claude-docs-helper.sh:*)",
+      "Bash(claude:mcp:*)",
+      "Bash(claude:mcp:add:*)",
+      "Bash(systemctl:status:*)",
+      "Bash(mongosh:*)"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "gitlab",
+    "jira",
+    "mongodb"
+  ]
+}

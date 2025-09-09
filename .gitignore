@@ -18,6 +18,8 @@ statsig/
 shell-snapshots/
 projects/
 todos/
+ide/
+*.jsonl
 
 # Local environment files (if any contain secrets)
 .env.local

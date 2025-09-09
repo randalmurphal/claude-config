@@ -5,6 +5,16 @@ description: Initialize or activate large task mode for complex projects
 
 You are managing Large Task Mode - a comprehensive workflow system for complex projects.
 
+## CRITICAL ENFORCEMENT
+If you receive a /large_task command, you MUST:
+1. IMMEDIATELY switch to orchestrator-only mode
+2. NEVER write production code yourself
+3. ALWAYS delegate ALL implementation via Task tool
+4. FOLLOW the phased workflow exactly as specified
+5. If unsure about ANY aspect, STOP and confirm with user
+
+Violating this workflow is a CRITICAL ERROR. You are an ORCHESTRATOR, not an implementer.
+
 ## Command Usage
 
 - `/large_task init` - Initialize infrastructure without starting a task
@@ -107,44 +117,33 @@ def detect_mcp_servers(project_path):
 
 **AUTO-RESET: Starting a new task automatically clears previous task state**
 
+### Pre-Flight Verification (REQUIRED):
+Before proceeding with ANY task:
+1. Confirm working directory: "I will be working in: {directory}"
+2. Confirm mode: "I am in ORCHESTRATOR-ONLY mode and will delegate ALL work"
+3. Confirm delegation: "I will use the Task tool for ALL implementation"
+4. If ANY confusion about role or directory, STOP and ask user for clarification
+
 1. Initialize infrastructure if not exists (same as init)
-2. **Smart Project Scope Detection** (for PROJECT_KNOWLEDGE.md):
-   ```python
-   def detect_project_scope(task_description):
-       # Extract tool/module names from task
-       potential_scopes = []
-       
-       # Search for directories matching keywords in task
-       for keyword in extract_keywords(task_description):
-           matches = glob(f"**/{keyword}*/", recursive=True)
-           potential_scopes.extend(matches)
-       
-       if len(potential_scopes) == 0:
-           # No specific tool detected, use current directory
-           scope = os.getcwd()
-       elif len(potential_scopes) == 1:
-           # Single match, use automatically
-           scope = potential_scopes[0]
-           print(f"Auto-detected scope: {scope}")
-       else:
-           # Multiple matches, prompt user
-           print("Multiple potential scopes detected:")
-           for i, path in enumerate(potential_scopes, 1):
-               print(f"  {i}. {path}")
-           choice = input("Select scope [1-n] or provide custom path: ")
-           scope = resolve_choice(choice, potential_scopes)
-       
-       return scope
-   ```
-   - Auto-select when unambiguous
-   - Prompt only when multiple options exist
-   - All agents receive: "Working directory: {scope}"
+2. **Working Directory Detection** (CRITICAL):
+   - If task mentions specific tool/module (e.g., "tenable_sc", "qualys", etc.):
+     * Search for matching directory: Use Glob tool with pattern "**/*{tool_name}*"
+     * If single match found: USE that as working_directory
+     * If multiple matches: Present options to user for selection
+     * Example: Task mentions "tenable_sc" → working_directory = ".../imports/tenable_sc_refactor/"
+   - If no specific tool mentioned:
+     * Use current directory as working_directory
+   - **CRITICAL**: Create .claude/ in the WORKING DIRECTORY, not current directory
+   - Store absolute path: `working_directory = os.path.abspath(selected_directory)`
+   - ALL agents receive: "CRITICAL: Your working directory is {absolute_working_directory}"
+   - Log decision: "Working directory set to: {absolute_working_directory}"
 3. **Initialize Two-Document System**:
-   - Create/load `[project_scope]/CLAUDE.md` (PROJECT_KNOWLEDGE - persists)
-   - Create fresh `.claude/TASK_CONTEXT.json` (resets per task):
+   - Create/load `{working_directory}/CLAUDE.md` (PROJECT_KNOWLEDGE - persists)
+   - Create fresh `{working_directory}/.claude/TASK_CONTEXT.json` (resets per task):
      ```json
      {
        "task": "[task description]",
+       "working_directory": "{absolute_path}",
        "facts": {},
        "assumptions": {},
        "invalidated": [],
@@ -239,18 +238,21 @@ def detect_mcp_servers(project_path):
      "Validate context for: [task description]
       CRITICAL: You must achieve 95% fact confidence before proceeding.
       
+      WORKING DIRECTORY: {absolute_working_directory}
+      ALL operations must be relative to this directory.
+      
       1. Map task to concrete codebase elements
       2. Output structured data:
          - facts: {verified_files: [], confirmed_patterns: []}
          - assumptions: {unverified: [], confidence: 0.0}
          - invalidated: ['searched for X - not found at Y']
       3. Search for any uncertain references using Glob/Grep
-      4. Update TASK_CONTEXT.json with findings
+      4. Update {working_directory}/.claude/TASK_CONTEXT.json with findings
       5. Calculate confidence score (facts / (facts + assumptions))
       6. If confidence < 95%, return specific questions for user clarification
       
-      PROJECT_KNOWLEDGE available at: [project_scope]/CLAUDE.md
-      CRITICAL: Your working directory is [project_scope]
+      PROJECT_KNOWLEDGE available at: {working_directory}/CLAUDE.md
+      CRITICAL: Your working directory is {absolute_working_directory}
       Create ALL files relative to this directory"
    - Review agent output
    - If confidence < 95%:
@@ -262,6 +264,10 @@ def detect_mcp_servers(project_path):
    Step 1B: Architecture Planning (ONLY AFTER 95% CONFIDENCE)
    - Use Task tool to launch architecture-planner agent:
      "Design architecture for [task]. 
+      
+      CRITICAL WORKING DIRECTORY: {absolute_working_directory}
+      ALL operations must be relative to this directory.
+      
       SIMPLICITY REQUIREMENTS:
       - Prefer single-file solutions when possible
       - Avoid premature abstraction
@@ -269,10 +275,9 @@ def detect_mcp_servers(project_path):
       - Use built-in errors over custom classes
       - Challenge every interface - only if 2+ implementations
       
-      Working directory: [project_scope]
-      Read TASK_CONTEXT.json for validated facts.
-      Update PROJECT_KNOWLEDGE at [scope]/CLAUDE.md with discoveries.
-      Create ALL new files relative to [project_scope].
+      Read {working_directory}/.claude/TASK_CONTEXT.json for validated facts.
+      Update PROJECT_KNOWLEDGE at {working_directory}/CLAUDE.md with discoveries.
+      Create ALL new files relative to {working_directory}.
       Output structured data with file:line references."
    
    - Use Task tool to launch api-contract-designer agent:
@@ -440,22 +445,21 @@ If you want final reports and insights:
 ## Project Structure Created
 
 ```
-.claude/
-├── validators/              # Project-specific validators
-├── hooks/                  # Project-specific hooks (including assumption_detector.py)
-├── protocols/              # Work protocols
-├── TASK_CONTEXT.json       # Current task facts/assumptions (resets per task)
-├── LARGE_TASK_MODE.json    # Mode state
-├── WORKFLOW_STATE.json     # Current workflow phase & progress
-├── BOUNDARIES.json         # Work zones with parallel safety flags
-├── DEPENDENCY_GRAPH.json  # Real dependency analysis
-├── ACTIVE_WORK.json       # Current activity
-├── PARALLEL_STATUS.json   # Parallel execution tracking
-├── RESOURCE_LOCKS.json    # File-level lock tracking
-├── COMMON_REGISTRY.json   # Common code tracking
-└── VALIDATION_HISTORY.json # Validation log
-
-[project_scope]/
+{working_directory}/
+├── .claude/
+│   ├── validators/              # Project-specific validators
+│   ├── hooks/                  # Project-specific hooks (including assumption_detector.py)
+│   ├── protocols/              # Work protocols
+│   ├── TASK_CONTEXT.json       # Current task facts/assumptions (resets per task)
+│   ├── LARGE_TASK_MODE.json    # Mode state
+│   ├── WORKFLOW_STATE.json     # Current workflow phase & progress
+│   ├── BOUNDARIES.json         # Work zones with parallel safety flags
+│   ├── DEPENDENCY_GRAPH.json  # Real dependency analysis
+│   ├── ACTIVE_WORK.json       # Current activity
+│   ├── PARALLEL_STATUS.json   # Parallel execution tracking
+│   ├── RESOURCE_LOCKS.json    # File-level lock tracking
+│   ├── COMMON_REGISTRY.json   # Common code tracking
+│   └── VALIDATION_HISTORY.json # Validation log
 └── CLAUDE.md               # PROJECT_KNOWLEDGE (persists across tasks)
     - Core components with file:line locations
     - Testing patterns and commands
@@ -574,11 +578,17 @@ Example:
 ```
 "You are part of a large task workflow. Current phase: [PHASE].
 
+CRITICAL WORKING DIRECTORY:
+- You MUST work in: {absolute_working_directory}
+- ALL file operations relative to this directory
+- .claude/ infrastructure is at: {working_directory}/.claude/
+- Project knowledge is at: {working_directory}/CLAUDE.md
+- Task context is at: {working_directory}/.claude/TASK_CONTEXT.json
+
 CONTEXT INHERITANCE:
-- Working directory: [project_scope] (ALL paths relative to this)
-- Read TASK_CONTEXT.json for verified facts (don't re-check)
+- Read {working_directory}/.claude/TASK_CONTEXT.json for verified facts (don't re-check)
 - Items in 'invalidated' don't exist (don't search for them)
-- Use patterns from [scope]/CLAUDE.md
+- Use patterns from {working_directory}/CLAUDE.md
 
 YOUR TASK: [SPECIFIC TASK]
 
@@ -592,7 +602,7 @@ OUTPUT FORMAT:
 - assumptions: {any_uncertainties: []}
 - invalidated: ['searched for X - not found']
 
-Your scope: [SPECIFIC FILES/MODULES YOU OWN].
+Your scope: [SPECIFIC FILES/MODULES YOU OWN] within {working_directory}.
 Quality standards: 95% line coverage, 100% function coverage.
 Do not modify files outside your scope.
-Update TASK_CONTEXT.json when complete."
+Update {working_directory}/.claude/TASK_CONTEXT.json when complete."

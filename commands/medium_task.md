@@ -5,6 +5,16 @@ description: Streamlined orchestration for medium-complexity features with full 
 
 You are managing Medium Task Mode - lighter orchestration but SAME quality standards as large tasks.
 
+## CRITICAL ENFORCEMENT
+If you receive a /medium_task command, you MUST:
+1. IMMEDIATELY switch to orchestrator-only mode
+2. NEVER write production code yourself
+3. ALWAYS delegate ALL implementation via Task tool
+4. FOLLOW the streamlined workflow exactly as specified
+5. If unsure about ANY aspect, STOP and confirm with user
+
+Violating this workflow is a CRITICAL ERROR. You are an ORCHESTRATOR, not an implementer.
+
 ## Command Usage
 
 - `/medium_task "description"` - Start a medium complexity task (auto-resets any previous task)
@@ -66,17 +76,24 @@ code_quality:
 **AUTO-RESET: Starting a new task automatically clears previous task state**
 
 ### Initial Setup: Two-Document System
-1. **Smart Project Scope Detection** (same as large_task):
-   - Extract keywords from task description
-   - Search for matching directories
-   - Auto-select if single match found
-   - Prompt user only if multiple matches
-   - All agents informed: "Working directory: [project_scope]"
-   - Create/load `[project_scope]/CLAUDE.md` (PROJECT_KNOWLEDGE - persists)
-   - Create fresh `.claude/TASK_CONTEXT.json` in [project_scope]/.claude/:
+1. **Working Directory Detection** (CRITICAL):
+   - If task mentions specific tool/module (e.g., "tenable_sc", "qualys", etc.):
+     * Search for matching directory: Use Glob tool with pattern "**/*{tool_name}*"
+     * If single match found: USE that as working_directory
+     * If multiple matches: Present options to user for selection
+     * Example: Task mentions "tenable_sc" → working_directory = ".../imports/tenable_sc_refactor/"
+   - If no specific tool mentioned:
+     * Use current directory as working_directory
+   - **CRITICAL**: Create .claude/ in the WORKING DIRECTORY, not current directory
+   - Store absolute path: `working_directory = os.path.abspath(selected_directory)`
+   - ALL agents receive: "CRITICAL: Your working directory is {absolute_working_directory}"
+   - Log decision: "Working directory set to: {absolute_working_directory}"
+   - Create/load `{working_directory}/CLAUDE.md` (PROJECT_KNOWLEDGE - persists)
+   - Create fresh `{working_directory}/.claude/TASK_CONTEXT.json`:
      ```json
      {
        "task": "[task description]",
+       "working_directory": "{absolute_path}",
        "facts": {},
        "assumptions": {},
        "invalidated": [],
@@ -96,6 +113,9 @@ Quick but COMPLETE design with validation:
    - Use Task tool to launch dependency-analyzer agent:
      "Validate context and analyze dependencies for [feature].
       
+      CRITICAL WORKING DIRECTORY: {absolute_working_directory}
+      ALL operations must be relative to this directory.
+      
       CRITICAL: Must achieve 95% fact confidence.
       1. Map task to concrete codebase elements
       2. Output structured data:
@@ -103,13 +123,12 @@ Quick but COMPLETE design with validation:
          - assumptions: {unverified: [], confidence: 0.0}
          - invalidated: ['searched for X - not found']
       3. Search for uncertain references using Glob/Grep
-      4. Update TASK_CONTEXT.json with findings
+      4. Update {working_directory}/.claude/TASK_CONTEXT.json with findings
       5. Calculate confidence (facts / (facts + assumptions))
       6. If < 95%, return specific questions for clarification
       
-      Use PROJECT_KNOWLEDGE from [scope]/CLAUDE.md
-      CRITICAL: Working directory is [project_scope]
-      Create ALL files relative to this directory"
+      Use PROJECT_KNOWLEDGE from {working_directory}/CLAUDE.md
+      Create ALL files relative to {working_directory}"
    - Review output
    - If confidence < 95%:
      * Ask user for specific clarifications
@@ -156,6 +175,9 @@ Output: Updated TASK_CONTEXT.json with validated, focused scope
 2A. **Test Creation** (DELEGATE WITH CONTEXT)
 - Use Task tool to launch tdd-enforcer agent:
   "Create tests for [component].
+   
+   CRITICAL WORKING DIRECTORY: {absolute_working_directory}
+   ALL operations must be relative to this directory.
    
    CONTEXT INHERITANCE:
    - Working directory: [project_scope] (ALL paths relative to this)
@@ -262,14 +284,18 @@ def validate_implementation(component):
 ### Agent Instructions Template:
 When delegating, provide:
 1. Specific task description
-2. Context references:
-   - TASK_CONTEXT.json for current facts
-   - [scope]/CLAUDE.md for project knowledge
-3. Inherited facts (don't re-verify)
-4. Simplicity requirements
-5. Structured output format required
-6. Quality requirements (maximum achievable coverage)
-7. Scope boundaries (specific files)
+2. **CRITICAL WORKING DIRECTORY**:
+   - "You MUST work in: {absolute_working_directory}"
+   - "ALL file operations relative to this directory"
+   - ".claude/ infrastructure is at: {working_directory}/.claude/"
+3. Context references:
+   - "{working_directory}/.claude/TASK_CONTEXT.json for current facts"
+   - "{working_directory}/CLAUDE.md for project knowledge"
+4. Inherited facts (don't re-verify)
+5. Simplicity requirements
+6. Structured output format required
+7. Quality requirements (maximum achievable coverage)
+8. Scope boundaries (specific files within {working_directory})
 
 ### Recovery Process:
 1. **First Attempt**: Delegate targeted fixes
@@ -308,14 +334,13 @@ Agents continuously report:
 ## File Structure (Unified with Large Task)
 
 ```
-.claude/
-├── TASK_CONTEXT.json        # Current task facts (shared with large_task)
-├── WORKFLOW_STATE.json      # Progress tracking (shared)
-├── TEST_COVERAGE.json       # Real-time coverage
-├── RECOVERY_STATE.json      # Recovery tracking (shared)
-└── VALIDATION_RESULTS.md    # Detailed results
-
-[project_scope]/
+{working_directory}/
+├── .claude/
+│   ├── TASK_CONTEXT.json        # Current task facts (shared with large_task)
+│   ├── WORKFLOW_STATE.json      # Progress tracking (shared)
+│   ├── TEST_COVERAGE.json       # Real-time coverage
+│   ├── RECOVERY_STATE.json      # Recovery tracking (shared)
+│   └── VALIDATION_RESULTS.md    # Detailed results
 └── CLAUDE.md               # PROJECT_KNOWLEDGE (persists across all tasks)
 ```
 

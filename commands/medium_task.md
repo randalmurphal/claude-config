@@ -290,7 +290,7 @@ When delegating, provide:
    - ".claude/ infrastructure is at: {working_directory}/.claude/"
 3. Context references:
    - "{working_directory}/.claude/TASK_CONTEXT.json for current facts"
-   - "{working_directory}/CLAUDE.md for project knowledge"
+   - "{working_directory}/CLAUDE.md for technical reference (if exists)"
 4. Inherited facts (don't re-verify)
 5. Simplicity requirements
 6. Structured output format required

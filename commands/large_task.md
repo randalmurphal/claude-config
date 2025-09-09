@@ -137,8 +137,10 @@ Before proceeding with ANY task:
    - Store absolute path: `working_directory = os.path.abspath(selected_directory)`
    - ALL agents receive: "CRITICAL: Your working directory is {absolute_working_directory}"
    - Log decision: "Working directory set to: {absolute_working_directory}"
-3. **Initialize Two-Document System**:
-   - Create/load `{working_directory}/CLAUDE.md` (PROJECT_KNOWLEDGE - persists)
+3. **Initialize Documentation System**:
+   - Check if `{working_directory}/CLAUDE.md` exists (technical documentation)
+     * If missing: Run project-analyzer agent first to create comprehensive docs
+     * If exists: Use for reference (doc-maintainer will update if needed)
    - Create fresh `{working_directory}/.claude/TASK_CONTEXT.json` (resets per task):
      ```json
      {
@@ -151,6 +153,7 @@ Before proceeding with ANY task:
        "confidence_score": 0
      }
      ```
+   - Create/append `{working_directory}/.claude/TASK_PROGRESS.md` (rolling history)
 4. **Clear any previous task state** (fresh start):
    - Reset WORKFLOW_STATE.json
    - Clear PARALLEL_STATUS.json  
@@ -276,7 +279,8 @@ Before proceeding with ANY task:
       - Challenge every interface - only if 2+ implementations
       
       Read {working_directory}/.claude/TASK_CONTEXT.json for validated facts.
-      Update PROJECT_KNOWLEDGE at {working_directory}/CLAUDE.md with discoveries.
+      Reference patterns from {working_directory}/CLAUDE.md if it exists.
+      Document architectural decisions in TASK_CONTEXT.json.
       Create ALL new files relative to {working_directory}.
       Output structured data with file:line references."
    
@@ -295,7 +299,7 @@ Before proceeding with ANY task:
      "Synthesize all findings into compressed context.
       Transform TASK_CONTEXT.json from exploration to focused scope.
       Archive broad findings, keep only actionable items.
-      Update PROJECT_KNOWLEDGE with permanent discoveries."
+      Document key discoveries in TASK_CONTEXT.json for doc-maintainer."
    
    - After ALL complete, validate:
      * Check TASK_CONTEXT.json confidence still >= 95%
@@ -407,12 +411,14 @@ Before proceeding with ANY task:
    - Once all validation passes, proceed to Phase 6
    
    **Phase 6: Documentation & Completion Audit (SERIAL - FINAL)**
+   - Check if CLAUDE.md exists:
+     * If not: Use Task tool to launch project-analyzer agent first:
+       "Analyze codebase and create comprehensive CLAUDE.md documentation"
    - Use Task tool to launch doc-maintainer agent:
-     "Create/update documentation in project_notes/[appropriate_path]/:
-      - Update README.md with current implementation only
-      - Add insights to REVIEW_NOTES.md if applicable
-      - Remove any outdated information from README.md
-      - Follow two-document approach (technical vs historical)"
+     "Update documentation based on completed task:
+      - Update CLAUDE.md if architecture changed
+      - Append to TASK_PROGRESS.md with task summary
+      - Read TASK_CONTEXT.json and WORKFLOW_STATE.json for changes"
    - Use Task tool to launch completion-auditor agent:
      "Audit the completed implementation and provide insights for future improvements"
    - Collect all reports
@@ -520,15 +526,16 @@ Maintain `.claude/RECOVERY_STATE.json`:
 - **ENFORCE 95% CONFIDENCE** - Never proceed on assumptions
 - **GATE PHASE TRANSITIONS** - Validate context completeness between phases
 - **YOU HANDLE ALL RECOVERY** - Never delegate orchestration decisions
-- **TRACK EVERYTHING** - Update both TASK_CONTEXT.json and PROJECT_KNOWLEDGE.md
+- **TRACK EVERYTHING** - Update TASK_CONTEXT.json, maintain TASK_PROGRESS.md
 - **SIMPLICITY BIAS** - Always instruct agents to prefer simple solutions
 - **STRUCTURED OUTPUT** - Require facts vs assumptions separation from all agents
 - **CONTEXT INHERITANCE** - Each agent builds on previous discoveries, not re-discover
 - **NEGATIVE TRACKING** - Document what doesn't exist to prevent re-searching
 - Include workflow context in agent prompts (current phase, dependencies, etc.)
 - Task context in `.claude/TASK_CONTEXT.json` (resets per task)
-- Project knowledge in `[scope]/CLAUDE.md` (persists across tasks)
-- This creates proper context management with no assumptions
+- Task history in `.claude/TASK_PROGRESS.md` (persists, append-only)
+- Technical docs in `CLAUDE.md` (maintained by doc-maintainer)
+- This creates proper separation of concerns
 
 ## Parallel Execution Instructions
 

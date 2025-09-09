@@ -65,24 +65,63 @@ code_quality:
 
 **AUTO-RESET: Starting a new task automatically clears previous task state**
 
-### Phase 1: Design & Plan (SERIAL - 10-15 min)
-Quick but COMPLETE design:
+### Initial Setup: Two-Document System
+1. **Smart Project Scope Detection** (same as large_task):
+   - Extract keywords from task description
+   - Search for matching directories
+   - Auto-select if single match found
+   - Prompt user only if multiple matches
+   - All agents informed: "Working directory: [project_scope]"
+   - Create/load `[project_scope]/CLAUDE.md` (PROJECT_KNOWLEDGE - persists)
+   - Create fresh `.claude/TASK_CONTEXT.json` in [project_scope]/.claude/:
+     ```json
+     {
+       "task": "[task description]",
+       "facts": {},
+       "assumptions": {},
+       "invalidated": [],
+       "active_scope": [],
+       "confidence_score": 0
+     }
+     ```
 
-1. **Dependency Analysis** (DELEGATE)
+2. **Enable Assumption Detection Hook**:
+   - Add `assumption_detector.py` to preToolUse hooks
+   - This catches assumptions in real-time during agent execution
+
+### Phase 1: Design & Plan (GATED - 95% CONFIDENCE REQUIRED)
+Quick but COMPLETE design with validation:
+
+1. **Context Validation & Dependency Analysis** (BLOCKING)
    - Use Task tool to launch dependency-analyzer agent:
-     "Analyze dependencies for [feature description]. Map affected components and integration points."
-   - Review analysis results
-   - Document in MEDIUM_TASK_PLAN.md
+     "Validate context and analyze dependencies for [feature].
+      
+      CRITICAL: Must achieve 95% fact confidence.
+      1. Map task to concrete codebase elements
+      2. Output structured data:
+         - facts: {verified_files: [], confirmed_patterns: []}
+         - assumptions: {unverified: [], confidence: 0.0}
+         - invalidated: ['searched for X - not found']
+      3. Search for uncertain references using Glob/Grep
+      4. Update TASK_CONTEXT.json with findings
+      5. Calculate confidence (facts / (facts + assumptions))
+      6. If < 95%, return specific questions for clarification
+      
+      Use PROJECT_KNOWLEDGE from [scope]/CLAUDE.md
+      CRITICAL: Working directory is [project_scope]
+      Create ALL files relative to this directory"
+   - Review output
+   - If confidence < 95%:
+     * Ask user for specific clarifications
+     * Re-run with new information
+     * BLOCK until >= 95% confidence
 
-2. **Interface Definition** (MUST BE COMPLETE)
-   ```typescript
-   // All interfaces fully defined, no placeholders
-   interface RateLimiter {
-     checkLimit(userId: string, endpoint: string): Promise<RateLimitResult>
-     resetLimit(userId: string): Promise<void>
-     getStatus(userId: string): Promise<RateLimitStatus>
-   }
-   ```
+2. **Interface Definition** (SIMPLICITY FIRST)
+   - Define minimal interfaces needed
+   - Avoid premature abstraction
+   - Only create interface if 2+ implementations
+   - Prefer concrete types over generic ones
+   - Update TASK_CONTEXT.json with design decisions
 
 3. **Test Specification** (COMPREHENSIVE)
    ```json
@@ -102,31 +141,58 @@ Quick but COMPLETE design:
    }
    ```
 
-4. **Error Strategy** (COMPLETE)
-   - Define all error types needed
-   - Plan error handling for each component
-   - Specify error messages and codes
+4. **Error Strategy** (MINIMAL)
+   - Use built-in Error class with codes by default
+   - Only custom errors if recovery differs
+   - Document in 'invalidated' if no error handling exists
+   - Keep error hierarchy flat
 
-Output: `.claude/MEDIUM_TASK_PLAN.md` with FULL specifications
+Output: Updated TASK_CONTEXT.json with validated, focused scope
 
 ### Phase 2: Test & Implement (PARALLEL when safe - 1-3 hours)
 
 **SAME STANDARDS as large task:**
 
-2A. **Test Creation** (DELEGATE)
+2A. **Test Creation** (DELEGATE WITH CONTEXT)
 - Use Task tool to launch tdd-enforcer agent:
-  "Create comprehensive tests for [component]. Requirements:
-   - Unit tests: One test class per function, mock all dependencies
+  "Create tests for [component].
+   
+   CONTEXT INHERITANCE:
+   - Working directory: [project_scope] (ALL paths relative to this)
+   - Read TASK_CONTEXT.json for validated scope
+   - Skip tests for 'invalidated' items (don't exist)
+   - Use test patterns from PROJECT_KNOWLEDGE.md
+   
+   SIMPLICITY:
+   - One test file per source file
+   - Minimal test setup/teardown
+   - Clear test names over clever ones
+   
+   Requirements:
+   - Unit tests: Comprehensive tests with appropriate isolation
    - Integration tests: Use REAL APIs when available
-   - Follow existing patterns in fisio/tests/
-   - 95% line coverage, 100% function coverage
-   - Test every possible case"
-- Tests MUST be written first (TDD enforced)
+   - Maximum achievable coverage for the language/framework
+   - Output structured test plan"
 - Review test specifications from agent
 
-2B. **Implementation** (DELEGATE) 
-- After tests are ready, launch implementation agent:
-  "Implement [feature] following test specifications. Full implementation required - no placeholders, comprehensive error handling."
+2B. **Implementation** (DELEGATE WITH SIMPLICITY BIAS)
+- After tests ready, launch implementation agent:
+  "Implement [feature] following test specifications.
+   
+   CONTEXT INHERITANCE:
+   - Working directory: [project_scope] (ALL paths relative to this)
+   - Facts from TASK_CONTEXT.json are verified
+   - Don't search for items in 'invalidated'
+   - Use patterns from PROJECT_KNOWLEDGE.md
+   
+   SIMPLICITY REQUIREMENTS:
+   - Implement in fewest files possible
+   - Inline helpers unless used 3+ times
+   - No premature optimization
+   - Clear code over clever code
+   
+   Full implementation required - no placeholders.
+   Update TASK_CONTEXT.json with changes."
 - Can run parallel implementations for independent components
 - Monitor progress via agent reports
 
@@ -186,29 +252,38 @@ def validate_implementation(component):
 
 ### You (Main Orchestrator) Must:
 - **NEVER write code directly** - Always delegate to agents
+- **ENFORCE 95% CONFIDENCE** - Block on assumptions
 - **MAINTAIN CONTROL** - All agents report back to you
 - **HANDLE RECOVERY** - You decide fix strategies
-- **TRACK PROGRESS** - Update MEDIUM_TASK_STATUS.json
+- **TRACK PROGRESS** - Update TASK_CONTEXT.json and PROJECT_KNOWLEDGE
+- **SIMPLICITY BIAS** - Instruct all agents to prefer simple solutions
+- **CONTEXT INHERITANCE** - Pass validated facts forward, not re-discover
 
 ### Agent Instructions Template:
 When delegating, provide:
 1. Specific task description
-2. Quality requirements (coverage, standards)
-3. Scope boundaries (which files/components)
-4. Expected deliverables
+2. Context references:
+   - TASK_CONTEXT.json for current facts
+   - [scope]/CLAUDE.md for project knowledge
+3. Inherited facts (don't re-verify)
+4. Simplicity requirements
+5. Structured output format required
+6. Quality requirements (maximum achievable coverage)
+7. Scope boundaries (specific files)
 
 ### Recovery Process:
 1. **First Attempt**: Delegate targeted fixes
 2. **Second Attempt**: Try alternative approach
 3. **After 2 Attempts**: Ask user for guidance
 
-Track in `.claude/MEDIUM_RECOVERY_STATE.json`:
+Track in `.claude/RECOVERY_STATE.json` (shared with large_task):
 ```json
 {
   "current_attempt": 1,
   "max_attempts": 2,
   "issues_found": [],
-  "fixes_attempted": []
+  "fixes_attempted": [],
+  "confidence_impact": "tracks if fixes reduced confidence"
 }
 ```
 
@@ -230,14 +305,18 @@ Agents continuously report:
 - Implementation progress
 - Quality issues found
 
-## File Structure (Lightweight)
+## File Structure (Unified with Large Task)
 
 ```
 .claude/
-├── MEDIUM_TASK_PLAN.md      # Full specifications
-├── MEDIUM_TASK_STATUS.json  # Progress tracking
+├── TASK_CONTEXT.json        # Current task facts (shared with large_task)
+├── WORKFLOW_STATE.json      # Progress tracking (shared)
 ├── TEST_COVERAGE.json       # Real-time coverage
+├── RECOVERY_STATE.json      # Recovery tracking (shared)
 └── VALIDATION_RESULTS.md    # Detailed results
+
+[project_scope]/
+└── CLAUDE.md               # PROJECT_KNOWLEDGE (persists across all tasks)
 ```
 
 ## Key Differences from Large Task
@@ -285,7 +364,17 @@ If you want final validation and reports:
      * Accept current state
      * Escalate to large_task mode
 
-## Example Flow
+## Example Flow with Context Validation
 
 ```bash
 User: /medium_task "Add rate limiting to API endpoints"
+
+Orchestrator:
+1. Creates TASK_CONTEXT.json with confidence: 0
+2. Launches dependency-analyzer for validation
+3. Agent returns confidence: 45% (can't find rate limit config)
+4. BLOCKS - asks user: "Where should rate limits be configured?"
+5. User provides info, re-runs validation
+6. Confidence now 96% - proceeds with design
+7. Each subsequent agent inherits validated context
+8. No agent re-searches for rate limit config

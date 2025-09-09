@@ -108,15 +108,67 @@ def detect_mcp_servers(project_path):
 **AUTO-RESET: Starting a new task automatically clears previous task state**
 
 1. Initialize infrastructure if not exists (same as init)
-2. **Clear any previous task state** (fresh start)
+2. **Smart Project Scope Detection** (for PROJECT_KNOWLEDGE.md):
+   ```python
+   def detect_project_scope(task_description):
+       # Extract tool/module names from task
+       potential_scopes = []
+       
+       # Search for directories matching keywords in task
+       for keyword in extract_keywords(task_description):
+           matches = glob(f"**/{keyword}*/", recursive=True)
+           potential_scopes.extend(matches)
+       
+       if len(potential_scopes) == 0:
+           # No specific tool detected, use current directory
+           scope = os.getcwd()
+       elif len(potential_scopes) == 1:
+           # Single match, use automatically
+           scope = potential_scopes[0]
+           print(f"Auto-detected scope: {scope}")
+       else:
+           # Multiple matches, prompt user
+           print("Multiple potential scopes detected:")
+           for i, path in enumerate(potential_scopes, 1):
+               print(f"  {i}. {path}")
+           choice = input("Select scope [1-n] or provide custom path: ")
+           scope = resolve_choice(choice, potential_scopes)
+       
+       return scope
+   ```
+   - Auto-select when unambiguous
+   - Prompt only when multiple options exist
+   - All agents receive: "Working directory: {scope}"
+3. **Initialize Two-Document System**:
+   - Create/load `[project_scope]/CLAUDE.md` (PROJECT_KNOWLEDGE - persists)
+   - Create fresh `.claude/TASK_CONTEXT.json` (resets per task):
+     ```json
+     {
+       "task": "[task description]",
+       "facts": {},
+       "assumptions": {},
+       "invalidated": [],
+       "active_scope": [],
+       "confidence_score": 0
+     }
+     ```
+4. **Clear any previous task state** (fresh start):
    - Reset WORKFLOW_STATE.json
-   - Clear PARALLEL_STATUS.json
+   - Clear PARALLEL_STATUS.json  
    - Clear RECOVERY_STATE.json
-   - Keep documentation (project_notes) intact
-3. Detect available MCP servers and log them
-4. Set `.claude/LARGE_TASK_MODE.json` to active with task description
-5. Create/update `.claude/PROJECT_CONTEXT.md` with the task
-6. Detect project state:
+   - Keep PROJECT_KNOWLEDGE.md intact
+5. **Enable Assumption Detection Hook**:
+   - Add to `.claude/settings.local.json`:
+     ```json
+     {
+       "hooks": {
+         "preToolUse": ["~/.claude/hooks/assumption_detector.py"]
+       }
+     }
+     ```
+6. Detect available MCP servers and log them
+7. Set `.claude/LARGE_TASK_MODE.json` to active with task description
+8. Detect project state:
    ```python
    # Determine if Proof of Life needed
    project_state = detect_project_state()
@@ -180,15 +232,71 @@ def detect_mcp_servers(project_path):
    - Wait for agent completion before proceeding
    - Update WORKFLOW_STATE.json when complete
 
-   **Phase 1: Architecture (SERIAL - DELEGATE EACH)**
-   - Use Task tool to launch architecture-planner agent
-   - Use Task tool to launch api-contract-designer agent
-   - Use Task tool to launch error-designer agent
-   - Use Task tool to launch dependency-analyzer agent
-   - Use Task tool to launch context-builder agent
-   - Include MCP server detection results in context for agents
-   - Track each agent's completion in WORKFLOW_STATE.json
-   - Wait for ALL to complete before proceeding to Phase 2
+   **Phase 1: Architecture (GATED WITH VALIDATION)**
+   
+   Step 1A: Context Validation (BLOCKING - 95% CONFIDENCE REQUIRED)
+   - Use Task tool to launch dependency-analyzer agent with enhanced instruction:
+     "Validate context for: [task description]
+      CRITICAL: You must achieve 95% fact confidence before proceeding.
+      
+      1. Map task to concrete codebase elements
+      2. Output structured data:
+         - facts: {verified_files: [], confirmed_patterns: []}
+         - assumptions: {unverified: [], confidence: 0.0}
+         - invalidated: ['searched for X - not found at Y']
+      3. Search for any uncertain references using Glob/Grep
+      4. Update TASK_CONTEXT.json with findings
+      5. Calculate confidence score (facts / (facts + assumptions))
+      6. If confidence < 95%, return specific questions for user clarification
+      
+      PROJECT_KNOWLEDGE available at: [project_scope]/CLAUDE.md
+      CRITICAL: Your working directory is [project_scope]
+      Create ALL files relative to this directory"
+   - Review agent output
+   - If confidence < 95%:
+     * Present specific unknowns to user
+     * Wait for user clarification
+     * Re-run validation with new information
+     * Do NOT proceed until >= 95% confidence
+   
+   Step 1B: Architecture Planning (ONLY AFTER 95% CONFIDENCE)
+   - Use Task tool to launch architecture-planner agent:
+     "Design architecture for [task]. 
+      SIMPLICITY REQUIREMENTS:
+      - Prefer single-file solutions when possible
+      - Avoid premature abstraction
+      - Only create new files if complexity demands (language-appropriate threshold)
+      - Use built-in errors over custom classes
+      - Challenge every interface - only if 2+ implementations
+      
+      Working directory: [project_scope]
+      Read TASK_CONTEXT.json for validated facts.
+      Update PROJECT_KNOWLEDGE at [scope]/CLAUDE.md with discoveries.
+      Create ALL new files relative to [project_scope].
+      Output structured data with file:line references."
+   
+   - Use Task tool to launch api-contract-designer agent:
+     "Design minimal API contracts. Prefer simple REST over complex patterns.
+      Inherit context from TASK_CONTEXT.json.
+      Update with new facts, not assumptions."
+   
+   - Use Task tool to launch error-designer agent:
+     "Design error handling using simplest approach.
+      Prefer built-in Error class with codes over hierarchies.
+      Only custom errors if recovery logic differs.
+      Read and update TASK_CONTEXT.json."
+   
+   - Use Task tool to launch context-builder agent:
+     "Synthesize all findings into compressed context.
+      Transform TASK_CONTEXT.json from exploration to focused scope.
+      Archive broad findings, keep only actionable items.
+      Update PROJECT_KNOWLEDGE with permanent discoveries."
+   
+   - After ALL complete, validate:
+     * Check TASK_CONTEXT.json confidence still >= 95%
+     * Verify no new assumptions introduced
+     * Confirm solution complexity matches problem
+   - Only proceed to Phase 2 if validation passes
 
    **Phase 2: Test Creation (HYBRID)**
    
@@ -199,11 +307,20 @@ def detect_mcp_servers(project_path):
    
    Phase 2B: Test Specification (SERIAL - DELEGATE)
    - Use Task tool to launch test-orchestrator agent with instruction:
-     "Define test specifications for all modules. Requirements:
-      - Unit tests: One test class per function, mock all dependencies
-      - Integration tests: Use REAL APIs (especially Tenable), test all cases
-      - Follow existing patterns in fisio/tests/
-      - 95% line coverage, 100% function coverage"
+     "Define test specifications for all modules.
+      
+      INHERIT CONTEXT: Read TASK_CONTEXT.json for validated scope.
+      - Skip tests for items in 'invalidated' (doesn't exist)
+      - Use patterns from PROJECT_KNOWLEDGE.md
+      
+      Requirements:
+      - Unit tests: Comprehensive tests with appropriate isolation
+      - Integration tests: Use REAL APIs when available, test all cases
+      - Follow existing patterns documented in PROJECT_KNOWLEDGE
+      - Maximum achievable coverage for the language/framework
+      - Simple structure: Logical test organization for the project
+      
+      Output structured test plan with concrete file targets."
    - Track completion in WORKFLOW_STATE.json
    
    Phase 2C: Test Implementation (PARALLEL - ORCHESTRATE DIRECTLY)
@@ -212,10 +329,10 @@ def detect_mcp_servers(project_path):
    - **Launch multiple Task agents IN ONE MESSAGE** for parallel test writing:
      * Each agent gets specific module(s) to test
      * Example: "Write tests for [module] following:
-       - One test class per function for unit tests
-       - Mock all dependencies in unit tests
-       - Use real Tenable API for integration tests
-       - Follow patterns in fisio/tests/
+       - Comprehensive unit tests with appropriate isolation
+       - Mock/stub dependencies as appropriate for the language
+       - Use real APIs for integration tests when available
+       - Follow existing test patterns in the project
        - Test every possible case"
    - Update RESOURCE_LOCKS.json before launching agents
    - Monitor PARALLEL_STATUS.json for progress
@@ -231,19 +348,30 @@ def detect_mcp_servers(project_path):
      * For coverage gaps: delegate to test-orchestrator
    - Track completion in WORKFLOW_STATE.json
    
-   **Phase 3: Implementation (PARALLEL - ORCHESTRATE DIRECTLY)**
+   **Phase 3: Implementation (PARALLEL - WITH CONTEXT INHERITANCE)**
    - Read BOUNDARIES.json to identify independent modules
    - Read DEPENDENCY_GRAPH.json for execution strategy
-   - Identify parallel groups that can be implemented simultaneously
+   - Load compressed context from TASK_CONTEXT.json (now focused on specific files)
    - **Launch multiple Task agents IN ONE MESSAGE:**
-     * Each agent gets a specific module/feature to implement
-     * Example instructions per agent:
-       - "Implement auth feature in /src/features/auth following architecture from Phase 1"
-       - "Implement trading API in /api/trading following contracts from Phase 1"
-       - "Implement user management in /api/users following contracts from Phase 1"
-   - Update RESOURCE_LOCKS.json with file ownership per agent
+     * Each agent gets specific module + inherited context:
+       "Implement [feature] in [specific files].
+        
+        CONTEXT INHERITANCE:
+        - Facts from TASK_CONTEXT.json are verified - don't re-check
+        - Items in 'invalidated' don't exist - don't search
+        - Use patterns from PROJECT_KNOWLEDGE.md
+        
+        SIMPLICITY REQUIREMENTS:
+        - Implement in fewest files possible
+        - Inline helpers unless used 3+ times
+        - No premature optimization
+        - Clear code over clever code
+        
+        Your scope: [specific files]
+        Do not modify files outside scope.
+        Update TASK_CONTEXT.json with changes made."
+   - Update RESOURCE_LOCKS.json with file ownership
    - Monitor PARALLEL_STATUS.json for all agents
-   - DO NOT write any code yourself
    - Track completions in WORKFLOW_STATE.json
    
    **Phase 4: Integration & Enhancement (PARALLEL - ORCHESTRATE DIRECTLY)**
@@ -314,15 +442,11 @@ If you want final reports and insights:
 ```
 .claude/
 ├── validators/              # Project-specific validators
-├── hooks/                  # Project-specific hooks
+├── hooks/                  # Project-specific hooks (including assumption_detector.py)
 ├── protocols/              # Work protocols
-├── context/                # Progressive context tracking
-│   ├── CRITICAL_CONTEXT.json    # Current task critical decisions
-│   ├── PERSISTENT_GOTCHAS.json  # Cross-task gotchas
-│   └── archive/                 # Historical contexts
+├── TASK_CONTEXT.json       # Current task facts/assumptions (resets per task)
 ├── LARGE_TASK_MODE.json    # Mode state
 ├── WORKFLOW_STATE.json     # Current workflow phase & progress
-├── PROJECT_CONTEXT.md      # Human-readable progress
 ├── BOUNDARIES.json         # Work zones with parallel safety flags
 ├── DEPENDENCY_GRAPH.json  # Real dependency analysis
 ├── ACTIVE_WORK.json       # Current activity
@@ -330,6 +454,14 @@ If you want final reports and insights:
 ├── RESOURCE_LOCKS.json    # File-level lock tracking
 ├── COMMON_REGISTRY.json   # Common code tracking
 └── VALIDATION_HISTORY.json # Validation log
+
+[project_scope]/
+└── CLAUDE.md               # PROJECT_KNOWLEDGE (persists across tasks)
+    - Core components with file:line locations
+    - Testing patterns and commands
+    - Data flow architectures
+    - Tool usage patterns
+    - Key dependencies
 ```
 
 ## Recovery Handling (Main Orchestrator Responsibility)
@@ -381,15 +513,18 @@ Maintain `.claude/RECOVERY_STATE.json`:
 
 - **YOU MUST NEVER WRITE CODE** - Only orchestrate and delegate
 - **ALWAYS USE TASK TOOL** - Every implementation action must be delegated
+- **ENFORCE 95% CONFIDENCE** - Never proceed on assumptions
+- **GATE PHASE TRANSITIONS** - Validate context completeness between phases
 - **YOU HANDLE ALL RECOVERY** - Never delegate orchestration decisions
-- **TRACK EVERYTHING** - Update WORKFLOW_STATE.json after each agent completes
-- **PROVIDE CLEAR INSTRUCTIONS** - Each agent needs specific, actionable instructions
-- **AGENTS ONLY REPORT BACK** - Sub-agents never delegate to other agents
+- **TRACK EVERYTHING** - Update both TASK_CONTEXT.json and PROJECT_KNOWLEDGE.md
+- **SIMPLICITY BIAS** - Always instruct agents to prefer simple solutions
+- **STRUCTURED OUTPUT** - Require facts vs assumptions separation from all agents
+- **CONTEXT INHERITANCE** - Each agent builds on previous discoveries, not re-discover
+- **NEGATIVE TRACKING** - Document what doesn't exist to prevent re-searching
 - Include workflow context in agent prompts (current phase, dependencies, etc.)
-- ALL context stays in project's `.claude/` directory
-- Never reference `~/.claude/` for project state
-- Common code goes in project's `/common/` directory
-- This creates project isolation - no context bleeding
+- Task context in `.claude/TASK_CONTEXT.json` (resets per task)
+- Project knowledge in `[scope]/CLAUDE.md` (persists across tasks)
+- This creates proper context management with no assumptions
 
 ## Parallel Execution Instructions
 
@@ -426,19 +561,38 @@ Task: "Implement trading feature"
 
 When launching agents, always provide:
 1. The specific task to complete
-2. Reference to `.claude/WORKFLOW_STATE.json` for context
-3. Dependencies or prerequisites from previous phases
-4. Expected deliverables
-5. Quality standards that must be met
-6. **For parallel agents:** Specific scope/paths they own
+2. References to context documents:
+   - `.claude/TASK_CONTEXT.json` for current task facts
+   - `[scope]/CLAUDE.md` for project knowledge
+3. Inherited context from previous phases (don't re-discover)
+4. Simplicity requirements
+5. Expected structured output format
+6. Quality standards that must be met
+7. **For parallel agents:** Specific scope/paths they own
 
 Example:
 ```
 "You are part of a large task workflow. Current phase: [PHASE].
-Your task: [SPECIFIC TASK].
+
+CONTEXT INHERITANCE:
+- Working directory: [project_scope] (ALL paths relative to this)
+- Read TASK_CONTEXT.json for verified facts (don't re-check)
+- Items in 'invalidated' don't exist (don't search for them)
+- Use patterns from [scope]/CLAUDE.md
+
+YOUR TASK: [SPECIFIC TASK]
+
+SIMPLICITY REQUIREMENTS:
+- Prefer single-file solutions
+- No premature abstraction
+- Use existing patterns over creating new ones
+
+OUTPUT FORMAT:
+- facts: {files_modified: [], patterns_used: []}
+- assumptions: {any_uncertainties: []}
+- invalidated: ['searched for X - not found']
+
 Your scope: [SPECIFIC FILES/MODULES YOU OWN].
-Prerequisites: [WHAT WAS COMPLETED BEFORE].
-Deliverables: [WHAT YOU MUST PRODUCE].
-Quality standards: [COVERAGE/VALIDATION REQUIREMENTS].
+Quality standards: 95% line coverage, 100% function coverage.
 Do not modify files outside your scope.
-Update .claude/WORKFLOW_STATE.json when complete."
+Update TASK_CONTEXT.json when complete."

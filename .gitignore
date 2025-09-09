@@ -3,6 +3,7 @@
 *.log
 *.swp
 .DS_Store
+.update.lock
 
 # Cache directories
 *_cache/

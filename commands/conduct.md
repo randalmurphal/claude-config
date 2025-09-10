@@ -257,6 +257,34 @@ Before proceeding with ANY task:
    }
    ```
 
+9. **Build PROJECT_CONTEXT for Agent Coordination**:
+   Initialize context that will be passed to agents that need architectural awareness:
+   ```json
+   {
+     "project_overview": {
+       "goal": "One-line description of what we're building",
+       "architecture": "High-level architecture pattern",
+       "key_patterns": ["Repository pattern", "Dependency injection"],
+       "success_criteria": "What completion looks like"
+     },
+     "module_breakdown": {
+       "auth": "Handles authentication and authorization",
+       "database": "Data persistence layer",
+       "api": "External API interfaces"
+     },
+     "shared_resources": {
+       "utilities": [],  # Will be populated as discovered
+       "interfaces": [],  # Common interfaces all must honor
+       "registry": {}     # Track who creates what shared resource
+     },
+     "parallel_work": {
+       "current_phase": "",
+       "active_agents": []  # Will be populated when agents launch
+     }
+   }
+   ```
+   Store in {working_directory}/.claude/PROJECT_CONTEXT.json
+
 ## Quality Standards (NON-NEGOTIABLE)
 
 ```yaml
@@ -363,7 +391,8 @@ Step 1B: Architecture Planning (ONLY AFTER 95% CONFIDENCE)
    Read {working_directory}/.claude/TASK_CONTEXT.json for validated facts.
    Reference patterns from {working_directory}/CLAUDE.md if it exists.
    Document architectural decisions in TASK_CONTEXT.json.
-   Output structured BOUNDARIES.json for parallel work."
+   Output structured BOUNDARIES.json for parallel work.
+   Define module breakdown and responsibilities for PROJECT_CONTEXT.json"
 
 - Use Task tool to launch api-contract-designer agent (if APIs involved):
   "Design minimal API contracts. Prefer simple REST over complex patterns."
@@ -378,6 +407,10 @@ Step 1B: Architecture Planning (ONLY AFTER 95% CONFIDENCE)
     - Success: based on validation
     - Complexity: from tool analysis of their output files
   * Update {working_directory}/.claude/AGENT_METRICS.json
+  * Update PROJECT_CONTEXT.json with:
+    - Module breakdown from architecture
+    - Key patterns and interfaces identified
+    - Initial shared resource registry
   * Validate:
   * Check TASK_CONTEXT.json confidence still >= 95%
   * Verify no new assumptions introduced
@@ -394,37 +427,90 @@ Step 1B: Architecture Planning (ONLY AFTER 95% CONFIDENCE)
   }
   save_json("{working_directory}/.claude/context/handoff.json", handoff)
   ```
+- Update PROJECT_CONTEXT.json with module assignments for parallel work
+- Initialize COMMON_REGISTRY.json for shared resource tracking:
+  ```json
+  {
+    "utilities": {},  # utility_name: creating_agent
+    "interfaces": {},  # interface_name: defining_module
+    "pending": {}  # resource_name: agent_working_on_it
+  }
+  ```
 - Archive phase_1_architecture.json
 - Initialize phase_2_skeleton.json with handoff
 - PURGE: Search history, failed attempts, analysis details
 
 ### Phase 2: Implementation Skeleton (SKELETON-FIRST APPROACH)
 
-Step 2A: Skeleton Generation with Model Selection
+Step 2A: Parallel Skeleton Generation with Model Selection
 - Read BOUNDARIES.json to identify modules
+- Load PROJECT_CONTEXT.json for coordination
 - Assess complexity based on file count, patterns, and requirements
-- **Default to Haiku for speed, escalate only if needed**:
-  * Use Task tool with subagent_type="skeleton-builder-haiku" (DEFAULT)
-  * Or subagent_type="skeleton-builder" if complexity warrants Sonnet
-  * Each agent creates skeleton for specific module:
+- **Prepare parallel work assignments**:
+  ```json
+  parallel_assignments = {
+    "agent_1": {"module": "auth", "responsibility": "Authentication/authorization skeleton"},
+    "agent_2": {"module": "database", "responsibility": "Data layer skeleton"},
+    "agent_3": {"module": "api", "responsibility": "External API skeleton"}
+  }
+  ```
+- **Launch skeleton-builder-haiku agents IN PARALLEL (one message, multiple agents)**:
+  * Default to skeleton-builder-haiku for speed
+  * Or skeleton-builder if complexity warrants Sonnet
+  * Each agent receives:
     "Create implementation skeleton for [module]
      CRITICAL WORKING DIRECTORY: {working_directory} (absolute path)
-     Architecture provides complete specifications - follow exactly
+     
+     PROJECT CONTEXT:
+     {project_overview}  # Overall goal and architecture
+     
+     PARALLEL WORK AWARENESS:
+     You are agent_X responsible for: [your_module_description]
+     Other parallel agents:
+     - agent_1: Building auth module (authentication/authorization)
+     - agent_2: Building database module (data persistence layer)
+     - agent_3: Building api module (external interfaces)
+     
+     YOUR BOUNDARIES:
      Module scope: {module_boundaries}
+     Your responsibility: {specific_responsibility}
+     Dependencies you can expect: {modules_you_depend_on}
+     Modules that will depend on you: {modules_that_need_you}
+     
+     SHARED RESOURCES:
+     Use these existing utilities: {shared_utilities_list}
+     If you need to create shared utilities, register them in COMMON_REGISTRY.json
+     
+     Architecture provides complete specifications - follow exactly
      Update context in: {working_directory}/.claude/context/phase_2_skeleton.json"
 - Monitor {working_directory}/.claude/PARALLEL_STATUS.json
 - Collect all skeleton outputs
+- Update PROJECT_CONTEXT.json with discovered shared resources
+- Consolidate COMMON_REGISTRY.json from all parallel agents
+- Identify any duplicate utilities created and mark for consolidation
 
 GATE 1: Implementation Skeleton Review
 - Use Task tool with subagent_type="skeleton-reviewer":
   "Review implementation skeleton for correctness and optimization.
    CRITICAL: Your working directory is {working_directory} (absolute path)
+   
+   PROJECT CONTEXT:
+   {project_overview}  # To validate against overall architecture
+   {module_breakdown}  # To check module responsibilities
+   {shared_resources}  # To verify no duplication
+   
    Read skeleton from phase_2_skeleton.json
+   Check COMMON_REGISTRY.json for shared resource coordination
    
    IMPORTANT: Distinguish between:
    - ARCHITECTURE_FLAW: Fundamental design issue (return to Phase 1)
    - MODEL_LIMITATION: Complexity issue (escalate to better model)
    - QUALITY_ISSUE: Minor improvements (refine with same model)
+   
+   Verify:
+   - No duplicate utilities across parallel work
+   - Proper interface definitions for integration
+   - Clear module boundaries maintained
    
    Return verdict: FAILED, NEEDS_REFINEMENT, or APPROVED
    Include issue category and specific refinements if needed"
@@ -463,9 +549,11 @@ GATE 1: Implementation Skeleton Review
     "skeleton_files": phase_2_context["created_files"],
     "interfaces": phase_2_context["all_interfaces"],
     "test_hooks": phase_2_context["mock_points"],
-    "patterns_marked": phase_2_context["patterns"]
+    "patterns_marked": phase_2_context["patterns"],
+    "shared_resources": COMMON_REGISTRY["finalized"]
   }
   ```
+- Update PROJECT_CONTEXT.json with finalized shared resources
 - Archive phase_2_skeleton.json
 - Initialize phase_3_tests.json with handoff
 - KEEP: All skeleton contracts (immutable)
@@ -494,9 +582,14 @@ Step 3A: Test Planning (5 min) - Integration-First Approach with STRICT Structur
   * E2E tests: OPTIONAL - only if UI/API exists
 
 Step 3B: Test Skeleton Generation - Integration-First
-- **Default to Haiku for speed**:
+- Analyze test boundaries from implementation skeleton
+- **IF multiple test modules identified**:
+  * Prepare parallel test assignments
+  * Launch multiple test-skeleton-builder-haiku agents IN PARALLEL
+- **ELSE**:
+  * Launch single test-skeleton-builder-haiku for entire project
 - Use Task tool with subagent_type="test-skeleton-builder-haiku":
-  "Create comprehensive test skeleton for entire project
+  "Create comprehensive test skeleton for [scope]
    CRITICAL WORKING DIRECTORY: {working_directory} (absolute path)
    
    MANDATORY Directory Structure:
@@ -577,32 +670,50 @@ GATE 2: Test Skeleton Review
     "implementation_skeleton": phase_2_context["skeleton"],
     "test_skeleton": phase_3_context["test_structure"],
     "coverage_requirements": phase_3_context["coverage_targets"],
-    "patterns_to_implement": combined_patterns
+    "patterns_to_implement": combined_patterns,
+    "shared_resources": COMMON_REGISTRY["finalized"],
+    "parallel_assignments": determine_parallel_work_assignments()
   }
   ```
+- Update PROJECT_CONTEXT.json with implementation phase assignments
 - If parallel work: Distribute context to workspaces
 - Archive phase_3_tests.json
 - Initialize phase_4_implementation.json
-- KEEP: All skeletons, test requirements
+- KEEP: All skeletons, test requirements, COMMON_REGISTRY
 - PURGE: Planning discussions, alternatives considered
 
 ### Phase 4: Parallel Implementation (AGAINST VALIDATED SKELETONS)
 
 Step 4A: Setup Parallel Workspaces (if multiple agents)
-- Count parallel tasks
-- If > 1:
+- Count parallel tasks from BOUNDARIES.json
+- Update PROJECT_CONTEXT.json with parallel assignments:
+  ```json
+  "parallel_work": {
+    "implementation_phase": [
+      {"agent": "impl-1", "module": "auth", "workspace": "auth-impl"},
+      {"agent": "impl-2", "module": "database", "workspace": "db-impl"},
+      {"agent": "impl-3", "module": "api", "workspace": "api-impl"}
+    ]
+  }
+  ```
+- If > 1 parallel task:
   * Create git worktrees for each agent:
     ```bash
     git worktree add {working_directory}/.claude/workspaces/auth-impl -b conduct-auth-{timestamp}
-    git worktree add {working_directory}/.claude/workspaces/trading-impl -b conduct-trading-{timestamp}
+    git worktree add {working_directory}/.claude/workspaces/db-impl -b conduct-db-{timestamp}
     ```
   * Copy relevant skeleton files to each workspace
   * Create isolated context for each workspace:
+    - Include PROJECT_CONTEXT for big picture
     - Extract module-specific patterns and gotchas
+    - Include parallel work awareness (who's doing what)
     - Save to {working_directory}/.claude/context/parallel/{module}.json
-    - Copy to workspace as LOCAL_CONTEXT.json
+    - Copy to workspace as LOCAL_CONTEXT.json with:
+      * Their specific responsibilities
+      * Other parallel agents' work
+      * Shared resources registry
   * Track all workspaces in PARALLEL_STATUS.json for cleanup
-- If = 1: Work in main directory
+- If = 1: Work in main directory with full context
 
 Step 4B: Implementation (Multiple agents - 1-2 hours)
 - **Launch implementation-executor agents IN ONE MESSAGE**:
@@ -610,19 +721,53 @@ Step 4B: Implementation (Multiple agents - 1-2 hours)
     "Implement [module] following skeleton contract
      CRITICAL WORKING DIRECTORY: {workspace_or_main_directory}
      
-     Your skeleton is immutable - implement the TODOs
+     PROJECT CONTEXT:
+     {project_overview}  # Overall system you're building
+     
+     PARALLEL IMPLEMENTATION AWARENESS:
+     You are implementing: [your_module]
+     Other parallel implementations:
+     - agent_1: Implementing auth module (UserService, AuthProvider)
+     - agent_2: Implementing database module (repositories, models)
+     - agent_3: Implementing api module (external integrations)
+     
+     YOUR RESPONSIBILITIES:
+     - Implement these files: [specific_files]
+     - Use these shared utilities: {available_utilities}
+     - Your module provides: {what_you_export}
+     - Other modules expect from you: {your_contracts}
+     
+     COORDINATION:
+     - If you need a utility that might be common, check COMMON_REGISTRY.json
+     - If creating a shareable utility, register it in COMMON_REGISTRY.json
+     - Your skeleton is immutable - implement the TODOs
+     
      Read your context from LOCAL_CONTEXT.json
      Track failures in LOCAL_FAILURES.json
      Update LOCAL_CONTEXT.json with discoveries
      
-     Your scope: [specific files]
      Avoid these failed approaches: {relevant_failures}"
 
 Step 4C: Test Implementation (Multiple agents - 1 hour) - Integration-First
-- **Launch test-implementer agents IN ONE MESSAGE**:
+- **IF multiple test modules**:
+  * Create worktrees for each test module (if needed)
+  * Prepare parallel test assignments with clear boundaries
+- **Launch test-implementer agents IN ONE MESSAGE (parallel if multiple)**:
   * Use Task tool with subagent_type="test-implementer":
     "Implement tests following test skeleton - Integration-First Approach
      CRITICAL WORKING DIRECTORY: {workspace_or_main_directory}
+     
+     PARALLEL TEST AWARENESS (if applicable):
+     You are implementing: [your_test_scope]
+     Other parallel test implementations:
+     - agent_1: Implementing unit tests for auth module
+     - agent_2: Implementing unit tests for database module
+     - agent_3: Implementing integration tests
+     
+     YOUR TEST BOUNDARIES:
+     - Test these modules: [specific_modules]
+     - Coverage requirements: {your_coverage_targets}
+     - Test data coordination: {shared_test_fixtures}
      
      PRIMARY VALIDATION (Integration Test):
      - Integration test passes = code is validated
@@ -644,26 +789,51 @@ Step 4C: Test Implementation (Multiple agents - 1 hour) - Integration-First
 
 Step 4D: Enhanced Merge - Code AND Context (if worktrees used)
 - If worktrees were created:
-  * First, collect all workspace contexts:
+  * First, collect all workspace contexts and shared resources:
     ```python
     for workspace in PARALLEL_STATUS["active_workspaces"]:
         local_context = read(f"{workspace}/.claude/LOCAL_CONTEXT.json")
+        local_registry = read(f"{workspace}/.claude/COMMON_REGISTRY.json")
         merge_discoveries(local_context)
+        merge_shared_resources(local_registry)
     ```
   * Use Task tool with subagent_type="merge-coordinator":
     "Merge code AND context from all workspaces
      CRITICAL: Skeleton contracts are source of truth
+     
+     SHARED RESOURCE CONSOLIDATION:
+     - Check COMMON_REGISTRY from all workspaces
+     - Identify duplicate utilities created by different agents
+     - Consolidate into single shared location
+     - Update all references to use shared version
+     
      Collect all discoveries, gotchas, and patterns
      Identify duplications and integration issues
-     Save merged context to {working_directory}/.claude/context/merge_context.json"
+     Save merged context to {working_directory}/.claude/context/merge_context.json
+     Update master COMMON_REGISTRY.json with final shared resources"
 
 Step 4E: Post-Merge Consolidation (NEW - Fix integration issues)
 - Analyze merge results for consolidation needs:
   * Use Task tool with subagent_type="consolidation-analyzer":
     "Analyze merged code for consolidation opportunities
-     Identify: duplicated utilities, integration gaps, test conflicts
-     Fix: Extract common code, align interfaces, resolve conflicts
-     Update phase_4_implementation.json with clean state"
+     
+     PROJECT CONTEXT:
+     {project_overview}  # Overall architecture
+     {shared_resources}  # Final registry of shared utilities
+     
+     Identify: 
+     - Duplicated utilities across parallel work
+     - Integration gaps between modules
+     - Test conflicts or overlaps
+     - Inconsistent patterns
+     
+     Fix: 
+     - Extract common code to shared location
+     - Align interfaces across modules
+     - Resolve conflicts following architecture
+     
+     Update phase_4_implementation.json with clean state
+     Update COMMON_REGISTRY.json with consolidated utilities"
 - If consolidation needed:
   * Use Task tool with subagent_type="implementation-executor":
     "Apply consolidation fixes identified by analyzer
@@ -754,11 +924,16 @@ Step 4F: Guaranteed Workspace Cleanup (CRITICAL)
   "Run comprehensive validation:
    {validation_tools}
    
+   PROJECT CONTEXT:
+   {project_overview}  # To validate against intended architecture
+   {module_breakdown}  # To check all modules integrated properly
+   
    Focus on:
    - Security audit
-   - Architecture compliance
+   - Architecture compliance (matches intended design)
    - Performance analysis
    - Complex edge cases
+   - Integration point validation
    
    Report: security, architecture, performance, complexity"
 - Review validation report

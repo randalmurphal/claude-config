@@ -78,19 +78,20 @@ The conductor orchestration follows this sophisticated workflow:
 ```
 1. Pre-flight Validation → preflight-validator-haiku (FAST cached checks)
 2. Architecture & Context → Validate 95% confidence before proceeding
-3. Implementation Skeleton → skeleton-builder-haiku (DEFAULT) or sonnet if complex
+   └── Creates PROJECT_CONTEXT.json for agent coordination
+3. Implementation Skeleton → PARALLEL skeleton-builder-haiku agents (one per module)
    └── GATE 1: skeleton-reviewer categorizes issues:
        - ARCHITECTURE_FLAW → back to Phase 1
        - MODEL_LIMITATION → escalate to better model
        - QUALITY_ISSUE → skeleton-refiner
-4. Test Skeleton → test-skeleton-builder-haiku (DEFAULT) or sonnet if complex
+4. Test Skeleton → test-skeleton-builder-haiku (parallel if multiple modules)
    └── GATE 2: Validate structure and coverage planning
-5. Parallel Implementation:
-   a. Setup workspaces with context distribution
-   b. implementation-executor agents implement code
+5. Parallel Implementation (with context awareness):
+   a. Setup workspaces with PROJECT_CONTEXT distribution
+   b. implementation-executor agents (know about parallel work)
    c. test-implementer agents implement tests (Integration-First)
-   d. merge-coordinator merges code AND context
-   e. consolidation-analyzer fixes integration issues
+   d. merge-coordinator merges code AND shared resources
+   e. consolidation-analyzer fixes duplications
    f. Guaranteed workspace cleanup
 6. Progressive Validation (TWO-PHASE):
    a. Quick validation with Haiku agents (syntax, tests, lint)
@@ -103,6 +104,8 @@ The conductor orchestration follows this sophisticated workflow:
 - **Orchestrator Never Implements**: Main agent only delegates
 - **95% Confidence Gate**: Never proceed on assumptions
 - **Phase-Scoped Context**: Each phase has isolated context with handoffs
+- **Parallel Work Awareness**: Agents know what others are building
+- **Shared Resource Registry**: COMMON_REGISTRY.json prevents duplication
 - **Specialized Agents**: Each phase uses purpose-built agents
 - **Intelligent Failure Memory**: Learn from mistakes, avoid repetition
 - **Post-Merge Consolidation**: Fix integration issues after parallel work

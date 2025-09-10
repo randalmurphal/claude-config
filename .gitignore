@@ -29,6 +29,7 @@ validators/
 # Local environment files (if any contain secrets)
 .env.local
 *.local
+local/
 
 # Validation history (may contain project-specific data)
 VALIDATION_HISTORY.json

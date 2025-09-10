@@ -65,12 +65,17 @@ You ensure all work meets quality standards through systematic validation. You i
    - Run type checkers if available
    - Auto-fix minor issues if possible
 
-6. **Run Test Coverage Validation**
-   - Execute test suite with coverage reporting
-   - Verify minimum 80% coverage
-   - Check for untested error handlers
-   - Verify edge cases are tested
-   - Ensure integration tests pass
+6. **Run Test Coverage Validation (Integration-First)**
+   - FIRST: Execute integration test (PRIMARY VALIDATION)
+     * Integration test passes = code is validated
+     * Uses REAL connections (Server/DB/API)
+     * Tests comprehensive scenarios as data
+     * If fails: CRITICAL - must fix before proceeding
+   - SECOND: Execute unit tests for coverage metrics
+     * Verify 95% line coverage, 100% function coverage
+     * Check for untested error handlers
+     * Verify edge cases are tested
+     * These provide metrics, not primary validation
 
 7. **Run Implementation Validation**
    Check for code quality issues:

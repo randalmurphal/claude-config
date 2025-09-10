@@ -87,11 +87,11 @@ def detect_mcp_servers(project_path):
 **YOU ARE A CONDUCTOR ONLY. You must NEVER:**
 - Write any production code yourself
 - Implement any features directly
-- Modify any source files (except .claude/ infrastructure)
+- Modify any source files (except {working_directory}/.claude/ infrastructure)
 - Run tests or builds directly (delegate to agents)
 
 **YOUR ONLY RESPONSIBILITIES:**
-1. Set up and maintain `.claude/` infrastructure
+1. Set up and maintain `{working_directory}/.claude/` infrastructure
 2. Delegate ALL implementation work to specialized agents via Task tool
 3. Track workflow progress and phase transitions
 4. Coordinate between agents and manage handoffs
@@ -117,15 +117,22 @@ Before proceeding with ANY task:
 1. Confirm working directory: "I will be working in: {directory}"
 2. Confirm mode: "I am in CONDUCTOR-ONLY mode and will delegate ALL work"
 3. Confirm delegation: "I will use the Task tool for ALL implementation"
-4. If ANY confusion about role or directory, STOP and ask user for clarification
+4. **CRITICAL PATH CLARITY**: "All .claude/ files will be created in {working_directory}/.claude/"
+5. If ANY confusion about role or directory, STOP and ask user for clarification
+
+**FILE PATH RULES**:
+- ALWAYS use absolute paths: {working_directory}/.claude/...
+- NEVER use relative paths: .claude/... or ./claude/...
+- ALL orchestration files go in: {working_directory}/.claude/
+- NOT in: ~/.claude/ (user config) or ./.claude/ (current dir)
 
 ### Initial Setup:
 
 0. **Pre-flight Environment Validation** (NEW - PREVENTS FAILURES):
    - Calculate project hash from working directory path
-   - Check for cached validation in `~/.claude/preflight/{project_hash}.json`
+   - Check for cached validation in `~/.claude/preflight/{project_hash}.json` (user home, not project)
    - If no valid cache (or older than 7 days):
-     * Launch preflight-validator agent:
+     * Launch preflight-validator-haiku agent (FAST CHECK):
        "Validate environment readiness for {working_directory}
         Check language-specific requirements based on project files
         Store results in user-specific cache to avoid git conflicts"
@@ -145,23 +152,26 @@ Before proceeding with ANY task:
    - If no specific tool mentioned: Use current directory as working_directory
    - **CRITICAL**: Create .claude/ in the WORKING DIRECTORY, not current directory
    - Store absolute path: `working_directory = os.path.abspath(selected_directory)`
-   - ALL agents receive: "CRITICAL: Your working directory is {absolute_working_directory}"
+   - ALL agents receive: "CRITICAL: Your working directory is {working_directory}" (absolute path)
 
-2. **Initialize Documentation System**:
+2. **Initialize Context Management System**:
    - Check if `{working_directory}/CLAUDE.md` exists (technical documentation)
      * If missing: Run project-analyzer agent first to create comprehensive docs
      * If exists: Use for reference (doc-maintainer will update if needed)
-   - Create fresh `{working_directory}/.claude/TASK_CONTEXT.json` (resets per task):
-     ```json
-     {
-       "task": "[task description]",
-       "working_directory": "{absolute_path}",
-       "facts": {},
-       "assumptions": {},
-       "invalidated": [],
-       "active_scope": [],
-       "confidence_score": 0
-     }
+   - Create phase-scoped context structure:
+     ```
+     {working_directory}/.claude/
+     ├── context/
+     │   ├── phase_1_architecture.json
+     │   ├── phase_2_skeleton.json
+     │   ├── phase_3_tests.json
+     │   ├── phase_4_implementation.json
+     │   ├── phase_5_validation.json
+     │   ├── current_phase.json → symlink to active
+     │   ├── handoff.json              # Between phases
+     │   └── parallel/                  # For parallel work
+     ├── FAILURE_MEMORY.json            # Intelligent failure tracking
+     └── PARALLEL_STATUS.json           # Track parallel execution
      ```
 
 3. **Load Module Cache & Project Gotchas** (PREVENTS RE-ANALYSIS):
@@ -173,30 +183,41 @@ Before proceeding with ANY task:
    - If exists: Load project-specific gotchas and rules
    - If not exists: Create template GOTCHAS.md
    
+   - Initialize FAILURE_MEMORY.json for intelligent failure tracking:
+     ```json
+     {
+       "failed_approaches": [],
+       "validated_fixes": [],
+       "failure_types": {}
+     }
+     ```
+   
    - Pass to ALL agents:
      "MODULE CACHE available for unchanged files.
       PROJECT GOTCHAS:
       {gotchas_content}"
 
 4. **Clear any previous task state** (fresh start):
-   - Reset WORKFLOW_STATE.json
-   - Clear PARALLEL_STATUS.json
-   - Clear RECOVERY_STATE.json
-   - Keep PROJECT_KNOWLEDGE.md intact
-   - Keep MODULE_CACHE.json intact
-   - Keep GOTCHAS.md intact
+   - Reset {working_directory}/.claude/WORKFLOW_STATE.json
+   - Clear {working_directory}/.claude/PARALLEL_STATUS.json
+   - Clear {working_directory}/.claude/RECOVERY_STATE.json
+   - Archive previous context phases to {working_directory}/.claude/context/archive/
+   - Keep {working_directory}/PROJECT_KNOWLEDGE.md intact
+   - Keep {working_directory}/.claude/MODULE_CACHE.json intact
+   - Keep {working_directory}/GOTCHAS.md intact
+   - Reset {working_directory}/.claude/FAILURE_MEMORY.json (keep patterns, clear specifics)
 
 5. **Enable Assumption Detection Hook**:
-   - Add to `.claude/settings.local.json`:
+   - Add to `{working_directory}/.claude/settings.local.json`:
      ```json
      {
        "hooks": {
-         "preToolUse": ["~/.claude/hooks/assumption_detector.py"]
+         "preToolUse": ["~/.claude/hooks/assumption_detector.py"]  # User config, not project
        }
      }
      ```
 
-6. Initialize workflow state in `.claude/WORKFLOW_STATE.json`:
+6. Initialize workflow state in `{working_directory}/.claude/WORKFLOW_STATE.json`:
    ```json
    {
      "current_phase": "architecture",
@@ -225,9 +246,9 @@ Before proceeding with ANY task:
    - Check for JS/TS: eslint, prettier, jest
    - Check for Go: gofmt, golangci-lint, go test
    - If tools unclear, prompt: "What are your preferred validation tools?"
-   - Store in WORKFLOW_STATE.json['validation_tools']
+   - Store in {working_directory}/.claude/WORKFLOW_STATE.json['validation_tools']
 
-8. Initialize AGENT_METRICS.json for performance tracking:
+8. Initialize {working_directory}/.claude/AGENT_METRICS.json for performance tracking:
    ```json
    {
      "agents": {},
@@ -239,6 +260,10 @@ Before proceeding with ANY task:
 ## Quality Standards (NON-NEGOTIABLE)
 
 ```yaml
+test_validation_priority:
+  primary: Integration test MUST pass = code is validated
+  secondary: Unit tests provide coverage metrics only
+
 test_coverage:
   lines: 95%         # Must cover 95% of code lines
   branches: 90%      # Must test 90% of conditionals
@@ -252,12 +277,15 @@ critical_coverage:
   validations: 100%      # ALL input validation tested
 
 test_structure:
-  unit_tests: One per implementation file
-  integration_tests: 5-10 files maximum
-  e2e_tests: 1-2 files maximum
+  integration_test: ONE comprehensive test class (1-2 files max) - PRIMARY VALIDATION
+  test_scenarios: DATA configurations, not separate functions
+  execution_strategy: Run process MINIMUM times, test MAXIMUM scenarios per run
+  sequential_runs: Only for UPDATE/RE-CREATION/STATE TRANSITIONS/INCOMPATIBLE FLAGS
+  unit_tests: ONE file per source file (1:1 mapping, 100% function coverage)
+  e2e_tests: OPTIONAL - only if UI/API exists
 
 quality_validation:
-  tool: ~/.claude/quality-tools/scripts/quick-validate.sh
+  tool: ~/.claude/quality-tools/scripts/quick-validate.sh  # User config, not project
   frequency: After each phase
   blocking: Failures prevent phase completion
 ```
@@ -266,13 +294,19 @@ quality_validation:
 
 ### Phase 1: Architecture & Context Validation (GATED - 95% CONFIDENCE REQUIRED)
 
+**CRITICAL MODEL SELECTION GUIDANCE**:
+- **Haiku 4**: Use for simple CRUD, basic validators, < 5 files, clear patterns
+- **Sonnet 4**: Use for 10+ files, async/await, state management, complex types
+- **Opus 4**: Use for complex reasoning, security audits, architecture decisions
+- Default to Haiku for skeletons, escalate if reviewer finds issues
+
 Step 1A: Context Validation with Cache (BLOCKING)
 - Use Task tool to launch dependency-analyzer agent:
   "Validate context for: [task description]
    CRITICAL: You must achieve 95% fact confidence before proceeding.
    
-   WORKING DIRECTORY: {absolute_working_directory}
-   ALL operations must be relative to this directory.
+   WORKING DIRECTORY: {working_directory} (absolute path)
+   ALL file operations must use absolute paths based on this directory.
    
    OPTIMIZATION: Check MODULE_CACHE.json first:
    - For each relevant file, compute content hash
@@ -293,7 +327,7 @@ Step 1A: Context Validation with Cache (BLOCKING)
    
    PROJECT_KNOWLEDGE available at: {working_directory}/CLAUDE.md
    GOTCHAS available at: {working_directory}/GOTCHAS.md
-   CRITICAL: Your working directory is {absolute_working_directory}"
+   CRITICAL: Your working directory is {working_directory} (absolute path)"
 
 - Review agent output
 - YOU record agent metrics:
@@ -304,7 +338,7 @@ Step 1A: Context Validation with Cache (BLOCKING)
     - JS/TS: Check with eslint complexity
     - Go: `gocyclo [files]`
     - No tool: Use LOC of changed files
-  * Update .claude/AGENT_METRICS.json
+  * Update {working_directory}/.claude/AGENT_METRICS.json
 - If confidence < 95%:
   * Present specific unknowns to user
   * Wait for user clarification
@@ -316,8 +350,8 @@ Step 1B: Architecture Planning (ONLY AFTER 95% CONFIDENCE)
 - Use Task tool to launch architecture-planner agent:
   "Design architecture for [task].
    
-   CRITICAL WORKING DIRECTORY: {absolute_working_directory}
-   ALL operations must be relative to this directory.
+   CRITICAL WORKING DIRECTORY: {working_directory} (absolute path)
+   ALL file operations must use absolute paths based on this directory.
    
    SIMPLICITY REQUIREMENTS:
    - Prefer single-file solutions when possible
@@ -343,65 +377,73 @@ Step 1B: Architecture Planning (ONLY AFTER 95% CONFIDENCE)
     - Duration: end_time - start_time
     - Success: based on validation
     - Complexity: from tool analysis of their output files
-  * Update .claude/AGENT_METRICS.json
+  * Update {working_directory}/.claude/AGENT_METRICS.json
   * Validate:
   * Check TASK_CONTEXT.json confidence still >= 95%
   * Verify no new assumptions introduced
   * Confirm solution complexity matches problem
 
-### Phase 1 → 2 Transition
-- Focus carefully on what matters for Phase 2
-- Keep: Architecture decisions, boundaries, validation results
-- De-emphasize: File search details, old attempts
+### Phase 1 → 2 Transition (Context Handoff)
+- Extract critical information for Phase 2:
+  ```python
+  handoff = {
+    "architecture": phase_1_context["critical_decisions"],
+    "boundaries": phase_1_context["module_boundaries"],
+    "patterns": phase_1_context["identified_patterns"],
+    "confidence": phase_1_context["confidence_score"]
+  }
+  save_json("{working_directory}/.claude/context/handoff.json", handoff)
+  ```
+- Archive phase_1_architecture.json
+- Initialize phase_2_skeleton.json with handoff
+- PURGE: Search history, failed attempts, analysis details
 
-### Phase 2: Implementation Skeleton (NEW - SKELETON-FIRST APPROACH)
+### Phase 2: Implementation Skeleton (SKELETON-FIRST APPROACH)
 
-Step 2A: Parallel Skeleton Generation (SONNET - 5-10 min)
+Step 2A: Skeleton Generation with Model Selection
 - Read BOUNDARIES.json to identify modules
-- **Launch multiple skeleton-builder agents IN ONE MESSAGE**:
-  * Each agent with model specified: --model sonnet
-  * "Create skeleton for [module] in {working_directory}/[path]
-     CRITICAL WORKING DIRECTORY: {absolute_working_directory}
-     Read ARCHITECTURE.md for structure
-     Create ALL files, interfaces, types, function signatures
-     No implementation, just structure with throw new Error('Not implemented')
-     Mark patterns with // PATTERN: comments
-     Update TASK_CONTEXT.json with skeleton_created data"
-- Monitor PARALLEL_STATUS.json
+- Assess complexity based on file count, patterns, and requirements
+- **Default to Haiku for speed, escalate only if needed**:
+  * Use Task tool with subagent_type="skeleton-builder-haiku" (DEFAULT)
+  * Or subagent_type="skeleton-builder" if complexity warrants Sonnet
+  * Each agent creates skeleton for specific module:
+    "Create implementation skeleton for [module]
+     CRITICAL WORKING DIRECTORY: {working_directory} (absolute path)
+     Architecture provides complete specifications - follow exactly
+     Module scope: {module_boundaries}
+     Update context in: {working_directory}/.claude/context/phase_2_skeleton.json"
+- Monitor {working_directory}/.claude/PARALLEL_STATUS.json
 - Collect all skeleton outputs
 
 GATE 1: Implementation Skeleton Review
-- Launch skeleton-reviewer agent (default model):
+- Use Task tool with subagent_type="skeleton-reviewer":
   "Review implementation skeleton for correctness and optimization.
-   CRITICAL: Your working directory is {absolute_working_directory}
-   Read ARCHITECTURE.md, BOUNDARIES.json, and TASK_CONTEXT.json
+   CRITICAL: Your working directory is {working_directory} (absolute path)
+   Read skeleton from phase_2_skeleton.json
    
-   Evaluate CORRECTNESS:
-   - Matches architecture?
-   - All components present?
-   - Interfaces correct?
-   - Dependencies flow properly?
+   IMPORTANT: Distinguish between:
+   - ARCHITECTURE_FLAW: Fundamental design issue (return to Phase 1)
+   - MODEL_LIMITATION: Complexity issue (escalate to better model)
+   - QUALITY_ISSUE: Minor improvements (refine with same model)
    
-   Evaluate OPTIMIZATION:
-   - Common patterns to extract?
-   - Unnecessary abstractions?
-   - Consolidation opportunities?
-   
-   Return verdict: FAILED, NEEDS_REFINEMENT, or APPROVED"
+   Return verdict: FAILED, NEEDS_REFINEMENT, or APPROVED
+   Include issue category and specific refinements if needed"
 
 - Process reviewer verdict:
   
   IF verdict = "FAILED":
-  - Log: "Critical implementation issues found"
-  - Launch architecture-planner agent to fix skeleton
-  - After fix, re-run skeleton-reviewer (MAX 1 retry)
+  - Check issue category:
+    * If ARCHITECTURE_FLAW: Return to Phase 1 (architecture-planner)
+    * If MODEL_LIMITATION: Escalate to Sonnet (skeleton-builder)
+    * If still fails after escalation: Try Opus (MAX 2 escalations)
+  - After fix/escalation, re-run skeleton-reviewer
   - If still fails: STOP, ask user for guidance
   
   IF verdict = "NEEDS_REFINEMENT":
   - Log: "Optimization opportunities identified"
   - Update ARCHITECTURE.md with discovered patterns
   - If new gotcha discovered, append to GOTCHAS.md
-  - Launch skeleton-refiner agent (sonnet) for SURGICAL updates:
+  - Use Task tool with subagent_type="skeleton-refiner":
     "Apply targeted refinements to skeleton:
      Refinements: [optimizations from reviewer]
      CRITICAL: Only modify affected files, not entire skeleton
@@ -414,44 +456,85 @@ GATE 1: Implementation Skeleton Review
   - Log: "Implementation skeleton validated"
   - Proceed to Phase 3
 
-### Phase 2 → 3 Transition
-- Focus carefully on skeleton contracts and validation results
-- Keep: All interfaces, skeleton structure, refinements
-- De-emphasize: Implementation details from Phase 1
+### Phase 2 → 3 Transition (Context Handoff)
+- Extract skeleton contracts for test phase:
+  ```python
+  handoff = {
+    "skeleton_files": phase_2_context["created_files"],
+    "interfaces": phase_2_context["all_interfaces"],
+    "test_hooks": phase_2_context["mock_points"],
+    "patterns_marked": phase_2_context["patterns"]
+  }
+  ```
+- Archive phase_2_skeleton.json
+- Initialize phase_3_tests.json with handoff
+- KEEP: All skeleton contracts (immutable)
+- PURGE: Refinement history, review details
 
 ### Phase 3: Test Skeleton (AFTER IMPLEMENTATION SKELETON)
 
-Step 3A: Test Planning (5 min)
+Step 3A: Test Planning (5 min) - Integration-First Approach with STRICT Structure
 - Analyze approved implementation skeleton
-- Identify test boundaries and coverage needs
-- Plan test structure:
-  * Unit tests: One per implementation file
-  * Integration tests: 5-10 files for major flows
-  * E2E tests: 1-2 comprehensive test files
+- COUNT source files to determine EXACT test requirements:
+  * Example: "25 source files = 25 unit test files (EXACT 1:1 mapping)"
+- Plan MANDATORY directory structure:
+  * tests/unit_tests/ - ALL unit tests go here (NO EXCEPTIONS)
+  * tests/integration_tests/ - ALL integration tests go here (NO EXCEPTIONS)
+  * NO OTHER TEST DIRECTORIES ALLOWED
+- Plan test structure (Integration-First):
+  * Integration test: ONE comprehensive test class (PRIMARY VALIDATION)
+    - Named test_{workflow}_integration.py (workflow-level, not component)
+    - Test scenarios as DATA configurations, not functions
+    - Run process MINIMUM times while testing MAXIMUM scenarios
+    - Use REAL connections (Server/DB/API) - NO MOCKS
+  * Unit tests: ONE test file per source file (EXACT 1:1)
+    - Named test_[exact_source_filename].py
+    - Test EVERY function (100% function coverage)
+    - Mock ALL dependencies for complete isolation
+  * E2E tests: OPTIONAL - only if UI/API exists
 
-Step 3B: Test Skeleton Generation (SONNET - 5 min)
-- Launch test-skeleton-builder agent with --model sonnet:
-  "Create test skeleton for entire project
-   CRITICAL WORKING DIRECTORY: {absolute_working_directory}
+Step 3B: Test Skeleton Generation - Integration-First
+- **Default to Haiku for speed**:
+- Use Task tool with subagent_type="test-skeleton-builder-haiku":
+  "Create comprehensive test skeleton for entire project
+   CRITICAL WORKING DIRECTORY: {working_directory} (absolute path)
    
-   TEST STRUCTURE:
-   - Unit test for EVERY implementation file
-   - 5-10 integration test files for major flows
-   - 1-2 e2e test files
+   MANDATORY Directory Structure:
+   - ALL tests MUST be in tests/unit_tests/ or tests/integration_tests/
+   - NO test files outside these directories
+   - NO mixed test files (unit and integration in same file)
+   - NO subdirectories within unit_tests/ or integration_tests/
    
-   Read implementation skeleton from TASK_CONTEXT.json
-   If test files exist, mark with // EXTEND: for augmentation
-   Update TASK_CONTEXT.json with test_skeleton data"
+   File Count Requirements:
+   - Count source files: {num_source_files}
+   - Create EXACTLY {num_source_files} unit test files
+   - Create 1 integration test file (2 max if needed)
+   
+   Naming Requirements:
+   - Unit tests: test_[exact_source_filename].py
+   - Integration: test_{workflow}_integration.py
+   
+   Integration-First Requirements:
+   - Integration test is PRIMARY VALIDATION (passes = code validated)
+   - ONE integration test class (1-2 files max)
+   - Test scenarios as DATA configurations, not separate functions
+   - Run process MINIMUM times (group compatible scenarios)
+   - Use REAL connections (Server/DB/API) - NO MOCKS
+   - Multiple runs ONLY for UPDATE/RE-CREATION/STATE TRANSITIONS/INCOMPATIBLE FLAGS
+   
+   Unit Test Requirements:
+   - EXACT 1:1 mapping with source files
+   - Test stub for EVERY function (100% function coverage)
+   - Mock ALL dependencies in unit tests
+   
+   Update context in: {working_directory}/.claude/context/phase_3_tests.json"
 
 GATE 2: Test Skeleton Review
-- Launch skeleton-reviewer agent (default model):
-  "Review test skeleton for correctness and optimization.
+- Use Task tool with subagent_type="skeleton-reviewer":
+  "Review test skeleton for correctness and structure.
    
-   Verify:
-   - Every implementation file has unit test?
-   - Integration tests limited to 5-10 files?
-   - E2E tests limited to 1-2 files?
-   - Existing tests marked for extension?
+   Verify test structure meets requirements
+   Check coverage planning is comprehensive
    
    Return verdict: FAILED, NEEDS_REFINEMENT, or APPROVED"
 
@@ -459,25 +542,49 @@ GATE 2: Test Skeleton Review
   
   IF verdict = "FAILED":
   - Log: "Critical test structure issues"
-  - Launch tdd-enforcer to fix test skeleton
+  - Use Task tool with subagent_type="test-skeleton-builder" to rebuild
   - Re-run review (MAX 1 retry)
   
   IF verdict = "NEEDS_REFINEMENT":
-  - Log: "Test consolidation opportunities"
-  - If test organization issue found, document in GOTCHAS.md
+  - Log: "Test structure needs adjustment"
+  - CRITICAL violations to check FIRST:
+    * Tests outside unit_tests/ or integration_tests/ → move to correct directories
+    * Mixed test files (unit + integration) → separate into distinct files
+    * Wrong naming pattern → fix to test_[exact_source_name].py
+    * Missing 1:1 mapping → create missing unit test files
+  - Common issues:
+    * Too many integration test files → consolidate to ONE (1-2 max)
+    * Integration test has separate test functions → convert to data scenarios
+    * Multiple runs without justification → validate sequential needs
+    * Integration test uses mocks → switch to REAL connections
+    * Missing function coverage → add test stubs for 100% coverage
   - Launch skeleton-refiner (sonnet) for surgical updates:
-    "Consolidate test files as specified:
-     Only modify/merge specified test files
-     Leave other tests unchanged"
+    "Fix test structure issues:
+     Consolidate integration tests to ONE class (1-2 files max)
+     Convert test functions to data-driven scenarios
+     Use REAL connections (no mocks in integration)
+     Ensure multiple runs only for UPDATE/RE-CREATION/STATE TRANSITIONS/INCOMPATIBLE FLAGS
+     Add missing function test stubs for 100% coverage"
   - Re-run review
   
   IF verdict = "APPROVED":
   - Proceed to Phase 4
 
-### Phase 3 → 4 Transition
-- Focus carefully on skeleton contracts for implementation
-- Keep: All interfaces, test structure, validation criteria
-- De-emphasize: Architecture discussions, search results
+### Phase 3 → 4 Transition (Context Handoff)
+- Prepare for parallel implementation:
+  ```python
+  handoff = {
+    "implementation_skeleton": phase_2_context["skeleton"],
+    "test_skeleton": phase_3_context["test_structure"],
+    "coverage_requirements": phase_3_context["coverage_targets"],
+    "patterns_to_implement": combined_patterns
+  }
+  ```
+- If parallel work: Distribute context to workspaces
+- Archive phase_3_tests.json
+- Initialize phase_4_implementation.json
+- KEEP: All skeletons, test requirements
+- PURGE: Planning discussions, alternatives considered
 
 ### Phase 4: Parallel Implementation (AGAINST VALIDATED SKELETONS)
 
@@ -486,69 +593,155 @@ Step 4A: Setup Parallel Workspaces (if multiple agents)
 - If > 1:
   * Create git worktrees for each agent:
     ```bash
-    git worktree add .claude/workspaces/auth-impl -b conduct-auth-{timestamp}
-    git worktree add .claude/workspaces/trading-impl -b conduct-trading-{timestamp}
+    git worktree add {working_directory}/.claude/workspaces/auth-impl -b conduct-auth-{timestamp}
+    git worktree add {working_directory}/.claude/workspaces/trading-impl -b conduct-trading-{timestamp}
     ```
-  * Each agent works in isolated workspace
+  * Copy relevant skeleton files to each workspace
+  * Create isolated context for each workspace:
+    - Extract module-specific patterns and gotchas
+    - Save to {working_directory}/.claude/context/parallel/{module}.json
+    - Copy to workspace as LOCAL_CONTEXT.json
+  * Track all workspaces in PARALLEL_STATUS.json for cleanup
 - If = 1: Work in main directory
 
 Step 4B: Implementation (Multiple agents - 1-2 hours)
-- **Launch multiple agents IN ONE MESSAGE**:
-  * Each gets specific module + skeleton contract:
+- **Launch implementation-executor agents IN ONE MESSAGE**:
+  * Use Task tool with subagent_type="implementation-executor":
     "Implement [module] following skeleton contract
      CRITICAL WORKING DIRECTORY: {workspace_or_main_directory}
      
-     Your skeleton is already validated - implement the TODOs
-     Do not change signatures or structure
-     Read TASK_CONTEXT.json for context
-     Use patterns from CLAUDE.md
+     Your skeleton is immutable - implement the TODOs
+     Read your context from LOCAL_CONTEXT.json
+     Track failures in LOCAL_FAILURES.json
+     Update LOCAL_CONTEXT.json with discoveries
      
      Your scope: [specific files]
-     Quality standards: Complete implementation, no placeholders"
+     Avoid these failed approaches: {relevant_failures}"
 
-Step 4B: Test Implementation (Multiple agents - 1 hour)
-- **Launch multiple test-implementer agents IN ONE MESSAGE**:
-  * Each handles specific test files:
-    "Implement tests in [test files] following skeleton
-     CRITICAL WORKING DIRECTORY: {absolute_working_directory}
+Step 4C: Test Implementation (Multiple agents - 1 hour) - Integration-First
+- **Launch test-implementer agents IN ONE MESSAGE**:
+  * Use Task tool with subagent_type="test-implementer":
+    "Implement tests following test skeleton - Integration-First Approach
+     CRITICAL WORKING DIRECTORY: {workspace_or_main_directory}
      
-     Achieve 95% line coverage, 100% function coverage
-     Unit tests: Comprehensive with appropriate mocking
-     Integration tests: Use real APIs when available
-     Follow existing test patterns in project"
+     PRIMARY VALIDATION (Integration Test):
+     - Integration test passes = code is validated
+     - ONE comprehensive test class (1-2 files max)
+     - Test scenarios as DATA configurations, not functions
+     - Run process MINIMUM times while testing MAXIMUM scenarios
+     - Use REAL connections (Server/DB/API) - NO MOCKS
+     - Sequential runs ONLY for:
+       * UPDATE functionality (requires initial state)
+       * RE-CREATION (delete + recreate)
+       * STATE TRANSITIONS (before/after)
+       * INCOMPATIBLE FLAGS (different modes)
+     
+     SECONDARY (Unit Tests for Coverage):
+     - ONE test file per source file (1:1 mapping)
+     - Test EVERY function (100% function coverage)
+     - Mock ALL dependencies for complete isolation
+     - Achieve 95% line coverage"
 
-Step 4C: Apply Parallel Work Safely (if worktrees used)
+Step 4D: Enhanced Merge - Code AND Context (if worktrees used)
 - If worktrees were created:
-  * Launch merge-coordinator agent:
-    "Apply changes from worktrees to working directory:
-     CRITICAL SAFETY: 
-     - NEVER push to remote
-     - NEVER switch branches
-     - NEVER merge to other branches
-     - ONLY apply changes to working directory
-     
-     Process:
-     1. Copy changed files from worktrees to working directory
-     2. Handle any conflicts locally in working directory
-     3. Clean up worktree directories after copying
-     4. Leave changes uncommitted in working directory
-     
-     Report: Files updated, conflicts resolved (if any)"
-  * All changes now in working directory only
+  * First, collect all workspace contexts:
+    ```python
+    for workspace in PARALLEL_STATUS["active_workspaces"]:
+        local_context = read(f"{workspace}/.claude/LOCAL_CONTEXT.json")
+        merge_discoveries(local_context)
+    ```
+  * Use Task tool with subagent_type="merge-coordinator":
+    "Merge code AND context from all workspaces
+     CRITICAL: Skeleton contracts are source of truth
+     Collect all discoveries, gotchas, and patterns
+     Identify duplications and integration issues
+     Save merged context to {working_directory}/.claude/context/merge_context.json"
 
-### Phase 4 → 5 Transition
-- Focus carefully on what needs validation
-- Keep: Implementation results, test criteria, any errors
-- De-emphasize: How we got here, old decisions
+Step 4E: Post-Merge Consolidation (NEW - Fix integration issues)
+- Analyze merge results for consolidation needs:
+  * Use Task tool with subagent_type="consolidation-analyzer":
+    "Analyze merged code for consolidation opportunities
+     Identify: duplicated utilities, integration gaps, test conflicts
+     Fix: Extract common code, align interfaces, resolve conflicts
+     Update phase_4_implementation.json with clean state"
+- If consolidation needed:
+  * Use Task tool with subagent_type="implementation-executor":
+    "Apply consolidation fixes identified by analyzer
+     Extract common utilities, fix integration points
+     Ensure all modules work together correctly"
 
-### Phase 5: Final Validation (SERIAL - DELEGATE)
+Step 4F: Guaranteed Workspace Cleanup (CRITICAL)
+- **ALWAYS execute, even on error**:
+  ```python
+  try:
+      for workspace in PARALLEL_STATUS["active_workspaces"]:
+          git_worktree_remove(workspace)
+          force_delete_directory(workspace)
+  finally:
+      PARALLEL_STATUS["active_workspaces"] = []
+      verify_no_orphaned_worktrees()
+  ```
+- Report disk space recovered
+- All changes now in working directory only
 
+### Phase 4 → 5 Transition (Context Handoff)
+- Consolidate parallel discoveries:
+  ```python
+  handoff = {
+    "implementation_complete": True,
+    "discovered_gotchas": merge_all_gotchas(),
+    "test_coverage": phase_4_context["coverage_achieved"],
+    "integration_verified": phase_4_context["consolidation_complete"],
+    "known_issues": []  # Any remaining issues
+  }
+  ```
+- Archive phase_4_implementation.json
+- Initialize phase_5_validation.json
+- Update GOTCHAS.md with new discoveries
+- KEEP: Coverage data, discovered issues
+- PURGE: Implementation details, parallel contexts
+
+### Phase 5: Final Validation (PROGRESSIVE TWO-PHASE) - Integration-First
+
+#### Phase 5A: Quick Validation (Haiku - FAST)
+- Use Task tool with subagent_type="validator-quick-haiku":
+  "Run quick validation checks:
+   - Syntax verification
+   - Import checking
+   - Basic linting
+   Report errors but DO NOT fix"
+
+- Use Task tool with subagent_type="test-runner-haiku":
+  "Execute tests and report results:
+   - Run integration test FIRST (PRIMARY)
+   - Run unit tests SECOND (coverage)
+   Report failures but DO NOT fix"
+
+- If validation fails:
+  * Send errors back to implementation phase
+  * Use appropriate model based on error complexity
+  * Re-run quick validation after fixes
+  * MAX 3 attempts before escalation
+
+#### Phase 5B: Comprehensive Validation (Opus - THOROUGH)
+
+- Test execution priority (Integration-First):
+  * FIRST: Run integration test (PRIMARY VALIDATION GATE)
+    - Integration test passes = code is validated
+    - Uses REAL connections and actual data
+    - Tests comprehensive scenarios as data
+  * If integration test fails: CRITICAL - must fix before proceeding
+    - Check if test needs rework or implementation has issues
+    - If test structure wrong, use test-skeleton-builder to fix
+    - If implementation wrong, use implementation-executor to fix
+  * SECOND: Run unit tests for coverage metrics only
+    - Provides line/function coverage numbers
+    - NOT primary validation
+  
 - Smart test selection based on changes:
   * Check MODULE_CACHE['test_analysis']['structure_type']
-  * If 'granular': Run only affected tests from TEST_IMPACT_MAP
-  * If 'monolithic': 
-    - If >30% files changed: Run full suite
-    - Else: Run smoke tests first, full if fails
+  * For integration test: Usually run full test (it's comprehensive)
+  * For unit tests: Can run only affected tests if granular
   * Track test duration for future optimization
 
 - Detect and run project-specific validation:
@@ -556,10 +749,18 @@ Step 4C: Apply Parallel Work Safely (if worktrees used)
   * Python: ruff, mypy, pytest with coverage
   * JS/TS: eslint, jest, build check
   * Go: gofmt, go test, go vet
+- Only run if Phase 5A passes
 - Use Task tool to launch validator-master agent:
-  "Run validation using detected tools:
+  "Run comprehensive validation:
    {validation_tools}
-   Report: syntax, tests, coverage, complexity"
+   
+   Focus on:
+   - Security audit
+   - Architecture compliance
+   - Performance analysis
+   - Complex edge cases
+   
+   Report: security, architecture, performance, complexity"
 - Review validation report
 - If validation fails, YOU orchestrate recovery:
   * Analyze issues by severity (CRITICAL/HIGH/MEDIUM/LOW)
@@ -605,27 +806,57 @@ Step 4C: Apply Parallel Work Safely (if worktrees used)
   * New patterns learned for future tasks
   * Environment remains validated for next run
 
-## Recovery Handling (Conductor Responsibility)
+## Recovery Handling (ENHANCED - Phase-Specific Agents)
 
-When any validation or test fails, YOU (the conductor) handle recovery:
+When any validation or test fails, YOU (the conductor) handle recovery with the RIGHT agents:
+
+### Phase-Specific Recovery Map:
+```python
+PHASE_RECOVERY_AGENTS = {
+  "implementation_skeleton": "skeleton-refiner",
+  "test_skeleton": "test-skeleton-builder",
+  "implementation": "implementation-executor",
+  "test_implementation": "test-implementer",
+  "validation": "validator-master"
+}
+```
+
+### Intelligent Failure Tracking:
+```python
+FAILURE_TYPES = {
+  "design_flaw": {"preserve": True, "purge_after": "never"},
+  "implementation_bug": {"preserve": True, "purge_after": "phase_complete"},
+  "typo": {"preserve": False, "purge_after": "immediately"},
+  "environment": {"preserve": False, "purge_after": "session"},
+  "test_flake": {"preserve": True, "purge_after": "task_complete"}
+}
+```
 
 ### Recovery Process:
-1. **Analyze Validation Report**
-   - Categorize issues by severity
-   - Check RECOVERY_STATE.json for attempt history
+1. **Identify Failed Phase**
+   - Determine which phase the failure belongs to
+   - Load FAILURE_MEMORY.json for relevant failed approaches
+   - Check if workspaces still exist for reuse
 
-2. **Decide Recovery Strategy**
-   - CRITICAL: Immediate fix via appropriate agent
-   - HIGH: Fix via targeted agents
-   - MEDIUM/LOW: Batch fixes together
+2. **Launch Phase-Specific Agent**
+   ```python
+   failed_phase = determine_failed_phase(validation_report)
+   recovery_agent = PHASE_RECOVERY_AGENTS[failed_phase]
+   
+   Use Task tool with subagent_type=recovery_agent:
+     "Fix [specific issues] in [failed_phase]
+      Avoid these failed approaches: [relevant_failures]
+      Working directory: [workspace_or_main]"
+   ```
 
-3. **Execute Recovery**
-   - Create specific prompts for each issue
-   - Delegate to appropriate agents with clear scope
-   - Track attempt count (max 3 attempts)
+3. **Track Recovery Attempt**
+   - Update FAILURE_MEMORY.json with attempt
+   - Classify failure type for intelligent purging
+   - Track success/failure of fix
 
 4. **Re-validate**
    - After fixes, re-run validation
+   - If successful, purge typo-type failures
    - If still failing after 3 attempts, report to user
 
 ## Project Structure Created
@@ -633,20 +864,30 @@ When any validation or test fails, YOU (the conductor) handle recovery:
 ```
 {working_directory}/
 ├── .claude/
-│   ├── validators/              # Project-specific validators
-│   ├── hooks/                   # Project-specific hooks
-│   ├── TASK_CONTEXT.json        # Current task facts/assumptions
-│   ├── WORKFLOW_STATE.json      # Current workflow phase & progress
-│   ├── BOUNDARIES.json          # Work zones for parallelization
-│   ├── DEPENDENCY_GRAPH.json    # Dependency analysis
-│   ├── PARALLEL_STATUS.json     # Parallel execution tracking
-│   ├── RECOVERY_STATE.json      # Recovery attempt tracking
-│   ├── VALIDATION_HISTORY.json  # Validation log
-│   ├── MODULE_CACHE.json        # Cached module analysis
-│   ├── AGENT_METRICS.json       # Agent performance tracking
-│   └── workspaces/               # Git worktrees for parallel work
-├── CLAUDE.md                     # PROJECT_KNOWLEDGE (persists)
-└── GOTCHAS.md                    # Project-specific rules & gotchas
+│   ├── context/                  # Phase-scoped context management
+│   │   ├── phase_1_architecture.json
+│   │   ├── phase_2_skeleton.json
+│   │   ├── phase_3_tests.json
+│   │   ├── phase_4_implementation.json
+│   │   ├── phase_5_validation.json
+│   │   ├── current_phase.json → symlink
+│   │   ├── handoff.json         # Between phases
+│   │   ├── merge_context.json   # Post-merge discoveries
+│   │   ├── parallel/             # Workspace-specific contexts
+│   │   └── archive/              # Previous task contexts
+│   ├── validators/               # Project-specific validators
+│   ├── hooks/                    # Project-specific hooks
+│   ├── workspaces/               # Git worktrees (cleaned after use)
+│   ├── WORKFLOW_STATE.json       # Current workflow phase & progress
+│   ├── BOUNDARIES.json           # Work zones for parallelization
+│   ├── DEPENDENCY_GRAPH.json     # Dependency analysis
+│   ├── PARALLEL_STATUS.json      # Parallel execution tracking
+│   ├── FAILURE_MEMORY.json       # Intelligent failure tracking
+│   ├── RECOVERY_STATE.json       # Recovery attempt tracking
+│   ├── MODULE_CACHE.json         # Cached module analysis
+│   └── AGENT_METRICS.json        # Agent performance tracking
+├── CLAUDE.md                      # PROJECT_KNOWLEDGE (persists)
+└── GOTCHAS.md                     # Project-specific rules & gotchas
 ```
 
 ## Important Rules for Conductor
@@ -682,7 +923,7 @@ Task 3: "Implement reporting module in /src/features/reporting"
 
 When launching agents, always provide:
 1. The specific task to complete
-2. **CRITICAL WORKING DIRECTORY**: {absolute_working_directory}
+2. **CRITICAL WORKING DIRECTORY**: {working_directory} (absolute path)
 3. References to context documents
 4. Inherited context from previous phases
 5. Model specification for Sonnet agents: --model sonnet
@@ -692,29 +933,30 @@ When launching agents, always provide:
 ## Key Improvements from Legacy Commands
 
 - **Skeleton-First**: Build structure, validate, then implement
-- **No premature common code**: Patterns emerge from skeleton review
-- **Proper test structure**: Unit tests per file + 5-10 integration + 1-2 e2e
-- **Smart gates**: Distinguish between "needs insight" vs "failed implementation"
-- **Context management**: Focus on relevant information at phase transitions
-- **Parallel isolation**: Git worktrees prevent conflicts
-- **Smart validation**: Auto-detect project tools, prompt if unclear
+- **Phase-Scoped Context**: Each phase has isolated context with smart handoffs
+- **Specialized Agents**: Each phase uses purpose-built agents, not generic Tasks
+- **Intelligent Failure Memory**: Track and classify failures, avoid repeated mistakes
+- **Post-Merge Consolidation**: Fix integration issues after parallel work
+- **Guaranteed Cleanup**: Workspaces always cleaned, no orphaned directories
+- **Context Merging**: Parallel discoveries properly aggregated
+- **Phase-Specific Recovery**: Right agent for each type of failure
 
-## New Intelligent Systems (Latest Updates)
+## Intelligent Systems
 
 - **Pre-flight Validation**: Environment checked before starting, cached per-user
-- **Module Cache**: Skip re-analysis of unchanged files
-- **Project Gotchas**: Hard-learned rules documented in GOTCHAS.md
-- **Context Purging**: 3-tier system prevents overflow
-- **Parallel Workspaces**: Git worktrees for conflict-free parallel work
-- **Tool Detection**: Automatic validation tool discovery
-- **Semantic Diff**: Surgical skeleton updates instead of full rebuilds
-- **User-Specific Cache**: Validation stored in ~/.claude/preflight/ to avoid git conflicts
-- **Pattern Confidence**: Tracks what works with confidence scores
+- **Module Cache**: Skip re-analysis of unchanged files  
+- **Failure Memory**: Intelligent tracking and classification of failed approaches
+- **Phase-Scoped Context**: Prevents context overflow with smart compression
+- **Parallel Context Distribution**: Each workspace gets relevant context subset
+- **Consolidation Analysis**: Identifies and fixes post-merge integration issues
+- **Workspace Management**: Automatic cleanup ensures no orphaned directories
+- **Recovery Precision**: Phase-specific agents for targeted fixes
+- **Context Inheritance Rules**: MUST_INHERIT, CAN_INHERIT, MUST_PURGE
 
 ## Status Check
 
 When invoked with `status`:
-1. Check `.claude/WORKFLOW_STATE.json` for current phase
+1. Check `{working_directory}/.claude/WORKFLOW_STATE.json` for current phase
 2. Show active parallel tasks if any
 3. Display confidence score from TASK_CONTEXT.json
 4. Report any blocked items or pending validations

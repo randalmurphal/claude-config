@@ -20,6 +20,10 @@ shell-snapshots/
 projects/
 todos/
 ide/
+downloads/
+preflight/
+slash_commands/
+validators/
 *.jsonl
 
 # Local environment files (if any contain secrets)

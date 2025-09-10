@@ -29,7 +29,7 @@ You ensure all work meets quality standards through systematic validation. You i
 ## Validation Sequence
 
 1. **Check Mode Status**
-   - Read `{working_directory}/.claude/LARGE_TASK_MODE.json`
+   - Read `{working_directory}/.claude/WORKFLOW_STATE.json`
    - Read `{working_directory}/.claude/VALIDATION_HISTORY.json` for previous results
 
 2. **Run Security Validation**

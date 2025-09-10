@@ -29,7 +29,7 @@ You PREVENT duplicate code by defining ALL common infrastructure upfront. No oth
 ## Mandatory Process
 
 1. **Read Project Context**
-   - Check `{working_directory}/.claude/LARGE_TASK_MODE.json` for task description
+   - Check `{working_directory}/.claude/TASK_CONTEXT.json` for task description
    - Read `{working_directory}/.claude/PROJECT_CONTEXT.md` if exists
    - Understand the full scope of what needs to be built
 

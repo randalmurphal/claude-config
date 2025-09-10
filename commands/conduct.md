@@ -71,9 +71,7 @@ def detect_mcp_servers(project_path):
             if "psycopg2" in reqs or "sqlalchemy" in reqs:
                 available_mcp.append("postgres")
     
-    # Check for API documentation
-    if os.path.exists("openapi.yaml") or os.path.exists("swagger.json"):
-        available_mcp.append("apidog")
+    # Check for OpenAPI documentation (no MCP server currently available)
     
     # Check .mcp.json for project-specific servers
     if os.path.exists(".mcp.json"):
@@ -119,8 +117,7 @@ Before proceeding with ANY task:
 1. Confirm working directory: "I will be working in: {directory}"
 2. Confirm mode: "I am in CONDUCTOR-ONLY mode and will delegate ALL work"
 3. Confirm delegation: "I will use the Task tool for ALL implementation"
-4. Check context usage: If > 40%, run `/purge clean` proactively
-5. If ANY confusion about role or directory, STOP and ask user for clarification
+4. If ANY confusion about role or directory, STOP and ask user for clarification
 
 ### Initial Setup:
 
@@ -352,10 +349,10 @@ Step 1B: Architecture Planning (ONLY AFTER 95% CONFIDENCE)
   * Verify no new assumptions introduced
   * Confirm solution complexity matches problem
 
-### Phase 1 → 2 Transition: Context Management
-- Check context usage
-- If > 50%: Run `/purge moderate`
-- Log: "Context purged from X% to Y%"
+### Phase 1 → 2 Transition
+- Focus carefully on what matters for Phase 2
+- Keep: Architecture decisions, boundaries, validation results
+- De-emphasize: File search details, old attempts
 
 ### Phase 2: Implementation Skeleton (NEW - SKELETON-FIRST APPROACH)
 
@@ -417,10 +414,10 @@ GATE 1: Implementation Skeleton Review
   - Log: "Implementation skeleton validated"
   - Proceed to Phase 3
 
-### Phase 2 → 3 Transition: Context Management
-- Check context usage
-- If > 60%: Run `/purge moderate`
-- Summarize Phase 1-2 to bullets if needed
+### Phase 2 → 3 Transition
+- Focus carefully on skeleton contracts and validation results
+- Keep: All interfaces, skeleton structure, refinements
+- De-emphasize: Implementation details from Phase 1
 
 ### Phase 3: Test Skeleton (AFTER IMPLEMENTATION SKELETON)
 
@@ -477,11 +474,10 @@ GATE 2: Test Skeleton Review
   IF verdict = "APPROVED":
   - Proceed to Phase 4
 
-### Phase 3 → 4 Transition: Context Management
-- Check context usage
-- If > 70%: Run `/purge aggressive`
-- Keep: All skeleton contracts, current errors
-- Drop: Old phase details, search results
+### Phase 3 → 4 Transition
+- Focus carefully on skeleton contracts for implementation
+- Keep: All interfaces, test structure, validation criteria
+- De-emphasize: Architecture discussions, search results
 
 ### Phase 4: Parallel Implementation (AGAINST VALIDATED SKELETONS)
 
@@ -540,10 +536,10 @@ Step 4C: Apply Parallel Work Safely (if worktrees used)
      Report: Files updated, conflicts resolved (if any)"
   * All changes now in working directory only
 
-### Phase 4 → 5 Transition: Context Management
-- Check context usage
-- If > 75%: Run `/purge aggressive`
-- Critical to keep: Validation criteria, errors
+### Phase 4 → 5 Transition
+- Focus carefully on what needs validation
+- Keep: Implementation results, test criteria, any errors
+- De-emphasize: How we got here, old decisions
 
 ### Phase 5: Final Validation (SERIAL - DELEGATE)
 
@@ -699,7 +695,7 @@ When launching agents, always provide:
 - **No premature common code**: Patterns emerge from skeleton review
 - **Proper test structure**: Unit tests per file + 5-10 integration + 1-2 e2e
 - **Smart gates**: Distinguish between "needs insight" vs "failed implementation"
-- **Context management**: Automatic purging at phase transitions
+- **Context management**: Focus on relevant information at phase transitions
 - **Parallel isolation**: Git worktrees prevent conflicts
 - **Smart validation**: Auto-detect project tools, prompt if unclear
 

@@ -2,51 +2,12 @@
 
 ## Available MCP Servers
 
-### 1. GitLab MCP Server
-**Status**: ✓ Connected  
-**Command**: `npx -y gitlab-mcp@latest`  
-**Use Cases**:
-- Managing GitLab projects, repositories, and merge requests
-- Creating/updating files in GitLab repositories
-- Working with GitLab issues and CI/CD pipelines
-- Code reviews and collaboration on GitLab
+### Current MCP Servers
+1. **Filesystem** - Safe file operations across allowed directories
+2. **Playwright** - Browser automation and UI testing  
+3. **Postgres** - When configured in project `.mcp.json`
 
-**Example requests**:
-- "Create a new merge request for the feature branch"
-- "List all open issues in the GitLab project"
-- "Update the README file in the GitLab repository"
-
-### 2. Jira MCP Server
-**Status**: ✓ Connected  
-**Command**: `npx -y jira-mcp@latest`  
-**Use Cases**:
-- Managing Jira issues and tickets
-- Searching for issues using JQL queries
-- Updating issue statuses and fields
-- Creating new tickets and tracking work
-
-**Example requests**:
-- "Find all open tickets assigned to me"
-- "Create a new bug ticket for the login issue"
-- "Update ticket PROJ-123 status to In Progress"
-
-### 3. MongoDB MCP Server (mongodb-rimm)
-**Status**: ✓ Connected  
-**Command**: `npx -y @mongodb-js/mongodb-mcp-server`  
-**Database**: rthree (local MongoDB at 127.0.0.1:27017)  
-**Important**: When querying for user subscription data, use the environment variable `$SUB1` which contains the current subscription ID.
-
-**Use Cases**:
-- Querying MongoDB collections in the rthree database
-- Analyzing data and generating reports
-- Finding specific documents or patterns
-- Aggregating data across collections
-
-**Example requests**:
-- "Find all documents in the users collection where subscription equals $SUB1"
-- "Show me the schema of the payments collection"
-- "Query for all active subscriptions matching $SUB1"
-- "Count documents in each collection for subscription $SUB1"
+Note: Each project may have its own `.mcp.json` with additional servers.
 
 ### Using MCP Servers
 

@@ -18,7 +18,7 @@ This is a complete orchestration system that transforms Claude Code into a power
 ### 2. **Intelligent Context Management**
 - MODULE_CACHE.json for instant re-analysis of unchanged files
 - GOTCHAS.md for project-specific rules and hard-learned lessons
-- Three-tier /purge command prevents context overflow
+- /summary command for intelligent handoffs and context snapshots
 - Phase-aware compression keeps critical information
 - AGENT_METRICS.json tracks performance and detects degradation
 

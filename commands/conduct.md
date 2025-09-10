@@ -207,6 +207,12 @@ Before proceeding with ANY task:
      "active_parallel_tasks": [],
      "context_usage": 0.0,
      "validation_tools": {},
+     "commit_preference": null,  // ask|always|never
+     "git_safety": {
+       "auto_push": false,  // NEVER change this
+       "branch_operations": false,  // NEVER change this  
+       "local_commits_only": true  // ALWAYS true
+     },
      "phase_details": {
        "architecture": {"parallel_allowed": false},
        "implementation_skeleton": {"parallel_allowed": true},
@@ -223,6 +229,15 @@ Before proceeding with ANY task:
    - Check for Go: gofmt, golangci-lint, go test
    - If tools unclear, prompt: "What are your preferred validation tools?"
    - Store in WORKFLOW_STATE.json['validation_tools']
+
+8. Initialize AGENT_METRICS.json for performance tracking:
+   ```json
+   {
+     "agents": {},
+     "last_analysis": null,
+     "degradation_alerts": []
+   }
+   ```
 
 ## Quality Standards (NON-NEGOTIABLE)
 
@@ -266,6 +281,7 @@ Step 1A: Context Validation with Cache (BLOCKING)
    - For each relevant file, compute content hash
    - If hash matches cache → use cached analysis (deps, exports, complexity)
    - If changed or not cached → analyze and update cache
+   - Build TEST_IMPACT_MAP from test_coverage data
    
    1. Map task to concrete codebase elements
    2. Output structured data:
@@ -283,6 +299,15 @@ Step 1A: Context Validation with Cache (BLOCKING)
    CRITICAL: Your working directory is {absolute_working_directory}"
 
 - Review agent output
+- YOU record agent metrics:
+  * Duration: time_taken
+  * Success: true/false
+  * Complexity: Run tool on affected files only:
+    - Python: `radon cc [files] --total-average`
+    - JS/TS: Check with eslint complexity
+    - Go: `gocyclo [files]`
+    - No tool: Use LOC of changed files
+  * Update .claude/AGENT_METRICS.json
 - If confidence < 95%:
   * Present specific unknowns to user
   * Wait for user clarification
@@ -290,6 +315,7 @@ Step 1A: Context Validation with Cache (BLOCKING)
   * Do NOT proceed until >= 95% confidence
 
 Step 1B: Architecture Planning (ONLY AFTER 95% CONFIDENCE)
+- YOU record start time
 - Use Task tool to launch architecture-planner agent:
   "Design architecture for [task].
    
@@ -315,7 +341,13 @@ Step 1B: Architecture Planning (ONLY AFTER 95% CONFIDENCE)
   "Design error handling using simplest approach.
    Prefer built-in Error class with codes over hierarchies."
 
-- After ALL complete, validate:
+- After ALL complete:
+  * YOU record metrics for each agent:
+    - Duration: end_time - start_time
+    - Success: based on validation
+    - Complexity: from tool analysis of their output files
+  * Update .claude/AGENT_METRICS.json
+  * Validate:
   * Check TASK_CONTEXT.json confidence still >= 95%
   * Verify no new assumptions introduced
   * Confirm solution complexity matches problem
@@ -489,17 +521,24 @@ Step 4B: Test Implementation (Multiple agents - 1 hour)
      Integration tests: Use real APIs when available
      Follow existing test patterns in project"
 
-Step 4C: Merge Parallel Work (if worktrees used)
+Step 4C: Apply Parallel Work Safely (if worktrees used)
 - If worktrees were created:
   * Launch merge-coordinator agent:
-    "Merge branches from workspaces:
-     - List all workspace branches
-     - Check for conflicts
-     - If no conflicts: auto-merge to main
-     - If conflicts: resolve using skeleton as truth
-     - Never modify interfaces defined in skeleton
-     - Report unresolvable conflicts only"
-  * Clean up worktrees after successful merge
+    "Apply changes from worktrees to working directory:
+     CRITICAL SAFETY: 
+     - NEVER push to remote
+     - NEVER switch branches
+     - NEVER merge to other branches
+     - ONLY apply changes to working directory
+     
+     Process:
+     1. Copy changed files from worktrees to working directory
+     2. Handle any conflicts locally in working directory
+     3. Clean up worktree directories after copying
+     4. Leave changes uncommitted in working directory
+     
+     Report: Files updated, conflicts resolved (if any)"
+  * All changes now in working directory only
 
 ### Phase 4 → 5 Transition: Context Management
 - Check context usage
@@ -507,6 +546,14 @@ Step 4C: Merge Parallel Work (if worktrees used)
 - Critical to keep: Validation criteria, errors
 
 ### Phase 5: Final Validation (SERIAL - DELEGATE)
+
+- Smart test selection based on changes:
+  * Check MODULE_CACHE['test_analysis']['structure_type']
+  * If 'granular': Run only affected tests from TEST_IMPACT_MAP
+  * If 'monolithic': 
+    - If >30% files changed: Run full suite
+    - Else: Run smoke tests first, full if fails
+  * Track test duration for future optimization
 
 - Detect and run project-specific validation:
   * Use tools from WORKFLOW_STATE['validation_tools']
@@ -527,6 +574,14 @@ Step 4C: Merge Parallel Work (if worktrees used)
 
 ### Phase 6: Documentation & Completion (SERIAL - FINAL)
 
+- Analyze agent performance:
+  * Update AGENT_METRICS.json with task durations
+  * Check for degradation patterns:
+    - 3+ consecutive failures
+    - 2x slower than baseline
+    - Increasing retry rates
+  * Report any concerning trends
+
 - Check if CLAUDE.md exists:
   * If not: Use Task tool to launch project-analyzer agent first
 - Use Task tool to launch doc-maintainer agent:
@@ -537,6 +592,18 @@ Step 4C: Merge Parallel Work (if worktrees used)
   * Append to GOTCHAS.md with date and context
   * Format: "## [Date] - [Issue/Rule]"
   * Keep it actionable and specific
+
+- Handle git operations safely:
+  * Check WORKFLOW_STATE['commit_preference']
+  * If null or 'ask':
+    - Prompt: "Commit changes locally? [Y/n/always/never]"
+    - Store preference if 'always' or 'never'
+  * If 'always': 
+    - git add . && git commit -m "Task: [description]"
+    - Log: "Changes committed locally (NOT pushed)"
+  * If 'never':
+    - Log: "Changes left uncommitted in working directory"
+  * CRITICAL: NEVER push automatically, user controls remote
 - Report completion to user with summary including:
   * Task completed successfully
   * New patterns learned for future tasks
@@ -580,6 +647,7 @@ When any validation or test fails, YOU (the conductor) handle recovery:
 │   ├── RECOVERY_STATE.json      # Recovery attempt tracking
 │   ├── VALIDATION_HISTORY.json  # Validation log
 │   ├── MODULE_CACHE.json        # Cached module analysis
+│   ├── AGENT_METRICS.json       # Agent performance tracking
 │   └── workspaces/               # Git worktrees for parallel work
 ├── CLAUDE.md                     # PROJECT_KNOWLEDGE (persists)
 └── GOTCHAS.md                    # Project-specific rules & gotchas

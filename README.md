@@ -11,20 +11,23 @@ This is a complete orchestration system that transforms Claude Code into a power
 ### 1. **Skeleton-First Architecture**
 - Builds complete structure before implementation
 - Validates architecture early to prevent integration issues  
-- Enables true parallel development with contracts
+- Enables true parallel development with git worktrees
 - Surgical refinement instead of full rebuilds
+- Safe application of parallel work to working directory
 
 ### 2. **Intelligent Context Management**
 - MODULE_CACHE.json for instant re-analysis of unchanged files
 - GOTCHAS.md for project-specific rules and hard-learned lessons
-- Three-tier purge system prevents context overflow
+- Three-tier /purge command prevents context overflow
 - Phase-aware compression keeps critical information
+- AGENT_METRICS.json tracks performance and detects degradation
 
 ### 3. **Smart Validation & Quality Gates**
 - Auto-detects project validation tools (Python/JS/Go)
 - Distinguishes between "needs refinement" vs "failed implementation"
 - Project-aware validation with tool detection
-- Ensures 95% test coverage and complexity < 10
+- Test impact analysis for selective test execution
+- Complexity metrics using language-specific tools (radon/gocyclo/eslint)
 
 ## 📁 System Structure
 

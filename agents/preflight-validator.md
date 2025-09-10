@@ -43,20 +43,27 @@ REQUIRED_CHECKS = {
         "checks": [
             {"name": "npm", "command": "npm --version", "min_version": "6.0.0"},
             {"name": "node", "command": "node --version", "min_version": "14.0.0"},
-            {"name": "package_lock", "file": "package-lock.json", "optional": True}
+            {"name": "package_lock", "file": "package-lock.json", "optional": True},
+            {"name": "eslint", "command": "npx eslint --version", "optional": True, "note": "For complexity analysis"}
         ]
     },
     "python_project": {
         "condition": "exists('requirements.txt') or exists('pyproject.toml')",
         "checks": [
             {"name": "python", "command": "python --version", "min_version": "3.8"},
-            {"name": "pip", "command": "pip --version", "min_version": "20.0"}
+            {"name": "pip", "command": "pip --version", "min_version": "20.0"},
+            {"name": "radon", "command": "radon --version", "optional": True, "install": "pip install radon"},
+            {"name": "ruff", "command": "ruff --version", "optional": True, "install": "pip install ruff"},
+            {"name": "mypy", "command": "mypy --version", "optional": True, "install": "pip install mypy"},
+            {"name": "pytest", "command": "pytest --version", "optional": True, "install": "pip install pytest pytest-cov"}
         ]
     },
     "go_project": {
         "condition": "exists('go.mod')",
         "checks": [
-            {"name": "go", "command": "go version", "min_version": "1.19"}
+            {"name": "go", "command": "go version", "min_version": "1.19"},
+            {"name": "gocyclo", "command": "gocyclo -h 2>&1 | head -1", "optional": True, "install": "go install github.com/fzipp/gocyclo/cmd/gocyclo@latest"},
+            {"name": "golangci-lint", "command": "golangci-lint --version", "optional": True, "install": "go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"}
         ]
     },
     "universal": {
@@ -78,18 +85,29 @@ When checks fail, present to user:
 ```markdown
 ⚠️ PRE-FLIGHT CHECK FAILED
 
-Missing requirements:
+Missing REQUIRED tools (blocking):
 ❌ npm (not found) - Required for Node.js project
 ❌ Disk space (1.2GB) - Need at least 2GB free
 
-To fix these issues:
+Missing OPTIONAL tools (non-blocking):
+⚠️ radon - Python complexity metrics
+  Install: pip install radon
+⚠️ ruff - Python linting/formatting
+  Install: pip install ruff  
+⚠️ gocyclo - Go complexity metrics
+  Install: go install github.com/fzipp/gocyclo/cmd/gocyclo@latest
+
+Note: Optional tools improve validation accuracy but won't block execution.
+Without complexity tools, agent performance metrics will use file counts instead.
+
+To fix REQUIRED issues:
 1. Install npm: https://nodejs.org/en/download/
 2. Free up disk space
 
 Options:
 A) Fix now and retry (recommended)
 B) Open new Claude session to fix, then return (saves context)
-C) Continue anyway (not recommended)
+C) Continue anyway (not recommended for required tools)
 
 Your choice (A/B/C): _
 ```

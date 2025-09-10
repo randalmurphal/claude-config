@@ -119,7 +119,8 @@ Before proceeding with ANY task:
 1. Confirm working directory: "I will be working in: {directory}"
 2. Confirm mode: "I am in CONDUCTOR-ONLY mode and will delegate ALL work"
 3. Confirm delegation: "I will use the Task tool for ALL implementation"
-4. If ANY confusion about role or directory, STOP and ask user for clarification
+4. Check context usage: If > 40%, run `/purge clean` proactively
+5. If ANY confusion about role or directory, STOP and ask user for clarification
 
 ### Initial Setup:
 
@@ -166,26 +167,27 @@ Before proceeding with ANY task:
      }
      ```
 
-3. **Load Learning Context** (NEW - PREVENTS REPEATED MISTAKES):
-   - Check if `{working_directory}/.claude/LEARNED_PATTERNS.json` exists
-   - If exists:
-     * Load confirmed patterns (confidence > 0.9)
-     * Load context-dependent patterns
-     * Load anti-patterns to avoid
-   - If not exists:
-     * Create empty LEARNED_PATTERNS.json structure
-   - Pass patterns to ALL agents:
-     "LEARNED PATTERNS from previous tasks:
-      Always: {confirmed_patterns}
-      Never: {anti_patterns}
-      Context-dependent: {context_patterns}"
+3. **Load Module Cache & Project Gotchas** (PREVENTS RE-ANALYSIS):
+   - Check if `{working_directory}/.claude/MODULE_CACHE.json` exists
+   - If exists: Load cached module analysis for unchanged files
+   - If not exists: Create empty MODULE_CACHE.json structure
+   
+   - Check if `{working_directory}/GOTCHAS.md` exists
+   - If exists: Load project-specific gotchas and rules
+   - If not exists: Create template GOTCHAS.md
+   
+   - Pass to ALL agents:
+     "MODULE CACHE available for unchanged files.
+      PROJECT GOTCHAS:
+      {gotchas_content}"
 
 4. **Clear any previous task state** (fresh start):
    - Reset WORKFLOW_STATE.json
    - Clear PARALLEL_STATUS.json
    - Clear RECOVERY_STATE.json
    - Keep PROJECT_KNOWLEDGE.md intact
-   - Keep LEARNED_PATTERNS.json intact
+   - Keep MODULE_CACHE.json intact
+   - Keep GOTCHAS.md intact
 
 5. **Enable Assumption Detection Hook**:
    - Add to `.claude/settings.local.json`:
@@ -203,6 +205,8 @@ Before proceeding with ANY task:
      "current_phase": "architecture",
      "completed_phases": [],
      "active_parallel_tasks": [],
+     "context_usage": 0.0,
+     "validation_tools": {},
      "phase_details": {
        "architecture": {"parallel_allowed": false},
        "implementation_skeleton": {"parallel_allowed": true},
@@ -212,6 +216,13 @@ Before proceeding with ANY task:
      }
    }
    ```
+
+7. Detect project validation tools:
+   - Check for Python: ruff, mypy, pylint, pytest
+   - Check for JS/TS: eslint, prettier, jest
+   - Check for Go: gofmt, golangci-lint, go test
+   - If tools unclear, prompt: "What are your preferred validation tools?"
+   - Store in WORKFLOW_STATE.json['validation_tools']
 
 ## Quality Standards (NON-NEGOTIABLE)
 
@@ -243,7 +254,7 @@ quality_validation:
 
 ### Phase 1: Architecture & Context Validation (GATED - 95% CONFIDENCE REQUIRED)
 
-Step 1A: Context Validation (BLOCKING)
+Step 1A: Context Validation with Cache (BLOCKING)
 - Use Task tool to launch dependency-analyzer agent:
   "Validate context for: [task description]
    CRITICAL: You must achieve 95% fact confidence before proceeding.
@@ -251,17 +262,24 @@ Step 1A: Context Validation (BLOCKING)
    WORKING DIRECTORY: {absolute_working_directory}
    ALL operations must be relative to this directory.
    
+   OPTIMIZATION: Check MODULE_CACHE.json first:
+   - For each relevant file, compute content hash
+   - If hash matches cache → use cached analysis (deps, exports, complexity)
+   - If changed or not cached → analyze and update cache
+   
    1. Map task to concrete codebase elements
    2. Output structured data:
-      - facts: {verified_files: [], confirmed_patterns: []}
+      - facts: {verified_files: [], cached_modules: [], fresh_analysis: []}
       - assumptions: {unverified: [], confidence: 0.0}
       - invalidated: ['searched for X - not found at Y']
    3. Search for any uncertain references using Glob/Grep
    4. Update {working_directory}/.claude/TASK_CONTEXT.json with findings
-   5. Calculate confidence score (facts / (facts + assumptions))
-   6. If confidence < 95%, return specific questions for user clarification
+   5. Update {working_directory}/.claude/MODULE_CACHE.json with new analysis
+   6. Calculate confidence score (facts / (facts + assumptions))
+   7. If confidence < 95%, return specific questions for user clarification
    
    PROJECT_KNOWLEDGE available at: {working_directory}/CLAUDE.md
+   GOTCHAS available at: {working_directory}/GOTCHAS.md
    CRITICAL: Your working directory is {absolute_working_directory}"
 
 - Review agent output
@@ -301,6 +319,11 @@ Step 1B: Architecture Planning (ONLY AFTER 95% CONFIDENCE)
   * Check TASK_CONTEXT.json confidence still >= 95%
   * Verify no new assumptions introduced
   * Confirm solution complexity matches problem
+
+### Phase 1 → 2 Transition: Context Management
+- Check context usage
+- If > 50%: Run `/purge moderate`
+- Log: "Context purged from X% to Y%"
 
 ### Phase 2: Implementation Skeleton (NEW - SKELETON-FIRST APPROACH)
 
@@ -348,7 +371,7 @@ GATE 1: Implementation Skeleton Review
   IF verdict = "NEEDS_REFINEMENT":
   - Log: "Optimization opportunities identified"
   - Update ARCHITECTURE.md with discovered patterns
-  - Update LEARNED_PATTERNS.json with newly discovered patterns
+  - If new gotcha discovered, append to GOTCHAS.md
   - Launch skeleton-refiner agent (sonnet) for SURGICAL updates:
     "Apply targeted refinements to skeleton:
      Refinements: [optimizations from reviewer]
@@ -361,6 +384,11 @@ GATE 1: Implementation Skeleton Review
   IF verdict = "APPROVED":
   - Log: "Implementation skeleton validated"
   - Proceed to Phase 3
+
+### Phase 2 → 3 Transition: Context Management
+- Check context usage
+- If > 60%: Run `/purge moderate`
+- Summarize Phase 1-2 to bullets if needed
 
 ### Phase 3: Test Skeleton (AFTER IMPLEMENTATION SKELETON)
 
@@ -407,7 +435,7 @@ GATE 2: Test Skeleton Review
   
   IF verdict = "NEEDS_REFINEMENT":
   - Log: "Test consolidation opportunities"
-  - Update LEARNED_PATTERNS.json with test organization patterns
+  - If test organization issue found, document in GOTCHAS.md
   - Launch skeleton-refiner (sonnet) for surgical updates:
     "Consolidate test files as specified:
      Only modify/merge specified test files
@@ -417,13 +445,30 @@ GATE 2: Test Skeleton Review
   IF verdict = "APPROVED":
   - Proceed to Phase 4
 
+### Phase 3 → 4 Transition: Context Management
+- Check context usage
+- If > 70%: Run `/purge aggressive`
+- Keep: All skeleton contracts, current errors
+- Drop: Old phase details, search results
+
 ### Phase 4: Parallel Implementation (AGAINST VALIDATED SKELETONS)
 
-Step 4A: Implementation (Multiple agents - 1-2 hours)
+Step 4A: Setup Parallel Workspaces (if multiple agents)
+- Count parallel tasks
+- If > 1:
+  * Create git worktrees for each agent:
+    ```bash
+    git worktree add .claude/workspaces/auth-impl -b conduct-auth-{timestamp}
+    git worktree add .claude/workspaces/trading-impl -b conduct-trading-{timestamp}
+    ```
+  * Each agent works in isolated workspace
+- If = 1: Work in main directory
+
+Step 4B: Implementation (Multiple agents - 1-2 hours)
 - **Launch multiple agents IN ONE MESSAGE**:
   * Each gets specific module + skeleton contract:
     "Implement [module] following skeleton contract
-     CRITICAL WORKING DIRECTORY: {absolute_working_directory}
+     CRITICAL WORKING DIRECTORY: {workspace_or_main_directory}
      
      Your skeleton is already validated - implement the TODOs
      Do not change signatures or structure
@@ -444,16 +489,40 @@ Step 4B: Test Implementation (Multiple agents - 1 hour)
      Integration tests: Use real APIs when available
      Follow existing test patterns in project"
 
+Step 4C: Merge Parallel Work (if worktrees used)
+- If worktrees were created:
+  * Launch merge-coordinator agent:
+    "Merge branches from workspaces:
+     - List all workspace branches
+     - Check for conflicts
+     - If no conflicts: auto-merge to main
+     - If conflicts: resolve using skeleton as truth
+     - Never modify interfaces defined in skeleton
+     - Report unresolvable conflicts only"
+  * Clean up worktrees after successful merge
+
+### Phase 4 → 5 Transition: Context Management
+- Check context usage
+- If > 75%: Run `/purge aggressive`
+- Critical to keep: Validation criteria, errors
+
 ### Phase 5: Final Validation (SERIAL - DELEGATE)
 
-- Use Task tool to launch validator-master agent for comprehensive validation
-- Review detailed validation report
+- Detect and run project-specific validation:
+  * Use tools from WORKFLOW_STATE['validation_tools']
+  * Python: ruff, mypy, pytest with coverage
+  * JS/TS: eslint, jest, build check
+  * Go: gofmt, go test, go vet
+- Use Task tool to launch validator-master agent:
+  "Run validation using detected tools:
+   {validation_tools}
+   Report: syntax, tests, coverage, complexity"
+- Review validation report
 - If validation fails, YOU orchestrate recovery:
   * Analyze issues by severity (CRITICAL/HIGH/MEDIUM/LOW)
   * Delegate fixes to appropriate agents
   * Track recovery attempts (max 3) in RECOVERY_STATE.json
   * Re-run validation after each fix attempt
-- Use Task tool to launch quality-checker agent
 - Once all validation passes, proceed to Phase 6
 
 ### Phase 6: Documentation & Completion (SERIAL - FINAL)
@@ -464,12 +533,10 @@ Step 4B: Test Implementation (Multiple agents - 1 hour)
   "Update documentation based on completed task:
    - Update CLAUDE.md if architecture changed
    - Append to TASK_PROGRESS.md with task summary"
-- Launch pattern-learner agent to update learned patterns:
-  "Update LEARNED_PATTERNS.json based on this task:
-   - Patterns that worked well (increase confidence)
-   - Patterns that failed (decrease confidence or archive)
-   - New patterns discovered (add with initial confidence)
-   - Failed approaches to avoid in future"
+- If any new gotchas or project-specific rules discovered:
+  * Append to GOTCHAS.md with date and context
+  * Format: "## [Date] - [Issue/Rule]"
+  * Keep it actionable and specific
 - Report completion to user with summary including:
   * Task completed successfully
   * New patterns learned for future tasks
@@ -511,8 +578,11 @@ When any validation or test fails, YOU (the conductor) handle recovery:
 │   ├── DEPENDENCY_GRAPH.json    # Dependency analysis
 │   ├── PARALLEL_STATUS.json     # Parallel execution tracking
 │   ├── RECOVERY_STATE.json      # Recovery attempt tracking
-│   └── VALIDATION_HISTORY.json  # Validation log
-└── CLAUDE.md                     # PROJECT_KNOWLEDGE (persists)
+│   ├── VALIDATION_HISTORY.json  # Validation log
+│   ├── MODULE_CACHE.json        # Cached module analysis
+│   └── workspaces/               # Git worktrees for parallel work
+├── CLAUDE.md                     # PROJECT_KNOWLEDGE (persists)
+└── GOTCHAS.md                    # Project-specific rules & gotchas
 ```
 
 ## Important Rules for Conductor
@@ -561,12 +631,18 @@ When launching agents, always provide:
 - **No premature common code**: Patterns emerge from skeleton review
 - **Proper test structure**: Unit tests per file + 5-10 integration + 1-2 e2e
 - **Smart gates**: Distinguish between "needs insight" vs "failed implementation"
-- **Simplified commands**: No more medium_task or completion commands
+- **Context management**: Automatic purging at phase transitions
+- **Parallel isolation**: Git worktrees prevent conflicts
+- **Smart validation**: Auto-detect project tools, prompt if unclear
 
 ## New Intelligent Systems (Latest Updates)
 
 - **Pre-flight Validation**: Environment checked before starting, cached per-user
-- **Learning Context**: Patterns remembered across tasks in project
+- **Module Cache**: Skip re-analysis of unchanged files
+- **Project Gotchas**: Hard-learned rules documented in GOTCHAS.md
+- **Context Purging**: 3-tier system prevents overflow
+- **Parallel Workspaces**: Git worktrees for conflict-free parallel work
+- **Tool Detection**: Automatic validation tool discovery
 - **Semantic Diff**: Surgical skeleton updates instead of full rebuilds
 - **User-Specific Cache**: Validation stored in ~/.claude/preflight/ to avoid git conflicts
 - **Pattern Confidence**: Tracks what works with confidence scores

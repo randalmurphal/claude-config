@@ -14,17 +14,17 @@ This is a complete orchestration system that transforms Claude Code into a power
 - Enables true parallel development with contracts
 - Surgical refinement instead of full rebuilds
 
-### 2. **Intelligent Learning System**
-- Tracks patterns across tasks in `LEARNED_PATTERNS.json`
-- Remembers what works (and what doesn't) with confidence scores
-- Applies learned patterns to future tasks automatically
-- Project-specific learning that improves over time
+### 2. **Intelligent Context Management**
+- MODULE_CACHE.json for instant re-analysis of unchanged files
+- GOTCHAS.md for project-specific rules and hard-learned lessons
+- Three-tier purge system prevents context overflow
+- Phase-aware compression keeps critical information
 
-### 3. **Smart Validation Gates**
+### 3. **Smart Validation & Quality Gates**
+- Auto-detects project validation tools (Python/JS/Go)
 - Distinguishes between "needs refinement" vs "failed implementation"
-- Semantic diff for surgical skeleton updates
-- Pre-flight environment validation with user-specific caching
-- Quality gates ensure 95% test coverage and proper structure
+- Project-aware validation with tool detection
+- Ensures 95% test coverage and complexity < 10
 
 ## 📁 System Structure
 
@@ -85,7 +85,7 @@ The conductor orchestration follows this sophisticated workflow:
 
 ## 🧠 Intelligent Systems
 
-### 1. **Learning Context** (`LEARNED_PATTERNS.json`)
+### 1. **Module Cache & Gotchas** (`MODULE_CACHE.json` & `GOTCHAS.md`)
 ```json
 {
   "confirmed_patterns": {
@@ -199,12 +199,12 @@ This orchestration system learns and improves:
 2. **Embrace Learning**: The system improves with use
 3. **Delegate Everything**: The conductor never implements directly
 4. **Maintain Skeletons**: Treat skeleton contracts as sacred
-5. **Review Patterns**: Periodically check `LEARNED_PATTERNS.json`
+5. **Review Gotchas**: Periodically update `GOTCHAS.md` with new rules
 
 ## 🚧 Troubleshooting
 
 **Environment Issues**: Run `/conduct` and choose option B to fix in new session
-**Pattern Conflicts**: Check `LEARNED_PATTERNS.json` and adjust confidence
+**Rule Conflicts**: Check `GOTCHAS.md` and update outdated rules
 **Validation Failures**: Review gate feedback, often just needs refinement
 
 ---

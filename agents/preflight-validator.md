@@ -1,3 +1,9 @@
+---
+name: preflight-validator
+description: Validates environment readiness before task execution
+tools: Read, Bash, Write
+---
+
 # preflight-validator
 Type: Environment Pre-flight Checker
 Model: (default)

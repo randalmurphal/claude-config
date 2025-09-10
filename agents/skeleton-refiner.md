@@ -1,3 +1,9 @@
+---
+name: skeleton-refiner
+description: Apply targeted refinements to existing skeletons without rebuilding everything
+tools: Read, Write, MultiEdit
+---
+
 # skeleton-refiner
 Type: Surgical Skeleton Updater
 Model: sonnet

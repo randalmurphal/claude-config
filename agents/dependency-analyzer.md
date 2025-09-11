@@ -34,9 +34,24 @@ After architecture phase, you analyze the ACTUAL dependencies (not just planned 
 
 **Timing**: After Phase 1 (Architecture) completes, before Phase 2 (Tests)
 
-**Input**: Architecture plan from `{working_directory}/.claude/ARCHITECTURE.md` and `{working_directory}/common/` code
+**Input**: 
+- Architecture plan from `{working_directory}/.claude/ARCHITECTURE.md` and `{working_directory}/common/` code
+- **NEW: User requirements from `{working_directory}/.claude/REQUIREMENTS.json`**
+- **NEW: Known components from `{working_directory}/.claude/KNOWN_COMPONENTS.json`**
 
 **Output**: `{working_directory}/.claude/DEPENDENCY_GRAPH.json` with execution strategy
+
+## Context You Receive (NEW)
+
+1. **User Requirements** (what MUST exist):
+   - Required features from original task
+   - Success criteria that must be met
+   - Helps distinguish between "missing but required" vs "referenced but optional"
+   
+2. **Known Components** (what DOES exist):
+   - Complete list of all modules/services in codebase
+   - Their file paths and locations
+   - Helps identify when code references non-existent components
 
 ## Analysis Process
 
@@ -142,6 +157,83 @@ if "UserService" in code_imports but not in planned_deps:
     })
 ```
 
+### 4.5 Logic Gap Detection (NEW)
+
+**Analyze code for missing logic WITHOUT filling gaps:**
+
+**TODO Analysis:**
+- Scan for TODO/FIXME/HACK/XXX comments
+- Categorize each:
+  * Clear and actionable: "TODO: validate email format" → can_implement: true
+  * Vague or complex: "TODO: handle edge case" → needs_clarification: true
+  * Missing context: "TODO: fix this later" → unclear: true
+
+**Missing Logic Patterns:**
+- Function called but not defined anywhere
+- Switch/if statements missing enum/type cases
+- Empty catch blocks (error swallowed)
+- Commented code that suggests missing functionality
+- Functions with stub returns (return None, return {}, etc.)
+- Assertions/validations mentioned in comments but not in code
+
+**Critical vs Non-Critical:**
+- Critical: auth, payment, security, data validation
+- Non-critical: logging, metrics, UI enhancements
+
+Record all findings in logic_gaps:
+```json
+{
+  "logic_gaps": {
+    "actionable_todos": [
+      {
+        "file": "services/order.js",
+        "line": 45,
+        "text": "TODO: validate email format",
+        "context": "In user registration flow",
+        "can_implement": true,
+        "implementation_hint": "Use email regex validation"
+      }
+    ],
+    "unclear_todos": [
+      {
+        "file": "api/payment.js", 
+        "line": 23,
+        "text": "TODO: handle edge case",
+        "context": "In payment processing",
+        "needs_clarification": true,
+        "why_unclear": "Which edge case? What behavior expected?"
+      }
+    ],
+    "missing_logic": [
+      {
+        "type": "missing_error_handler",
+        "location": "api/routes.js:78-82",
+        "code_snippet": "catch(e) { /* empty */ }",
+        "severity": "critical",
+        "component": "payment"
+      },
+      {
+        "type": "missing_enum_cases",
+        "location": "models/status.js:45",
+        "missing_cases": ["PENDING", "CANCELLED"],
+        "total_cases": 5,
+        "handled_cases": 3,
+        "severity": "warning"
+      }
+    ],
+    "requirement_gaps": [
+      {
+        "required_feature": "OAuth authentication",
+        "found_references": ["import OAuthProvider"],
+        "implementation_found": false,
+        "severity": "CRITICAL",
+        "message": "OAuth required by user but not implemented"
+      }
+    ]
+  }
+}
+```
+
 ### 5. Generate Parallel Execution Strategy
 
 Based on the dependency graph, determine what can run in parallel:
@@ -219,12 +311,22 @@ Create `{working_directory}/.claude/DEPENDENCY_GRAPH.json`:
     "dependencies_found": 45,
     "hidden_dependencies": 5,
     "circular_dependencies": 0,
-    "parallel_groups": 4
+    "parallel_groups": 4,
+    "actionable_todos": 3,
+    "unclear_todos": 2,
+    "logic_gaps": 5,
+    "requirement_gaps": 0
   },
   "issues": [],
   "graph": {
     "nodes": {...},
     "edges": [...]
+  },
+  "logic_gaps": {
+    "actionable_todos": [...],
+    "unclear_todos": [...],
+    "missing_logic": [...],
+    "requirement_gaps": [...]
   },
   "execution_strategy": {
     "optimal_order": ["auth", "user", "order", "payment"],
@@ -233,7 +335,9 @@ Create `{working_directory}/.claude/DEPENDENCY_GRAPH.json`:
   },
   "recommendations": [
     "Consider splitting PaymentService to reduce bottleneck",
-    "UserService and AuthService can be developed in parallel"
+    "UserService and AuthService can be developed in parallel",
+    "3 TODOs can be implemented during development",
+    "2 unclear TODOs need clarification"
   ]
 }
 ```

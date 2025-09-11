@@ -70,9 +70,6 @@ This is a complete orchestration system that transforms Claude Code into a power
 │   ├── python/             # ruff, pylint, mypy configs
 │   ├── javascript/         # prettier config
 │   └── go/                 # golangci config
-
-├── scripts/                # Utility scripts
-│   └── tempo_status.sh     # Musical tempo + vibe status line
 │
 └── [auto-generated]        # Directories Claude creates (gitignored)
     ├── projects/           # Project-specific data
@@ -300,13 +297,6 @@ Claude adapts its personality while maintaining brutal honesty:
 - **🎼 Duo**: Collaborative exploration. "Building on your idea, what if..."
 - **📚 Mentor**: Socratic teaching method. "What do you think happens when...?"
 
-### Status Line
-Shows current vibe and activity tempo (BPM):
-```
-🎸 ♪ 120 [user:host]:branch:dir
-```
-- BPM ranges from 60 (slow) to 180 (very active)
-- Updates based on git activity in last 5 minutes
 
 ### Auto-Formatting
 Automatic code formatting after edits:

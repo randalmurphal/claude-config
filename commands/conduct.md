@@ -114,12 +114,18 @@ def detect_mcp_servers(project_path):
 
 ### Pre-Flight Verification (REQUIRED):
 Before proceeding with ANY task:
-1. Confirm working directory: "I will be working in: {directory}"
-2. Confirm mode: "I am in CONDUCTOR-ONLY mode and will delegate ALL work"
-3. Confirm delegation: "I will use the Task tool for ALL implementation"
-4. **CRITICAL PATH CLARITY**: "All .claude/ files will be created in {working_directory}/.claude/"
-5. **BRUTAL HONESTY MODE**: "I will provide honest assessments without sugar-coating"
-6. If ANY confusion about role or directory, STOP and ask user for clarification
+1. **Load User Preferences** (NEW):
+   - Check ~/.claude/preferences/projects/{project_hash}.json
+   - Load ~/.claude/preferences/languages/{detected_language}.json  
+   - Load ~/.claude/preferences/tools/*.json for mentioned tools
+   - Load ~/.claude/preferences/global.json
+   - Apply as defaults unless task specifies otherwise
+2. Confirm working directory: "I will be working in: {directory}"
+3. Confirm mode: "I am in CONDUCTOR-ONLY mode and will delegate ALL work"
+4. Confirm delegation: "I will use the Task tool for ALL implementation"
+5. **CRITICAL PATH CLARITY**: "All .claude/ files will be created in {working_directory}/.claude/"
+6. **BRUTAL HONESTY MODE**: "I will provide honest assessments without sugar-coating"
+7. If ANY confusion about role or directory, STOP and ask user for clarification
 
 **FILE PATH RULES**:
 - ALWAYS use absolute paths: {working_directory}/.claude/...
@@ -281,6 +287,12 @@ Before proceeding with ANY task:
      "parallel_work": {
        "current_phase": "",
        "active_agents": []  # Will be populated when agents launch
+     },
+     "user_preferences": {
+       "test_coverage": 95,  # From preferences
+       "error_handling": "custom_error_classes",
+       "code_style": {},  # Loaded preferences
+       "applied_from": ["global.json", "languages/python.json"]
      }
    }
    ```
@@ -330,12 +342,48 @@ quality_validation:
 - Default to Haiku for skeletons, escalate if reviewer finds issues
 
 Step 1A: Context Validation with Cache (BLOCKING)
+
+**NEW: Extract Requirements and Map Components**
+- Extract key requirements from user's task description:
+  ```json
+  {
+    "required_features": [list of explicitly requested features],
+    "implied_features": [features implied by requirements],
+    "data_flows": [main operations requested],
+    "constraints": [specific requirements or limitations],
+    "success_criteria": [what defines completion]
+  }
+  ```
+  Store in {working_directory}/.claude/REQUIREMENTS.json
+
+- Map existing project components:
+  * Use Glob to find all source directories and modules
+  * Create {working_directory}/.claude/KNOWN_COMPONENTS.json:
+    ```json
+    {
+      "services": {"name": "path", ...},
+      "modules": {"name": "path", ...},
+      "entry_points": ["main.py", "index.js", ...],
+      "test_files": ["tests/*.py", ...]
+    }
+    ```
+
 - Use Task tool to launch dependency-analyzer agent:
   "Validate context for: [task description]
    CRITICAL: You must achieve 95% fact confidence before proceeding.
    
    WORKING DIRECTORY: {working_directory} (absolute path)
    ALL file operations must use absolute paths based on this directory.
+   
+   USER REQUIREMENTS: [Include extracted requirements from REQUIREMENTS.json]
+   - Required features: [list]
+   - Success criteria: [list]
+   - If you find code/references for required features but no implementation, that's CRITICAL
+   - If you find code for features NOT in requirements, note but don't flag as missing
+   
+   KNOWN COMPONENTS: [Include from KNOWN_COMPONENTS.json]
+   - These are all the modules/services that exist in the codebase
+   - If you find references to components not in this list, that's a potential gap
    
    OPTIMIZATION: Check MODULE_CACHE.json first:
    - For each relevant file, compute content hash
@@ -356,9 +404,19 @@ Step 1A: Context Validation with Cache (BLOCKING)
    
    PROJECT_KNOWLEDGE available at: {working_directory}/CLAUDE.md
    GOTCHAS available at: {working_directory}/GOTCHAS.md
+   USER_PREFERENCES applied: {user_preferences summary from PROJECT_CONTEXT.json}
    CRITICAL: Your working directory is {working_directory} (absolute path)"
 
 - Review agent output
+- **NEW: Check for Logic Gaps** (if DEPENDENCY_GRAPH.json contains logic_gaps):
+  * Actionable TODOs: Include these in task descriptions for implementers
+  * Unclear TODOs: Note to user without stopping:
+    "Found X unclear TODOs that will be preserved:
+     - pay.js:23 'handle edge case'
+     Continuing with main implementation."
+  * Missing Logic:
+    - If critical (auth, payment, security): STOP and ask user for clarification
+    - If non-critical: Note and continue, pass to context-builder for tracking
 - YOU record agent metrics:
   * Duration: time_taken
   * Success: true/false
@@ -455,9 +513,21 @@ Step 2A: Parallel Skeleton Generation with Model Selection
     "agent_3": {"module": "api", "responsibility": "External API skeleton"}
   }
   ```
-- **Launch skeleton-builder-haiku agents IN PARALLEL (one message, multiple agents)**:
+- **CRITICAL: For parallel skeleton work - NO WORKTREES NEEDED**:
+  * Skeleton builders work directly in main directory
+  * They create non-overlapping files per BOUNDARIES.json
+  * No isolation needed since they're creating structure only
+- **Launch skeleton-builder-haiku agents (SINGLE MESSAGE with MULTIPLE Task calls)**:
   * Default to skeleton-builder-haiku for speed
   * Or skeleton-builder if complexity warrants Sonnet
+  * **Example of correct parallel launch**:
+    ```
+    Send ONE message containing:
+    - Task call 1: skeleton-builder-haiku for auth module
+    - Task call 2: skeleton-builder-haiku for database module  
+    - Task call 3: skeleton-builder-haiku for api module
+    All three agents run simultaneously
+    ```
   * Each agent receives:
     "Create implementation skeleton for [module]
      CRITICAL WORKING DIRECTORY: {working_directory} (absolute path)
@@ -706,27 +776,44 @@ Step 4A: Setup Parallel Workspaces (if multiple agents)
     ]
   }
   ```
-- If > 1 parallel task:
-  * Create git worktrees for each agent:
+- If > 1 parallel task, **COMPLETE ALL SETUP BEFORE LAUNCHING AGENTS**:
+  * **Step 1: Create ALL git worktrees in single bash command**:
     ```bash
-    git worktree add {working_directory}/.claude/workspaces/auth-impl -b conduct-auth-{timestamp}
-    git worktree add {working_directory}/.claude/workspaces/db-impl -b conduct-db-{timestamp}
+    # Create all worktrees at once
+    git worktree add {working_directory}/.claude/workspaces/auth-impl -b conduct-auth-{timestamp} && \
+    git worktree add {working_directory}/.claude/workspaces/db-impl -b conduct-db-{timestamp} && \
+    git worktree add {working_directory}/.claude/workspaces/api-impl -b conduct-api-{timestamp}
     ```
-  * Copy relevant skeleton files to each workspace
-  * Create isolated context for each workspace:
+  * **Step 2: Copy skeleton files to ALL workspaces**:
+    ```bash
+    # Copy relevant files to each workspace
+    cp -r {working_directory}/src/auth/* {working_directory}/.claude/workspaces/auth-impl/src/auth/ && \
+    cp -r {working_directory}/src/database/* {working_directory}/.claude/workspaces/db-impl/src/database/ && \
+    cp -r {working_directory}/src/api/* {working_directory}/.claude/workspaces/api-impl/src/api/
+    ```
+  * **Step 3: Create isolated context for each workspace**:
     - Include PROJECT_CONTEXT for big picture
     - Extract module-specific patterns and gotchas
     - Include parallel work awareness (who's doing what)
     - Save to {working_directory}/.claude/context/parallel/{module}.json
-    - Copy to workspace as LOCAL_CONTEXT.json with:
-      * Their specific responsibilities
-      * Other parallel agents' work
-      * Shared resources registry
-  * Track all workspaces in PARALLEL_STATUS.json for cleanup
+    - Copy to workspace as LOCAL_CONTEXT.json
+  * **Step 4: Track all workspaces in PARALLEL_STATUS.json for cleanup**
 - If = 1: Work in main directory with full context
 
 Step 4B: Implementation (Multiple agents - 1-2 hours)
-- **Launch implementation-executor agents IN ONE MESSAGE**:
+- **CRITICAL: Launch ALL agents in ONE message with MULTIPLE Task tool calls**:
+  ```
+  CORRECT parallel launch example:
+  - You send ONE message containing THREE Task tool invocations
+  - All agents start simultaneously
+  - Each gets their own workspace path
+  
+  INCORRECT serial launch (DO NOT DO THIS):
+  - Send message with Task for agent 1, wait for completion
+  - Send message with Task for agent 2, wait for completion  
+  - Send message with Task for agent 3, wait for completion
+  ```
+- **Launch implementation-executor agents (SINGLE MESSAGE, MULTIPLE TASK CALLS)**:
   * Use Task tool with subagent_type="implementation-executor":
     "Implement [module] following skeleton contract
      
@@ -766,9 +853,16 @@ Step 4B: Implementation (Multiple agents - 1-2 hours)
 
 Step 4C: Test Implementation (Multiple agents - 1 hour) - Integration-First
 - **IF multiple test modules**:
-  * Create worktrees for each test module (if needed)
+  * **Decision: Worktrees only if tests modify same files**
+    - If tests are in separate test directories: NO worktrees needed
+    - If tests modify shared fixtures/configs: USE worktrees
+  * If worktrees needed, create ALL before launching:
+    ```bash
+    git worktree add {working_directory}/.claude/workspaces/unit-tests -b conduct-unit-{timestamp} && \
+    git worktree add {working_directory}/.claude/workspaces/integration-tests -b conduct-integration-{timestamp}
+    ```
   * Prepare parallel test assignments with clear boundaries
-- **Launch test-implementer agents IN ONE MESSAGE (parallel if multiple)**:
+- **Launch test-implementer agents (SINGLE MESSAGE with MULTIPLE Task calls if parallel)**:
   * Use Task tool with subagent_type="test-implementer":
     "Implement tests following test skeleton - Integration-First Approach
      

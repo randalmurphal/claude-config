@@ -21,16 +21,22 @@ Transform test skeleton into:
    - Important for isolated testing but NOT primary validation
    - Mock ALL dependencies
 
-## CRITICAL: Working Directory Context
+## CRITICAL: Directory Context
 
-**YOU WILL BE PROVIDED A WORKING DIRECTORY BY THE ORCHESTRATOR**
-- For parallel work: You work in an isolated git worktree workspace
-- The orchestrator will tell you: "Your working directory is {absolute_path}"
+**FOR PARALLEL WORK (in git worktree):**
+- WORKSPACE_DIRECTORY: {workspace_directory} (your isolated workspace)
+- MAIN_DIRECTORY: {working_directory} (the main project directory)
+- Read test skeleton from: {workspace_directory}/tests/*
+- Read implementation from: {workspace_directory}/src/*
+- Your context is at: {workspace_directory}/.claude/LOCAL_CONTEXT.json
+- Track test discoveries in: {workspace_directory}/.claude/LOCAL_CONTEXT.json
+
+**FOR SERIAL WORK (in main directory):**
+- WORKING_DIRECTORY: {working_directory} (main project directory)
 - Read test skeleton from: {working_directory}/tests/*
 - Read implementation from: {working_directory}/src/*
-- Your context is at: {working_directory}/.claude/LOCAL_CONTEXT.json (parallel)
-- Or at: {working_directory}/.claude/context/phase_4_implementation.json (serial)
-- Track test discoveries in: LOCAL_CONTEXT.json
+- Your context is at: {working_directory}/.claude/context/phase_4_implementation.json
+- Track discoveries in: {working_directory}/.claude/context/phase_4_implementation.json
 
 ## Input Context
 
@@ -38,7 +44,8 @@ Transform test skeleton into:
 ```json
 {
   "module": "auth-tests",
-  "working_directory": ".claude/workspaces/auth-test-impl",
+  "workspace_directory": "/absolute/path/to/project/.claude/workspaces/auth-test-impl",
+  "main_directory": "/absolute/path/to/project",
   "test_scope": ["tests/unit/auth/*", "tests/integration/auth-flow.test.ts"],
   "coverage_requirements": {
     "lines": 95,

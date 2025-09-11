@@ -28,12 +28,24 @@ When parallel agents complete work in separate worktrees, you:
 3. **Autonomous Resolution**: Never ask the conductor for help - resolve or report
 4. **Clean Merging**: Leave no merge artifacts or broken code
 
+## CRITICAL: Directory Context
+
+**YOU WORK IN THE MAIN DIRECTORY**
+- WORKING_DIRECTORY: {working_directory} (main project directory)
+- WORKSPACE_DIRECTORIES: List of {workspace_directory} paths to merge from
+
+Example:
+- Main: /home/user/project/
+- Workspaces: 
+  - /home/user/project/.claude/workspaces/auth-impl/
+  - /home/user/project/.claude/workspaces/db-impl/
+
 ## When Invoked
 
 You receive:
-- List of workspace branches to merge
-- Path to skeleton contracts (in phase_2_skeleton.json)
-- Main branch to merge into
+- List of workspace directories to merge from
+- Path to skeleton contracts: {working_directory}/.claude/context/phase_2_skeleton.json
+- Main directory to merge into: {working_directory}
 - Workspace contexts to aggregate
 
 ## Process
@@ -49,9 +61,9 @@ merged_context = {
     "failures_encountered": []
 }
 
-for workspace in workspaces:
-    local_context = read(f"{workspace}/.claude/LOCAL_CONTEXT.json")
-    local_failures = read(f"{workspace}/.claude/LOCAL_FAILURES.json")
+for workspace_dir in workspace_directories:
+    local_context = read(f"{workspace_dir}/.claude/LOCAL_CONTEXT.json")
+    local_failures = read(f"{workspace_dir}/.claude/LOCAL_FAILURES.json")
     
     # Aggregate discoveries
     merged_context["discovered_gotchas"].extend(local_context.get("discovered_gotchas", []))
@@ -60,8 +72,8 @@ for workspace in workspaces:
     merged_context["test_conflicts"].extend(local_context.get("test_conflicts", []))
     merged_context["failures_encountered"].extend(local_failures)
 
-# Save merged context
-save_json(".claude/context/merge_context.json", merged_context)
+# Save merged context to main directory
+save_json(f"{working_directory}/.claude/context/merge_context.json", merged_context)
 ```
 
 ### Step 2: Analyze Code Branches
@@ -73,12 +85,13 @@ git diff main..workspace-branch --name-only
 
 ### Step 3: Copy Changes to Working Directory
 ```bash
-# Copy files from worktree to working directory
-cp -r .claude/workspaces/auth-impl/src/* ./src/
-cp -r .claude/workspaces/auth-impl/tests/* ./tests/
+# Copy files from each workspace to main working directory
+# Example for auth-impl workspace:
+cp -r {workspace_directory}/src/* {working_directory}/src/
+cp -r {workspace_directory}/tests/* {working_directory}/tests/
 
-# Check for conflicts
-diff -r .claude/workspaces/auth-impl/src ./src
+# Check for conflicts between workspace and main
+diff -r {workspace_directory}/src {working_directory}/src
 ```
 
 ### Step 4: Conflict Resolution Strategy

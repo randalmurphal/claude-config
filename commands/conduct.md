@@ -729,7 +729,13 @@ Step 4B: Implementation (Multiple agents - 1-2 hours)
 - **Launch implementation-executor agents IN ONE MESSAGE**:
   * Use Task tool with subagent_type="implementation-executor":
     "Implement [module] following skeleton contract
-     CRITICAL WORKING DIRECTORY: {workspace_or_main_directory}
+     
+     DIRECTORY CONTEXT (for parallel work in worktree):
+     WORKSPACE_DIRECTORY: {workspace_directory}  # Your isolated workspace
+     MAIN_DIRECTORY: {working_directory}  # Main project for shared resources
+     
+     DIRECTORY CONTEXT (for serial work):
+     WORKING_DIRECTORY: {working_directory}  # Work directly in main
      
      PROJECT CONTEXT:
      {project_overview}  # Overall system you're building
@@ -752,9 +758,9 @@ Step 4B: Implementation (Multiple agents - 1-2 hours)
      - If creating a shareable utility, register it in COMMON_REGISTRY.json
      - Your skeleton is immutable - implement the TODOs
      
-     Read your context from LOCAL_CONTEXT.json
-     Track failures in LOCAL_FAILURES.json
-     Update LOCAL_CONTEXT.json with discoveries
+     Read your context from {workspace_directory}/.claude/LOCAL_CONTEXT.json
+     Track failures in {workspace_directory}/.claude/LOCAL_FAILURES.json
+     Update {workspace_directory}/.claude/LOCAL_CONTEXT.json with discoveries
      
      Avoid these failed approaches: {relevant_failures}"
 
@@ -765,7 +771,13 @@ Step 4C: Test Implementation (Multiple agents - 1 hour) - Integration-First
 - **Launch test-implementer agents IN ONE MESSAGE (parallel if multiple)**:
   * Use Task tool with subagent_type="test-implementer":
     "Implement tests following test skeleton - Integration-First Approach
-     CRITICAL WORKING DIRECTORY: {workspace_or_main_directory}
+     
+     DIRECTORY CONTEXT (if parallel in worktree):
+     WORKSPACE_DIRECTORY: {workspace_directory}  # Your test workspace
+     MAIN_DIRECTORY: {working_directory}  # Main project
+     
+     DIRECTORY CONTEXT (if serial):
+     WORKING_DIRECTORY: {working_directory}  # Work in main
      
      PARALLEL TEST AWARENESS (if applicable):
      You are implementing: [your_test_scope]
@@ -809,6 +821,14 @@ Step 4D: Enhanced Merge - Code AND Context (if worktrees used)
     ```
   * Use Task tool with subagent_type="merge-coordinator":
     "Merge code AND context from all workspaces
+     
+     DIRECTORY CONTEXT:
+     WORKING_DIRECTORY: {working_directory}  # Main project directory
+     WORKSPACE_DIRECTORIES: [  # List of workspaces to merge from
+       {working_directory}/.claude/workspaces/auth-impl,
+       {working_directory}/.claude/workspaces/db-impl
+     ]
+     
      CRITICAL: Skeleton contracts are source of truth
      
      SHARED RESOURCE CONSOLIDATION:

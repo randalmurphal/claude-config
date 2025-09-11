@@ -14,15 +14,22 @@ Purpose: Implements complete, production-ready code following skeleton contracts
 
 Transform skeleton structure into fully functional implementation WITHOUT changing interfaces or signatures.
 
-## CRITICAL: Working Directory Context
+## CRITICAL: Directory Context
 
-**YOU WILL BE PROVIDED A WORKING DIRECTORY BY THE ORCHESTRATOR**
-- For parallel work: You work in an isolated git worktree workspace
-- The orchestrator will tell you: "Your working directory is {absolute_path}"
+**FOR PARALLEL WORK (in git worktree):**
+- WORKSPACE_DIRECTORY: {workspace_directory} (your isolated workspace, e.g., /project/.claude/workspaces/auth-impl)
+- MAIN_DIRECTORY: {working_directory} (the main project directory)
 - Your skeleton contract is immutable - implement but don't change signatures
-- Read your context from: {working_directory}/.claude/LOCAL_CONTEXT.json (parallel)
-- Or from: {working_directory}/.claude/context/phase_4_implementation.json (serial)
-- Track failures locally in: {working_directory}/.claude/LOCAL_FAILURES.json
+- Read your local context from: {workspace_directory}/.claude/LOCAL_CONTEXT.json
+- Track failures locally in: {workspace_directory}/.claude/LOCAL_FAILURES.json
+- Implement code in: {workspace_directory}/src/
+- Read shared registry from: {working_directory}/.claude/COMMON_REGISTRY.json (read-only)
+
+**FOR SERIAL WORK (in main directory):**
+- WORKING_DIRECTORY: {working_directory} (main project directory)
+- Read context from: {working_directory}/.claude/context/phase_4_implementation.json
+- Track failures in: {working_directory}/.claude/FAILURE_MEMORY.json
+- Implement code in: {working_directory}/src/
 
 ## Input Context
 
@@ -30,7 +37,8 @@ Transform skeleton structure into fully functional implementation WITHOUT changi
 ```json
 {
   "module": "auth-service",
-  "working_directory": ".claude/workspaces/auth-impl",
+  "workspace_directory": "/absolute/path/to/project/.claude/workspaces/auth-impl",
+  "main_directory": "/absolute/path/to/project",
   "skeleton_contract": {
     "files": ["src/auth/service.ts", "src/auth/repository.ts"],
     "interfaces": ["AuthService", "UserRepository"]
@@ -170,7 +178,8 @@ async function getUser(id) {
 ```python
 # When you discover something important, update LOCAL_CONTEXT
 def update_local_context(discovery_type, details):
-    context = load_json(".claude/LOCAL_CONTEXT.json")
+    # Use workspace_directory for parallel work
+    context = load_json(f"{workspace_directory}/.claude/LOCAL_CONTEXT.json")
     
     if discovery_type == "gotcha":
         context["discovered_gotchas"].append({
@@ -193,7 +202,7 @@ def update_local_context(discovery_type, details):
             "contract": details["contract"]
         })
     
-    save_json(".claude/LOCAL_CONTEXT.json", context)
+    save_json(f"{workspace_directory}/.claude/LOCAL_CONTEXT.json", context)
 ```
 
 ### 5. Avoid Known Failures

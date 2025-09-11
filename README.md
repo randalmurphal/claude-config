@@ -4,7 +4,7 @@ A sophisticated orchestration system for Claude Code that implements skeleton-fi
 
 ## 🎯 Overview
 
-This is a complete orchestration system that transforms Claude Code into a powerful development conductor, capable of managing complex multi-file projects with parallel execution, intelligent refinement, and quality gates.
+This is a complete orchestration system that transforms Claude Code into a powerful development conductor, capable of managing complex multi-file projects with parallel execution, intelligent refinement, and quality gates. Features a musical theme with personality vibes and tempo-based status indicators.
 
 ## 🚀 Key Features
 
@@ -49,8 +49,11 @@ This is a complete orchestration system that transforms Claude Code into a power
 │   ├── context-builder.md     # Phase transition manager
 │   └── [other agents]         # Various specialized agents
 │
-├── commands/                  # Orchestration commands
-│   └── conduct.md            # Main orchestration command (/conduct)
+├── commands/                  # Musical-themed commands
+│   ├── prelude.md            # Build task specifications through conversation
+│   ├── conduct.md            # Main orchestration command
+│   ├── coda.md               # Generate handoff summaries
+│   └── vibe.md               # Set personality mode (solo/concert/duo/mentor)
 │
 ├── quality-tools/            # Language-specific quality validation
 │   ├── python/              # Python linting, formatting, testing
@@ -59,7 +62,17 @@ This is a complete orchestration system that transforms Claude Code into a power
 │   └── scripts/            # Universal quality scripts
 │
 ├── hooks/                   # Event-driven automation
-│   └── assumption_detector.py # Catches assumptions in real-time
+│   ├── auto_formatter.py    # Universal code formatter for multiple languages
+│   ├── assumption_detector.py # Catches assumptions in real-time
+│   └── [enforcement hooks]  # Various code quality enforcers
+
+├── configs/                 # Language-specific formatter configs
+│   ├── python/             # ruff, pylint, mypy configs
+│   ├── javascript/         # prettier config
+│   └── go/                 # golangci config
+
+├── scripts/                # Utility scripts
+│   └── tempo_status.sh     # Musical tempo + vibe status line
 │
 └── [auto-generated]        # Directories Claude creates (gitignored)
     ├── projects/           # Project-specific data
@@ -198,11 +211,17 @@ claude
 ### Basic Usage
 
 ```bash
-# For complex tasks (30+ minutes)
-/conduct "Build a complete authentication system with JWT"
+# Set your personality vibe
+/vibe              # Show available vibes
+/vibe solo         # 🎸 Quick and direct (default)
+/vibe concert      # 🎭 Professional precision
+/vibe duo          # 🎼 Collaborative
+/vibe mentor       # 📚 Socratic teaching
 
-# Check status
-/conduct status
+# Musical command symphony
+/prelude           # Build task specification through conversation
+/conduct           # Execute the orchestrated task
+/coda              # Generate handoff summary
 
 # For simple tasks (< 30 minutes)
 # Just use Claude directly without orchestration
@@ -271,6 +290,31 @@ This orchestration system learns and improves:
 - Successful patterns are reinforced
 - Project-specific knowledge accumulates
 
+## 🎵 Musical Theme & Personality System
+
+### Vibe Modes
+Claude adapts its personality while maintaining brutal honesty:
+
+- **🎸 Solo** (default): Quick, direct, slightly sarcastic. "That's overengineered. Just use grep."
+- **🎭 Concert**: Professional precision for production. "Critical: This exposes user data."
+- **🎼 Duo**: Collaborative exploration. "Building on your idea, what if..."
+- **📚 Mentor**: Socratic teaching method. "What do you think happens when...?"
+
+### Status Line
+Shows current vibe and activity tempo (BPM):
+```
+🎸 ♪ 120 [user:host]:branch:dir
+```
+- BPM ranges from 60 (slow) to 180 (very active)
+- Updates based on git activity in last 5 minutes
+
+### Auto-Formatting
+Automatic code formatting after edits:
+- Python: ruff → black fallback
+- JavaScript/TypeScript: prettier → eslint
+- Go: goimports → gofmt
+- Configs in `~/.claude/configs/`
+
 ## 💡 Tips for Success
 
 1. **Trust the Gates**: Let validation gates catch issues early
@@ -278,6 +322,7 @@ This orchestration system learns and improves:
 3. **Delegate Everything**: The conductor never implements directly
 4. **Maintain Skeletons**: Treat skeleton contracts as sacred
 5. **Review Gotchas**: Periodically update `GOTCHAS.md` with new rules
+6. **Pick Your Vibe**: Use `/vibe mentor` for learning, `/vibe concert` for production
 
 ## 🚧 Troubleshooting
 

@@ -1,15 +1,15 @@
 ---
-name: summary
-description: Generate intelligent context summary for handoffs
+name: coda
+description: Conclude with themes summary for handoff (musical finale)
 ---
 
-# Summary - Intelligent Context Handoff
+# Coda - Musical Conclusion for Context Handoff
 
 Creates a concise, actionable summary of the current conversation state suitable for passing to another agent or session.
 
 ## Usage
 
-`/summary` - Generate a comprehensive handoff summary
+`/coda` - Generate a comprehensive handoff summary (like a musical coda that concludes by restating main themes)
 
 ## What It Produces
 
@@ -78,28 +78,28 @@ Status: All changes committed and pushed
 ### Handoff to Another Session
 When context is getting full and you need to continue in a new session:
 ```
-/summary
+/coda
 [Copy output to new session as first message]
 ```
 
 ### Handoff to Another Agent
 When delegating work to a specialized agent:
 ```
-/summary
+/coda
 [Include relevant parts in agent prompt]
 ```
 
 ### Progress Checkpoint
 When you need to document current state:
 ```
-/summary
+/coda
 [Save to project notes or documentation]
 ```
 
 ### Team Collaboration
 When another developer needs to understand current state:
 ```
-/summary
+/coda
 [Share via Slack/email/PR description]
 ```
 
@@ -111,6 +111,11 @@ When another developer needs to understand current state:
 - Structures information for **immediate use**
 - Can be used as the **first message** in a new conversation
 
-## Integration with /conduct
+## Integration with /conduct and /prelude
 
-The conductor can use summary at phase transitions to create checkpoint documentation, making it easier to recover from failures or hand off complex tasks.
+The symphony of commands:
+- **`/prelude`** - Sets up and prepares the task specification
+- **`/conduct`** - Orchestrates the execution
+- **`/coda`** - Concludes with a summary of main themes
+
+The conductor can use coda at phase transitions to create checkpoint documentation, making it easier to recover from failures or hand off complex tasks.

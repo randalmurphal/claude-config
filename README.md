@@ -36,8 +36,7 @@ This is a complete orchestration system that transforms Claude Code into a power
 ├── agents/                    # Specialized sub-agents
 │   ├── skeleton-builder.md    # Creates implementation structure (Sonnet)
 │   ├── skeleton-builder-haiku.md # Fast skeleton creation (Haiku) ✨
-│   ├── skeleton-reviewer.md   # Reviews with issue categorization (Opus)
-│   ├── skeleton-refiner.md    # Surgical updates to skeletons (Sonnet)
+│   ├── skeleton-reviewer.md   # Reviews with issue categorization (Default)
 │   ├── test-skeleton-builder.md # Creates test structure (Sonnet)
 │   ├── test-skeleton-builder-haiku.md # Fast test skeleton (Haiku) ✨
 │   ├── implementation-executor.md # Implements code (Default)
@@ -83,7 +82,7 @@ The conductor orchestration follows this sophisticated workflow:
    └── GATE 1: skeleton-reviewer categorizes issues:
        - ARCHITECTURE_FLAW → back to Phase 1
        - MODEL_LIMITATION → escalate to better model
-       - QUALITY_ISSUE → skeleton-refiner
+       - QUALITY_ISSUE → skeleton-builder with fix instructions
 4. Test Skeleton → test-skeleton-builder-haiku (parallel if multiple modules)
    └── GATE 2: Validate structure and coverage planning
 5. Parallel Implementation (with context awareness):
@@ -95,7 +94,7 @@ The conductor orchestration follows this sophisticated workflow:
    f. Guaranteed workspace cleanup
 6. Progressive Validation (TWO-PHASE):
    a. Quick validation with Haiku agents (syntax, tests, lint)
-   b. If passes → Comprehensive validation with Opus
+   b. If passes → Comprehensive validation with default model
 7. Documentation → Update CLAUDE.md and GOTCHAS.md
 ```
 
@@ -214,8 +213,8 @@ claude
 ### Model Strategy (Optimized for Speed)
 - **Haiku 4**: DEFAULT for skeletons, validation checks, test execution (3-5x faster)
 - **Sonnet 4**: Complex implementation, escalation from Haiku
-- **Opus 4**: Reviews, security audits, complex reasoning
-- **Smart Escalation**: Haiku → Sonnet → Opus based on complexity
+- **Default Model**: Reviews, security audits, complex reasoning
+- **Smart Escalation**: Haiku → Sonnet → Default based on complexity
 
 ### Parallel Execution
 The conductor identifies parallelizable work and launches multiple agents simultaneously:
@@ -226,7 +225,7 @@ The conductor identifies parallelizable work and launches multiple agents simult
 ### Progressive Validation & Recovery
 **Two-Phase Validation**:
 1. **Quick Phase (Haiku)**: Syntax, imports, tests, linting
-2. **Deep Phase (Opus)**: Security, architecture, performance
+2. **Deep Phase (Default)**: Security, architecture, performance
 
 **Smart Recovery**:
 - Distinguish ARCHITECTURE_FLAW vs MODEL_LIMITATION
@@ -246,7 +245,7 @@ The conductor identifies parallelizable work and launches multiple agents simult
 ### Key Improvements
 - **Issue Categorization**: ARCHITECTURE_FLAW vs MODEL_LIMITATION vs QUALITY_ISSUE
 - **Model Escalation**: Haiku → Sonnet → Opus only when needed
-- **Two-Phase Validation**: Quick checks (Haiku) then deep analysis (Opus)
+- **Two-Phase Validation**: Quick checks (Haiku) then deep analysis (Default)
 - **Strict Test Structure**: Enforced directories and 1:1 mapping
 - **Integration-First Testing**: Integration = validation, Unit = metrics
 

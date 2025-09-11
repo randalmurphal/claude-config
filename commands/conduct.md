@@ -118,7 +118,8 @@ Before proceeding with ANY task:
 2. Confirm mode: "I am in CONDUCTOR-ONLY mode and will delegate ALL work"
 3. Confirm delegation: "I will use the Task tool for ALL implementation"
 4. **CRITICAL PATH CLARITY**: "All .claude/ files will be created in {working_directory}/.claude/"
-5. If ANY confusion about role or directory, STOP and ask user for clarification
+5. **BRUTAL HONESTY MODE**: "I will provide honest assessments without sugar-coating"
+6. If ANY confusion about role or directory, STOP and ask user for clarification
 
 **FILE PATH RULES**:
 - ALWAYS use absolute paths: {working_directory}/.claude/...
@@ -494,6 +495,12 @@ GATE 1: Implementation Skeleton Review
   "Review implementation skeleton for correctness and optimization.
    CRITICAL: Your working directory is {working_directory} (absolute path)
    
+   **BRUTAL HONESTY REQUIRED**: 
+   - If the skeleton is bad, say it's BAD
+   - If it's over-engineered, call it out
+   - If it misses the point, be direct
+   - Don't approve mediocre work to be nice
+   
    PROJECT CONTEXT:
    {project_overview}  # To validate against overall architecture
    {module_breakdown}  # To check module responsibilities
@@ -513,7 +520,7 @@ GATE 1: Implementation Skeleton Review
    - Clear module boundaries maintained
    
    Return verdict: FAILED, NEEDS_REFINEMENT, or APPROVED
-   Include issue category and specific refinements if needed"
+   Be specific and direct about what's wrong - no hedging"
 
 - Process reviewer verdict:
   
@@ -529,13 +536,16 @@ GATE 1: Implementation Skeleton Review
   - Log: "Optimization opportunities identified"
   - Update ARCHITECTURE.md with discovered patterns
   - If new gotcha discovered, append to GOTCHAS.md
-  - Use Task tool with subagent_type="skeleton-refiner":
-    "Apply targeted refinements to skeleton:
-     Refinements: [optimizations from reviewer]
-     CRITICAL: Only modify affected files, not entire skeleton
-     Use semantic diff to minimize changes
-     Files to modify: [specific list]
-     Files to leave unchanged: [rest of skeleton]"
+  - Use Task tool with appropriate skeleton-builder:
+    * For minor fixes: subagent_type="skeleton-builder-haiku"
+      "Refine the skeleton. Issues found: {specific_issues}
+       Keep working parts intact, fix only: {problem_areas}
+       Files to modify: [specific list]
+       Files to leave unchanged: [rest of skeleton]"
+    * For complex issues: subagent_type="skeleton-builder"
+      "Rebuild skeleton with better understanding.
+       Previous issues: {complex_areas}
+       May require substantial changes"
   - Re-run skeleton-reviewer to confirm improvements
   
   IF verdict = "APPROVED":
@@ -651,7 +661,7 @@ GATE 2: Test Skeleton Review
     * Multiple runs without justification → validate sequential needs
     * Integration test uses mocks → switch to REAL connections
     * Missing function coverage → add test stubs for 100% coverage
-  - Launch skeleton-refiner (sonnet) for surgical updates:
+  - Launch test-skeleton-builder-haiku with fix instructions:
     "Fix test structure issues:
      Consolidate integration tests to ONE class (1-2 files max)
      Convert test functions to data-driven scenarios
@@ -893,7 +903,7 @@ Step 4F: Guaranteed Workspace Cleanup (CRITICAL)
   * Re-run quick validation after fixes
   * MAX 3 attempts before escalation
 
-#### Phase 5B: Comprehensive Validation (Opus - THOROUGH)
+#### Phase 5B: Comprehensive Validation (Default Model - THOROUGH)
 
 - Test execution priority (Integration-First):
   * FIRST: Run integration test (PRIMARY VALIDATION GATE)
@@ -924,18 +934,26 @@ Step 4F: Guaranteed Workspace Cleanup (CRITICAL)
   "Run comprehensive validation:
    {validation_tools}
    
+   **BRUTAL HONESTY MODE**:
+   - If the code is bad, say WHY it's bad
+   - If tests are weak, be specific about gaps
+   - If architecture is violated, show exactly where
+   - Rate quality on scale: EXCELLENT, GOOD, ACCEPTABLE, POOR, UNACCEPTABLE
+   - Don't pass marginal code to avoid conflict
+   
    PROJECT CONTEXT:
    {project_overview}  # To validate against intended architecture
    {module_breakdown}  # To check all modules integrated properly
    
    Focus on:
-   - Security audit
-   - Architecture compliance (matches intended design)
-   - Performance analysis
-   - Complex edge cases
-   - Integration point validation
+   - Security audit (call out ALL vulnerabilities)
+   - Architecture compliance (flag EVERY violation)
+   - Performance analysis (identify ALL bottlenecks)
+   - Complex edge cases (find what breaks)
+   - Integration point validation (expose weak points)
    
-   Report: security, architecture, performance, complexity"
+   Report: security, architecture, performance, complexity
+   Include quality rating and specific improvement requirements"
 - Review validation report
 - If validation fails, YOU orchestrate recovery:
   * Analyze issues by severity (CRITICAL/HIGH/MEDIUM/LOW)
@@ -988,7 +1006,7 @@ When any validation or test fails, YOU (the conductor) handle recovery with the 
 ### Phase-Specific Recovery Map:
 ```python
 PHASE_RECOVERY_AGENTS = {
-  "implementation_skeleton": "skeleton-refiner",
+  "implementation_skeleton": "skeleton-builder or skeleton-builder-haiku",
   "test_skeleton": "test-skeleton-builder",
   "implementation": "implementation-executor",
   "test_implementation": "test-implementer",

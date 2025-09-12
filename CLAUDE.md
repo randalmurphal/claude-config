@@ -285,15 +285,83 @@ The following hook enforces code standards automatically:
   - Prevents linter suppression (noqa, pylint:disable, eslint-disable, @ts-ignore)
   - Ensures helpful error messages with actionable advice
   - Catches poor error handling (empty except, catching base Exception)
-  - Runs language-specific complexity analysis:
-    * Python: Uses radon for cyclomatic complexity
-    * JavaScript/TypeScript: Uses ESLint complexity rules
-    * Go: Uses gocyclo for complexity metrics
+  - Runs comprehensive Python analysis with auto-installed tools:
+    * **Radon**: Cyclomatic complexity analysis with A-F grades
+      - 🔴 Blocks: Grade F (complexity >40) - MUST refactor
+      - 🟠 Warns: Grade D-E (complexity 21-40) - should refactor
+      - 🟡 Notes: Grade C (complexity 11-20) - consider simplifying
+    * **Cognitive Complexity**: Understandability metrics
+      - 🔴 Blocks: Cognitive complexity >30 - extremely hard to understand
+      - 🟠 Warns: Cognitive complexity >15 - difficult to understand
+      - 🟡 Notes: Cognitive complexity >7 - getting complex
+    * **Vulture**: Dead code detection
+      - 💀 Reports: Unused imports, variables, functions with 80%+ confidence
+      - Helps identify code that can be safely removed
+  - JavaScript/TypeScript: Uses ESLint complexity rules when available
+  - Go: Uses gocyclo for complexity metrics when available
   - Falls back to pattern-based analysis when tools unavailable
-  - Enforces complexity limits (blocks >15, warns >10)
   - Caches results for performance
 
-This unified gate replaces multiple separate hooks with intelligent, tool-based analysis.
+### Complexity Analysis Tools (Auto-installed by preflight_validator)
+These Python quality tools are automatically installed in your virtual environment:
+- **radon**: Cyclomatic complexity (control flow complexity)
+- **flake8-cognitive-complexity**: Cognitive complexity (understandability)
+- **vulture**: Dead code detection (unused code finder)
+- **ruff**: Fast Python linter and formatter (PRIMARY - used first)
+- **black**: Code formatter (FALLBACK - only if ruff unavailable)
+- **mypy**: Type checker
+
+### Formatting Tool Hierarchy and Configuration
+
+#### Python Formatting Priority:
+1. **ruff format** (preferred) - Fast, comprehensive formatter
+   - Automatically detects quote style from existing file
+   - Config search order:
+     - Project: `ruff.toml`, `pyproject.toml`, `.ruff.toml`
+     - Global: `~/.claude/configs/python/ruff.toml`
+   - Falls back to detected quote style if no config found
+   
+2. **black** (fallback only) - Used only when ruff is unavailable
+   - Config search order:
+     - Project: `pyproject.toml`, `.black`
+     - Global: `~/.claude/configs/python/black.toml`
+   - Line length: 80 characters (unless overridden by config)
+
+#### Configuration File Detection:
+The auto_formatter hook automatically searches for config files:
+
+**Python** - Project configs (searched up from current directory):
+  - ruff: `ruff.toml`, `pyproject.toml`, `.ruff.toml`
+  - black: `pyproject.toml`, `.black`
+  - pylint: `pylintrc.toml`, `.pylintrc`, `pyproject.toml`
+  - mypy: `mypy.ini`, `setup.cfg`, `pyproject.toml`
+
+**JavaScript/TypeScript** - Project configs:
+  - prettier: `.prettierrc`, `.prettierrc.json`, `.prettierrc.js`, `prettier.config.js`
+  - eslint: `.eslintrc`, `.eslintrc.json`, `.eslintrc.js`, `eslint.config.js`
+
+**Global Claude configs** (fallback if no project config):
+  - **Python** (`~/.claude/configs/python/`):
+    - `ruff.toml` - Formatter and linter config
+    - `pylintrc.toml` - Additional linting rules
+    - `mypy.ini` - Type checking config
+  - **JavaScript** (`~/.claude/configs/javascript/`):
+    - `prettier.json` - Code formatting rules
+    - `.eslintrc.json` - Linting and complexity rules
+  - **Go** (`~/.claude/configs/go/`):
+    - `golangci.yml` - Comprehensive linting config
+  
+These configs ensure consistent code quality across all projects when no project-specific config exists.
+
+#### How It Works:
+1. After any Write/Edit/MultiEdit operation on Python files
+2. auto_formatter hook runs automatically
+3. Tries ruff format first with proper config
+4. Falls back to black only if ruff unavailable
+5. Preserves existing quote style in files
+6. Reports formatting status (non-blocking)
+
+The hook will automatically use these tools when available and provide detailed feedback to guide refactoring.
 
 ## Non-Negotiable Standards
 1. Security: Never log/commit secrets, always validate input

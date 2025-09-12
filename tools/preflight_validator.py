@@ -223,10 +223,18 @@ Your environment choice will be saved for future sessions.
         return False, error_msg, {}
     
     def install_python_tools(self, python_config: Dict) -> bool:
-        """Install Python quality tools in the virtual environment"""
+        """Install Python quality tools in the virtual environment
+        
+        Tool hierarchy:
+        - Formatting: ruff (primary), black (fallback only)
+        - Complexity: radon (cyclomatic), cognitive_complexity (understandability)
+        - Dead code: vulture
+        - Type checking: mypy
+        """
         print("📦 Installing Python quality tools...")
         
-        tools = ['radon', 'vulture', 'ruff', 'black', 'mypy']
+        # Note: ruff is the primary formatter, black is fallback only
+        tools = ['radon', 'flake8-cognitive-complexity', 'vulture', 'ruff', 'black', 'mypy']
         pip_cmd = python_config.get('pip_binary', 'pip')
         
         # Handle different venv types

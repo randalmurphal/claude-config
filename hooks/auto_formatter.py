@@ -193,6 +193,10 @@ class JavaScriptFormatter(LanguageFormatter):
             global_config = self.claude_config_dir / 'javascript' / 'prettier.json'
             if global_config.exists():
                 return str(global_config)
+        elif tool == 'eslint':
+            global_config = self.claude_config_dir / 'javascript' / '.eslintrc.json'
+            if global_config.exists():
+                return str(global_config)
         
         return None
     

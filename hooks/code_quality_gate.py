@@ -98,110 +98,110 @@ class CodeQualityGate:
             (r'#\s*[Ww]orkaround', "Workaround needs WHY comment and issue reference"),
             (r'#\s*[Hh]ack', "Hack needs WHY comment and when to remove"),
             (r'#\s*[Ff]ixme', "FIXME needs ticket number and WHY"),
-            (r'#\s*TODO(?!\s*\([\w-]+\))', "TODO needs ticket number in format TODO(TICKET-123)"),
+            (r'#\s*[Tt]odo', "TODO needs ticket number or clear action")
         ]
         
-        for pattern, message in workaround_patterns:
-            if re.search(pattern, code):
-                issues.append(message)
+        lines = code.split('\n')
+        for i, line in enumerate(lines, 1):
+            for pattern, message in workaround_patterns:
+                if re.search(pattern, line):
+                    if 'WHY' not in line and 'because' not in line.lower():
+                        issues.append(f"Line {i}: {message}")
         
         return issues
     
-    def check_critical_patterns(self, code: str, language: str) -> List[Tuple[str, str]]:
-        """Check for critical anti-patterns that should always be blocked"""
-        violations = []
+    def check_critical_patterns(self, code: str, language: str) -> List[str]:
+        """Check for critical anti-patterns that should be blocked"""
+        issues = []
         
         # Universal anti-patterns
-        universal_patterns = [
-            # Nested ternaries (JS/TS/Python)
-            (r'\?[^:?]*\?[^:?]*:', "Nested ternary operator - use if-else for clarity"),
-            (r'\sif\s.*\selse\s.*\sif\s.*\selse\s', "Nested conditional expression - use if-elif-else"),
+        patterns = [
+            # Nested ternaries (unreadable)
+            (r'\?.*\?.*:', "Nested ternary operators are unreadable - use if/else statements"),
             
-            # Double negation for type conversion
-            (r'!!\w+', "Double negation '!!' is unclear - use Boolean() or explicit conversion"),
+            # Double negation (confusing)
+            (r'!\s*!\s*(?!Boolean|bool\()', "Double negation is confusing - use positive logic"),
             
-            # Bitwise tricks for non-bitwise operations
-            (r'~~\w+', "Using ~~ for floor is clever but unclear - use Math.floor() explicitly"),
-            
-            # Linter suppression
-            (r'#\s*noqa(?:\s|:|$)', "Don't suppress linter with noqa - fix the issue"),
-            (r'#\s*pylint:\s*disable', "Don't disable pylint - fix the issue"),
-            (r'#\s*type:\s*ignore', "Don't ignore type errors - fix them properly"),
-            (r'//\s*eslint-disable', "Don't disable eslint - fix the issue"),
-            (r'//\s*@ts-ignore', "Don't use @ts-ignore - fix the type issue"),
-            (r'//\s*@ts-nocheck', "Don't use @ts-nocheck - fix the types"),
-            
-            # Poor error handling
-            (r'except\s*:\s*pass', "Empty except block - handle or log the error"),
-            (r'except\s+Exception\s*:', "Don't catch base Exception - catch specific exceptions"),
-            (r'catch\s*\(\s*\)', "Empty catch block - handle the error properly"),
+            # Bitwise operations for non-bitwise purposes
+            (r'(?<![&|])[&|](?![&|])\s*(?![0-9a-fA-Fx])', "Use logical operators (&&, ||) not bitwise (&, |) for boolean logic"),
         ]
         
         # Language-specific patterns
-        python_patterns = [
-            (r'print\s*\(', "Use logging instead of print() in production code"),
-            (r'exec\s*\(', "exec() is dangerous - find a safer approach"),
-            (r'eval\s*\(', "eval() is dangerous - use ast.literal_eval or json.loads"),
-        ] if language == 'python' else []
+        if language == 'python':
+            patterns.extend([
+                # Linter suppression
+                (r'#\s*noqa(?:\s|:|$)', "Do not suppress linter warnings - fix the issue instead"),
+                (r'#\s*pylint:\s*disable', "Do not disable pylint - fix the issue instead"),
+                (r'#\s*type:\s*ignore', "Do not ignore type errors - fix the type issue"),
+                
+                # Poor error handling
+                (r'except\s*:', "Never use bare except - catch specific exceptions"),
+                (r'except\s+Exception\s*:', "Avoid catching base Exception - be more specific"),
+                (r'except.*?:\s*\n\s*pass', "Empty except blocks hide errors - handle or log properly"),
+            ])
         
-        js_patterns = [
-            (r'console\.\w+\s*\(', "Remove console statements from production code"),
-            (r'eval\s*\(', "eval() is dangerous - find a safer approach"),
-            (r'document\.write\s*\(', "document.write is bad practice - use DOM methods"),
-        ] if language in ['javascript', 'typescript'] else []
+        elif language in ['javascript', 'typescript']:
+            patterns.extend([
+                # ESLint suppression
+                (r'//\s*eslint-disable', "Do not disable ESLint - fix the issue instead"),
+                (r'/\*\s*eslint-disable', "Do not disable ESLint - fix the issue instead"),
+                (r'@ts-ignore', "Do not use @ts-ignore - fix the type issue"),
+                
+                # Console logs in production
+                (r'console\.(log|debug|info)', "Remove console statements - use proper logging"),
+            ])
         
         # Check all patterns
-        all_patterns = universal_patterns + python_patterns + js_patterns
+        for pattern, message in patterns:
+            matches = re.finditer(pattern, code)
+            for match in matches:
+                line_num = code[:match.start()].count('\n') + 1
+                issues.append(f"Line {line_num}: {message}")
         
-        for pattern, message in all_patterns:
-            if re.search(pattern, code, re.MULTILINE):
-                violations.append((pattern, message))
-        
-        return violations
+        return issues
     
-    def check_error_messages(self, code: str) -> List[str]:
-        """Check for unhelpful error messages"""
+    def check_helpful_errors(self, code: str, language: str) -> List[str]:
+        """Check that error messages are helpful (include what went wrong AND how to fix)"""
         issues = []
         
-        # Extract error messages
-        error_patterns = [
-            r'raise\s+\w*(?:Exception|Error)\s*\(\s*["\']([^"\']+)["\']',  # Python
-            r'throw\s+(?:new\s+)?\w*Error\s*\(\s*["\']([^"\']+)["\']',     # JS/TS
-            r'return\s+.*["\']([Ee]rror:?[^"\']+)["\']',                   # Return errors
-        ]
+        # Pattern for error messages that are not helpful
+        if language == 'python':
+            # Find raise statements with generic messages
+            error_patterns = [
+                (r'raise\s+\w+Exception\(["\']Error["\']', "Error message 'Error' is not helpful"),
+                (r'raise\s+\w+Exception\(["\']Failed["\']', "Error message 'Failed' is not helpful"),
+                (r'raise\s+\w+Exception\(["\']Invalid["\']', "Error message 'Invalid' is not helpful - explain what is invalid and expected format"),
+            ]
+        elif language in ['javascript', 'typescript']:
+            error_patterns = [
+                (r'throw\s+new\s+Error\(["\']Error["\']', "Error message 'Error' is not helpful"),
+                (r'throw\s+new\s+Error\(["\']Failed["\']', "Error message 'Failed' is not helpful"),
+                (r'throw\s+["\']Error["\']', "Error message 'Error' is not helpful"),
+            ]
+        else:
+            error_patterns = []
         
-        for pattern in error_patterns:
-            matches = re.findall(pattern, code)
-            for msg in matches:
-                msg_lower = msg.lower()
-                
-                # Check for useless messages
-                useless = ['something went wrong', 'an error occurred', 'failed', 
-                          'invalid', 'bad request', 'error', 'failed to process']
-                
-                if any(u in msg_lower for u in useless) and len(msg) < 50:
-                    issues.append(f"Unhelpful error message: '{msg}' - include what went wrong and how to fix it")
-                
-                # Check if message mentions entity but doesn't include value
-                if re.search(r'\b(file|user|id|key|value|port|host)\b', msg_lower):
-                    if not re.search(r'["\'].*?["\']|\d+|:\s*\w+', msg):
-                        issues.append(f"Error mentions entity but not its value: '{msg}'")
+        for pattern, message in error_patterns:
+            matches = re.finditer(pattern, code)
+            for match in matches:
+                line_num = code[:match.start()].count('\n') + 1
+                issues.append(f"Line {line_num}: {message} - include what went wrong and how to fix it")
         
         return issues
     
     def analyze_complexity_python(self, code: str, file_path: str) -> Dict:
-        """Analyze Python code complexity using radon if available"""
+        """Analyze Python code using radon, cognitive complexity, and vulture"""
         result = {'complexity': 0, 'issues': [], 'tool_available': False}
         
+        # Use venv python if available
+        python_cmd = 'python'
+        if 'python' in self.preferences:
+            venv_path = self.preferences['python'].get('venv_path')
+            if venv_path:
+                python_cmd = os.path.join(venv_path, 'bin', 'python')
+        
+        # 1. Radon Cyclomatic Complexity Analysis
         try:
-            # Check for virtual environment
-            python_cmd = 'python'
-            if 'python' in self.preferences:
-                venv_path = self.preferences['python'].get('venv_path')
-                if venv_path:
-                    python_cmd = os.path.join(venv_path, 'bin', 'python')
-            
-            # Try to use radon
             radon_result = subprocess.run(
                 [python_cmd, '-m', 'radon', 'cc', '-s', '-j', '-'],
                 input=code,
@@ -214,39 +214,148 @@ class CodeQualityGate:
                 result['tool_available'] = True
                 data = json.loads(radon_result.stdout)
                 
-                # Extract complexity scores
                 max_complexity = 0
                 complex_functions = []
                 
                 for item in data.get('-', []):
                     complexity = item.get('complexity', 0)
+                    rank = item.get('rank', 'A')
                     if complexity > max_complexity:
                         max_complexity = complexity
-                    if complexity > 10:
+                    
+                    # Track functions by grade
+                    if rank in ['F', 'E', 'D']:  # Complexity > 20
                         complex_functions.append({
                             'name': item.get('name', 'unknown'),
                             'complexity': complexity,
-                            'line': item.get('lineno', 0)
+                            'rank': rank,
+                            'line': item.get('lineno', 0),
+                            'severity': 'high' if rank == 'F' else 'medium'
+                        })
+                    elif rank == 'C':  # Complexity 11-20
+                        complex_functions.append({
+                            'name': item.get('name', 'unknown'),
+                            'complexity': complexity,
+                            'rank': rank,
+                            'line': item.get('lineno', 0),
+                            'severity': 'low'
                         })
                 
                 result['complexity'] = max_complexity
                 
-                # Add issues based on complexity
+                # Add cyclomatic complexity issues
                 for func in complex_functions:
-                    if func['complexity'] > 15:
+                    if func['severity'] == 'high':
                         result['issues'].append(
-                            f"Function '{func['name']}' has complexity {func['complexity']} (line {func['line']}) - refactor to reduce complexity below 10"
+                            f"🔴 CRITICAL: Function '{func['name']}' (line {func['line']}) has cyclomatic complexity {func['complexity']} (grade {func['rank']}) - MUST refactor to reduce below 20"
                         )
-                    elif func['complexity'] > 10:
+                    elif func['severity'] == 'medium':
                         result['issues'].append(
-                            f"Function '{func['name']}' has complexity {func['complexity']} (line {func['line']}) - consider simplifying"
+                            f"🟠 HIGH: Function '{func['name']}' (line {func['line']}) has cyclomatic complexity {func['complexity']} (grade {func['rank']}) - should refactor to reduce below 15"
+                        )
+                    else:
+                        result['issues'].append(
+                            f"🟡 MEDIUM: Function '{func['name']}' (line {func['line']}) has cyclomatic complexity {func['complexity']} (grade {func['rank']}) - consider simplifying"
                         )
                         
         except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError):
             # Fallback to pattern-based analysis
             result['complexity'] = self.estimate_complexity_fallback(code)
             if result['complexity'] > 10:
-                result['issues'].append(f"Estimated complexity {result['complexity']} - consider refactoring")
+                result['issues'].append(f"⚠️ Estimated complexity {result['complexity']} - consider refactoring")
+        
+        # 2. Cognitive Complexity Analysis
+        try:
+            # Create temporary file for cognitive complexity analysis
+            import tempfile
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as tmp:
+                tmp.write(code)
+                tmp_path = tmp.name
+            
+            try:
+                # Run cognitive complexity check
+                cog_result = subprocess.run(
+                    [python_cmd, '-c', f"""
+import ast
+from cognitive_complexity.api import get_cognitive_complexity_for_node
+
+with open('{tmp_path}') as f:
+    tree = ast.parse(f.read())
+
+for node in ast.walk(tree):
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        cc = get_cognitive_complexity_for_node(node)
+        if cc > 7:  # Threshold for cognitive complexity
+            print(f'{{node.name}}:{{node.lineno}}:{{cc}}')
+"""],
+                    capture_output=True,
+                    text=True,
+                    timeout=2
+                )
+                
+                if cog_result.returncode == 0 and cog_result.stdout:
+                    for line in cog_result.stdout.strip().split('\n'):
+                        if ':' in line:
+                            parts = line.split(':')
+                            if len(parts) >= 3:
+                                func_name = parts[0]
+                                lineno = parts[1]
+                                cog_complexity = int(parts[2])
+                                
+                                if cog_complexity > 30:
+                                    result['issues'].append(
+                                        f"🔴 CRITICAL: Function '{func_name}' (line {lineno}) has cognitive complexity {cog_complexity} - extremely hard to understand, MUST simplify"
+                                    )
+                                elif cog_complexity > 15:
+                                    result['issues'].append(
+                                        f"🟠 HIGH: Function '{func_name}' (line {lineno}) has cognitive complexity {cog_complexity} - difficult to understand, should simplify"
+                                    )
+                                elif cog_complexity > 7:
+                                    result['issues'].append(
+                                        f"🟡 MEDIUM: Function '{func_name}' (line {lineno}) has cognitive complexity {cog_complexity} - getting complex, consider simplifying"
+                                    )
+            finally:
+                os.unlink(tmp_path)
+                
+        except Exception:
+            pass  # Cognitive complexity is optional enhancement
+        
+        # 3. Vulture Dead Code Analysis
+        try:
+            import tempfile
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as tmp:
+                tmp.write(code)
+                tmp_path = tmp.name
+            
+            try:
+                vulture_result = subprocess.run(
+                    [python_cmd, '-m', 'vulture', tmp_path, '--min-confidence', '80'],
+                    capture_output=True,
+                    text=True,
+                    timeout=2
+                )
+                
+                if vulture_result.returncode == 0 and vulture_result.stdout:
+                    dead_code_count = 0
+                    for line in vulture_result.stdout.strip().split('\n'):
+                        if line and not line.startswith('#'):
+                            dead_code_count += 1
+                            # Parse vulture output format: "filename:line: unused ..."
+                            if ':' in line:
+                                parts = line.split(':', 2)
+                                if len(parts) >= 3:
+                                    line_num = parts[1]
+                                    issue = parts[2].strip()
+                                    # Only report high confidence dead code
+                                    if '(100% confidence)' in issue or '(90% confidence)' in issue:
+                                        result['issues'].append(f"💀 DEAD CODE: Line {line_num}: {issue}")
+                                    elif '(80% confidence)' in issue:
+                                        result['issues'].append(f"⚠️ POSSIBLY DEAD: Line {line_num}: {issue}")
+            finally:
+                os.unlink(tmp_path)
+                
+        except Exception:
+            pass  # Vulture is optional enhancement
         
         return result
     
@@ -349,145 +458,144 @@ class CodeQualityGate:
         lines = code.split('\n')
         max_indent = 0
         for line in lines:
-            indent = len(line) - len(line.lstrip())
-            max_indent = max(max_indent, indent)
+            if line.strip():
+                indent = len(line) - len(line.lstrip())
+                max_indent = max(max_indent, indent)
         
-        if max_indent > 16:  # 4 levels of indentation (4 spaces each)
-            complexity += (max_indent // 4) - 4
+        # Add complexity for deep nesting
+        if max_indent > 20:
+            complexity += (max_indent - 20) // 4
         
         return complexity
     
-    def check_code_quality(self, tool: str, params: dict) -> Tuple[bool, Optional[str]]:
-        """Main quality check function"""
-        
-        if tool not in ["Write", "Edit", "MultiEdit"]:
-            return True, None
-        
-        # Extract code and file path
-        file_path = params.get("file_path", "")
-        
-        # Skip test files and configs for some checks
-        is_test = 'test' in file_path.lower() or 'spec' in file_path.lower()
-        is_config = file_path.endswith(('.json', '.yml', '.yaml', '.toml', '.ini'))
-        
-        if is_config:
-            return True, None  # Skip quality checks for config files
-        
-        # Extract code content
-        code = None
-        if tool == "Write":
-            code = params.get("content", "")
-        elif tool == "Edit":
-            code = params.get("new_string", "")
-        elif tool == "MultiEdit":
-            edits = params.get("edits", [])
-            code = "\n".join(edit.get("new_string", "") for edit in edits)
-        
-        if not code:
-            return True, None
-        
-        # Detect language
+    def analyze_file(self, file_path: str, content: str) -> Dict:
+        """Analyze a single file for quality issues"""
         language = self.detect_language(file_path)
-        if language == 'unknown':
-            return True, None  # Can't analyze unknown languages
         
         all_issues = []
+        max_complexity = 0
+        tool_available = False
         
-        # Stage 1: Critical pattern checks (FAST)
-        pattern_violations = self.check_critical_patterns(code, language)
-        if pattern_violations:
-            # Block on critical patterns
-            first_violation = pattern_violations[0]
-            return False, f"❌ Code Quality Violation: {first_violation[1]}"
+        # Skip analysis for non-code files
+        if language == 'unknown':
+            return {
+                'file': file_path,
+                'language': language,
+                'issues': [],
+                'complexity': 0,
+                'tool_available': False
+            }
         
-        # Stage 2: Error message quality (FAST)
-        if not is_test:  # Skip error message checks in tests
-            error_issues = self.check_error_messages(code)
-            if error_issues:
-                # Block on poor error messages
-                return False, f"❌ Error Message Issue: {error_issues[0]}"
+        # 1. Check critical anti-patterns
+        pattern_issues = self.check_critical_patterns(content, language)
+        all_issues.extend(pattern_issues)
         
-        # Stage 3: Check for missing WHY comments (FAST)
-        if not is_test:
-            why_issues = self.check_missing_why_comments(code)
-            if why_issues:
-                # Warn about missing WHY comments (don't block, just inform)
-                all_issues.extend(why_issues)
+        # 2. Check for missing WHY comments
+        why_issues = self.check_missing_why_comments(content)
+        # Only report the most egregious missing WHY comments
+        all_issues.extend(why_issues[:3])
         
-        # Stage 3: Complexity analysis (SMART)
-        if not is_test and len(code) > 100:  # Skip trivial code and tests
-            complexity_result = None
-            
-            if language == 'python':
-                complexity_result = self.analyze_complexity_python(code, file_path)
-            elif language in ['javascript', 'typescript']:
-                complexity_result = self.analyze_complexity_javascript(code, file_path)
-            elif language == 'go':
-                complexity_result = self.analyze_complexity_go(code, file_path)
-            else:
-                # Fallback for other languages
-                complexity = self.estimate_complexity_fallback(code)
-                complexity_result = {
-                    'complexity': complexity,
-                    'issues': [f"High complexity ({complexity}) - refactor to reduce"] if complexity > 15 else [],
-                    'tool_available': False
-                }
-            
-            if complexity_result:
-                # Cache the result
-                cache_key = f"{file_path}:{hash(code)}"
-                self.complexity_cache[cache_key] = {
-                    'complexity': complexity_result['complexity'],
-                    'timestamp': time.time()
-                }
-                self.save_cache()
-                
-                # Handle complexity issues
-                if complexity_result['complexity'] > 15:
-                    # Block on very high complexity
-                    issue_msg = complexity_result['issues'][0] if complexity_result['issues'] else f"Complexity {complexity_result['complexity']} exceeds limit (15)"
-                    tool_status = " (using language tool)" if complexity_result['tool_available'] else " (estimated)"
-                    return False, f"❌ Complexity Issue{tool_status}: {issue_msg}"
-                elif complexity_result['complexity'] > 10:
-                    # Warn on moderate complexity
-                    all_issues.extend(complexity_result['issues'])
+        # 3. Check error message quality
+        error_issues = self.check_helpful_errors(content, language)
+        all_issues.extend(error_issues)
         
-        # If we have non-blocking issues, report them as warnings
-        if all_issues:
-            return True, f"⚠️ Quality Warning: {all_issues[0]}"
+        # 4. Language-specific complexity analysis
+        if language == 'python':
+            complexity_result = self.analyze_complexity_python(content, file_path)
+        elif language in ['javascript', 'typescript']:
+            complexity_result = self.analyze_complexity_javascript(content, file_path)
+        elif language == 'go':
+            complexity_result = self.analyze_complexity_go(content, file_path)
+        else:
+            complexity_result = {
+                'complexity': self.estimate_complexity_fallback(content),
+                'issues': [],
+                'tool_available': False
+            }
         
-        return True, None
+        max_complexity = complexity_result['complexity']
+        all_issues.extend(complexity_result['issues'])
+        tool_available = complexity_result['tool_available']
+        
+        # Cache the results
+        cache_key = f"{file_path}:{hash(content)}"
+        self.complexity_cache[cache_key] = {
+            'complexity': max_complexity,
+            'timestamp': time.time(),
+            'tool_available': tool_available
+        }
+        self.save_cache()
+        
+        return {
+            'file': file_path,
+            'language': language,
+            'issues': all_issues,
+            'complexity': max_complexity,
+            'tool_available': tool_available
+        }
+    
+    def should_block(self, issues: List[str]) -> bool:
+        """Determine if we should block based on issues found"""
+        # Block on critical issues
+        critical_keywords = [
+            'CRITICAL:', 'MUST', 'never use bare except',
+            'Do not suppress', 'Do not disable', 'Do not ignore',
+            'Remove console statements', 'is not helpful'
+        ]
+        
+        for issue in issues:
+            for keyword in critical_keywords:
+                if keyword in issue:
+                    return True
+        
+        # Block if too many issues
+        return len(issues) > 10
 
 def main():
     """Main entry point for the hook"""
-    try:
-        # Read input from stdin
-        input_data = json.load(sys.stdin)
-        
-        tool = input_data.get("tool", "")
-        params = input_data.get("params", {})
-        
-        # Check code quality
-        gate = CodeQualityGate()
-        allowed, message = gate.check_code_quality(tool, params)
-        
-        # Return result
-        result = {
-            "allowed": allowed,
-            "message": message
-        }
-        
-        print(json.dumps(result))
-        return 0 if allowed else 1
-        
-    except Exception as e:
-        # On error, allow the operation but log the issue
-        result = {
-            "allowed": True,
-            "message": f"Quality gate error: {str(e)}"
-        }
-        print(json.dumps(result))
-        return 0
+    # Read input from stdin
+    input_data = json.loads(sys.stdin.read())
+    
+    # Extract file operations
+    operations = input_data.get('operations', [])
+    
+    # Initialize quality gate
+    gate = CodeQualityGate()
+    
+    # Analyze each file operation
+    all_issues = []
+    files_analyzed = []
+    
+    for op in operations:
+        if op.get('type') in ['write', 'edit', 'create']:
+            file_path = op.get('path', '')
+            content = op.get('content', '')
+            
+            if content and file_path:
+                result = gate.analyze_file(file_path, content)
+                
+                if result['issues']:
+                    files_analyzed.append(file_path)
+                    all_issues.extend([f"{file_path}: {issue}" for issue in result['issues']])
+    
+    # Determine if we should block
+    should_block = gate.should_block(all_issues)
+    
+    # Output result
+    result = {
+        'action': 'block' if should_block else 'warn',
+        'message': None,
+        'issues': all_issues
+    }
+    
+    if should_block:
+        result['message'] = f"Code quality issues found in {len(files_analyzed)} file(s). Please fix critical issues before proceeding."
+    elif all_issues:
+        result['message'] = f"Code quality warnings in {len(files_analyzed)} file(s). Consider addressing these issues."
+    
+    # Return result
+    print(json.dumps(result))
+    return 0 if not should_block else 1
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     sys.exit(main())

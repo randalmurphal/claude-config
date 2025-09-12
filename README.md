@@ -49,17 +49,22 @@ Symphony transforms Claude Code into a powerful development conductor, managing 
 └── ARCHITECTURAL_DECISIONS.json # Merge/purge decisions
 
 ~/.claude/                    # User configuration (separate)
+├── tools/                     # Orchestration tools and utilities
+│   ├── preflight_validator.py # Enforces virtual environments and installs quality tools
+│   └── [other tools]          # Various utility scripts
+│
 ├── agents/                    # Specialized sub-agents
 │   ├── skeleton-builder.md    # Creates implementation structure (Sonnet)
 │   ├── skeleton-builder-haiku.md # Fast skeleton creation (Haiku) ✨
+│   ├── skeleton-beautifier.md # Makes skeletons beautiful (Default) ✨ NEW
 │   ├── skeleton-reviewer.md   # Reviews with issue categorization (Default)
 │   ├── test-skeleton-builder.md # Creates test structure (Sonnet)
 │   ├── test-skeleton-builder-haiku.md # Fast test skeleton (Haiku) ✨
 │   ├── implementation-executor.md # Implements code (Default)
+│   ├── code-beautifier.md     # Beautifies implementation (Default) ✨ NEW
 │   ├── test-implementer.md    # Implements tests (Default)
 │   ├── validator-quick-haiku.md # Fast validation checks (Haiku) ✨
 │   ├── test-runner-haiku.md   # Execute tests and report (Haiku) ✨
-│   ├── preflight-validator-haiku.md # Fast environment checks (Haiku) ✨
 │   ├── consolidation-analyzer.md # Post-merge integration
 │   ├── merge-coordinator.md   # Merges code AND context
 │   ├── context-builder.md     # Phase transition manager
@@ -74,7 +79,8 @@ Symphony transforms Claude Code into a powerful development conductor, managing 
 ├── hooks/                   # Event-driven automation
 │   ├── auto_formatter.py    # Universal code formatter for multiple languages
 │   ├── assumption_detector.py # Catches assumptions in real-time
-│   └── [enforcement hooks]  # Various code quality enforcers
+│   ├── code_quality_gate.py # Unified quality enforcement with complexity analysis
+│   └── [other hooks]        # Various automation hooks
 
 ├── configs/                 # Language-specific formatter configs
 │   ├── python/             # ruff, pylint, mypy configs
@@ -92,12 +98,13 @@ Symphony transforms Claude Code into a powerful development conductor, managing 
 
 ### Main Command: `/conduct`
 
-The Symphony orchestration follows a **7-phase workflow** with merge-purge-continue cycles:
+The Symphony orchestration follows a **7-phase workflow** with optional beautification phases:
 
 ```
 1. Business Logic Extraction → Extract rules before architecture
-2. Architecture & Validation → 95% confidence required
+2. Architecture & Validation → 95% confidence required, document WHY
 3. Implementation Skeleton → Create structure with interfaces
+   2.5. Skeleton Beautification → Optional DRY and clarity improvements
 4. Test Skeleton → Define test structure (no implementation)
 5. Implementation (3 Cycles):
    Cycle 1: Initial Implementation (2 hours)
@@ -115,9 +122,10 @@ The Symphony orchestration follows a **7-phase workflow** with merge-purge-conti
    - Redistribute clean code
    - Continue from consistent state
    
+   4.5. Code Beautification → Optional DRY and complexity reduction
+   
 6. Test Implementation → Write tests against real code
-7. Validation → Comprehensive checks
-8. Documentation → Update project docs
+7. Validation & Documentation → Comprehensive checks and doc updates
 ```
 
 ### Key Principles
@@ -173,13 +181,41 @@ python .symphony/tools/orchestration.py record-deviation \
 }
 ```
 
-### 2. **Pre-flight Validation** (User-specific caching)
-- Checks environment readiness before starting
-- Caches results in `~/.claude/preflight/{project_hash}.json`
-- Avoids git conflicts with user-specific storage
-- Offers recovery options if environment isn't ready
+### 2. **Pre-flight Validation** (Environment enforcement)
+- Enforces virtual environment for Python projects (MANDATORY)
+- Installs quality tools in appropriate environments:
+  - Python: radon, vulture, ruff in project venv
+  - JavaScript: eslint, prettier as dev dependencies
+  - Go: gocyclo, golangci-lint via go install
+- Caches validation in `~/.claude/preflight/{project_hash}.json`
+- Saves project preferences including venv paths
+- STOPS orchestration if environment setup fails
 
-### 3. **Semantic Skeleton Diff**
+### 3. **Unified Quality Gate** (`code_quality_gate.py`)
+- Single hook combining all critical quality checks:
+  - Blocks anti-patterns (nested ternaries, double negation, linter suppression)
+  - Ensures helpful error messages with actionable advice
+  - Runs language-specific complexity analysis:
+    * Python: radon for cyclomatic complexity
+    * JavaScript: ESLint complexity rules
+    * Go: gocyclo for metrics
+  - Enforces limits: blocks complexity >15, warns >10
+  - Falls back to pattern analysis when tools unavailable
+  - Caches results for performance
+
+### 4. **Context Flow System**
+All agents receive essential context:
+- **CLAUDE.md**: Coding standards and principles
+- **INVARIANTS.md**: Unbreakable rules with WHY
+- **DECISION_MEMORY.json**: All decisions with reasoning
+- **GOTCHAS.md**: Project-specific patterns
+
+WHO adds WHY comments:
+- **Architects**: Design decisions
+- **Implementers**: Discoveries and workarounds
+- **Beautifiers**: Only if changes obscure reasoning
+
+### 5. **Semantic Skeleton Diff**
 - Only modifies files that need changes
 - Preserves working code during refinements
 - 10x faster than full rebuilds

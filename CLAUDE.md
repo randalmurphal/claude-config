@@ -138,10 +138,34 @@ Before considering ANY task complete:
   - Even "obvious" numbers: Use names (MONTHS_PER_YEAR = 12)
   - Include units in name when relevant (TIMEOUT_SECONDS = 30)
 
+## Decision Memory & Context Preservation
+
+### Decision Memory System
+Track WHY decisions were made across the project lifecycle:
+- Store in `.symphony/DECISION_MEMORY.json`
+- Record architectural choices with reasoning
+- Document deviations with justification
+- Preserve anti-patterns discovered with context
+
+### Invariants Documentation
+Document rules that must NEVER be violated:
+- Store in `INVARIANTS.md` in project root
+- Include WHY each invariant exists
+- Reference specific incidents/requirements
+- Update when new invariants discovered
+
+Example invariant:
+```
+Auth checks ALWAYS before data access
+WHY: Security audit requirement from breach incident
+CONSEQUENCE: Unauthorized data exposure, compliance violation
+```
+
 ## Integration with Hooks
 - PreCompact hook tracks context - focus on the current task
 - Failed attempts are preserved - don't explain past failures unless asked
 - Working solutions are tracked - build on what works
+- code_quality_gate enforces documentation standards
 
 ## Test Standards
 1. **Unit Tests**: One test class per function, mock ALL dependencies
@@ -162,13 +186,81 @@ Before considering ANY task complete:
 
 **Core Philosophy**: Beautiful code makes the solution look obvious in hindsight. The complexity should be in the thinking, not the code.
 
+### Fundamental Rules
 1. **Clarity Over Cleverness**: Write boring, obvious code. If it needs explaining, it's too clever
-2. **Hide Complexity Behind Simple Interfaces**: Complex internals are fine if the API is simple
-3. **Avoid Over-Abstraction**: No single-line wrapper functions, no interfaces with one implementation, inline simple operations
-4. **Consolidate at 2+ Instances**: Duplication is fine for first instance, consolidate when pattern repeats (2+ uses)
-5. **Optimize for Change, Not Perfection**: Make the next change easy, not the current code "perfect"
-6. **Combine When Possible**: Batch operations, merge similar handlers, consolidate related configs
-7. **Clear Data Flow**: Prefer returns over mutations, avoid hidden side effects, don't modify inputs
+2. **Self-Documenting Code First**: Good names > comments. Only comment WHY, not WHAT
+3. **Hide Complexity Behind Simple Interfaces**: Complex internals are fine if the API is simple
+4. **Avoid Over-Abstraction**: No single-line wrapper functions, no interfaces with one implementation, inline simple operations
+5. **Clear Data Flow**: Prefer returns over mutations, avoid hidden side effects, don't modify inputs
+
+### DRY Principles (Don't Repeat Yourself)
+1. **2+ Rule for Logic**: If logic appears 2+ times, extract it
+2. **3+ Rule for Constants**: If a value appears 3+ times, name it
+3. **Multi-line Duplication**: Any multi-line logic repeated = immediate extraction
+4. **Pattern Recognition**: Similar structure with different values = parameterize
+
+### Self-Documenting Code Requirements
+1. **Function Names**: Verb + noun (e.g., `calculateTotalPrice`, `validateUserInput`)
+2. **Boolean Names**: Questions (e.g., `isValid`, `hasPermission`, `canExecute`)
+3. **Variable Names**: Describe content, not type (e.g., `userEmails` not `emailArray`)
+4. **Function Length**: Max 20 lines for logic, 40 for orchestration
+5. **Single Responsibility**: If name has "and" in it, split the function
+
+### Documentation Standards (Ousterhout-Inspired)
+1. **Docstrings Required For**:
+   - All public APIs (explain interface contract)
+   - Complex algorithms (explain WHY this approach)
+   - Non-obvious business logic (explain domain context)
+   - Functions with 3+ parameters (explain each parameter's purpose)
+   - Deep modules (simple interface, complex internals)
+
+2. **WHY Comments - Add Only When Needed**:
+   
+   **WHO adds WHY comments**:
+   - **Skeleton builder**: Architectural decisions, module separation reasons
+   - **Implementer**: Workarounds discovered, performance choices, security decisions
+   - **Beautifier**: ONLY if extraction makes reasoning less obvious AND they understand why
+   
+   **WHEN to add WHY**:
+   - Design decisions that aren't self-evident
+   - Workarounds (always need WHY and when to remove)
+   - Performance optimizations (why this specific approach)
+   - Security validations (what specific attack prevented)
+   - Magic numbers that aren't self-documenting constants
+   - Deviations from established patterns
+   - Non-obvious coupling decisions
+   
+   **DON'T add WHY for obvious code**:
+   ```python
+   # BAD - Obvious, don't comment
+   def get_user_by_id(user_id):
+       """Gets user by ID"""  # Redundant
+       # WHY: Need to fetch user  # Obvious
+       return db.query(User).filter_by(id=user_id).first()
+   
+   # GOOD - Non-obvious, needs WHY
+   def get_user_by_id(user_id):
+       # WHY: Using first() not one() because missing users are common
+       # during migration period (ends 2024-06)
+       return db.query(User).filter_by(id=user_id).first()
+   ```
+
+3. **Module Shape Documentation**:
+   ```python
+   """
+   MODULE SHAPE:
+   - Entry: main API functions
+   - Core: deep modules providing functionality
+   - Pattern: how data flows through module
+   - Complexity: where it's hidden and why
+   - Invariants: rules that must never be broken
+   """
+   ```
+
+4. **Never Comment**:
+   - What code does (should be obvious from names)
+   - Unused code (delete it)
+   - TODOs without ticket numbers and date
 
 ## Modification Boundaries
 1. **Stay in Scope**: Only modify files directly related to the task
@@ -187,15 +279,21 @@ Before considering ANY task complete:
 
 ## Hook Enforcement
 
-The following hooks enforce code standards automatically:
-- **scope_boundary**: Prevents modifications outside task scope (conduct-only)
-- **complexity_detector**: Prevents over-abstraction and premature patterns
-- **clarity_enforcer**: Blocks overly clever code  
-- **error_message_checker**: Ensures human-friendly errors
-- **linter_enforcement**: Blocks ignore comments and requires proper fixes
-- **duplication_checker**: Suggests consolidation at 2+ instances
+The following hook enforces code standards automatically:
+- **code_quality_gate**: Unified quality enforcement combining all critical checks
+  - Blocks critical anti-patterns (nested ternaries, double negation, bitwise tricks)
+  - Prevents linter suppression (noqa, pylint:disable, eslint-disable, @ts-ignore)
+  - Ensures helpful error messages with actionable advice
+  - Catches poor error handling (empty except, catching base Exception)
+  - Runs language-specific complexity analysis:
+    * Python: Uses radon for cyclomatic complexity
+    * JavaScript/TypeScript: Uses ESLint complexity rules
+    * Go: Uses gocyclo for complexity metrics
+  - Falls back to pattern-based analysis when tools unavailable
+  - Enforces complexity limits (blocks >15, warns >10)
+  - Caches results for performance
 
-These run automatically via settings.json and provide real-time feedback.
+This unified gate replaces multiple separate hooks with intelligent, tool-based analysis.
 
 ## Non-Negotiable Standards
 1. Security: Never log/commit secrets, always validate input

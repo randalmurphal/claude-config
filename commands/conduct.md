@@ -145,21 +145,29 @@ Before proceeding with ANY task:
 
 ### Initial Setup:
 
-0. **Pre-flight Environment Validation** (NEW - PREVENTS FAILURES):
-   - Calculate project hash from working directory path
-   - Check for cached validation in `~/.claude/preflight/{project_hash}.json` (user home, not project)
-   - If no valid cache (or older than 7 days):
-     * Launch preflight-validator-haiku agent (FAST CHECK):
-       "Validate environment readiness for {working_directory}
-        Check language-specific requirements based on project files
-        Store results in user-specific cache to avoid git conflicts"
-     * If validation fails:
-       - Present missing requirements to user
-       - Offer options: A) Fix now, B) New session to fix, C) Continue anyway
-       - If B: "Open new Claude session for fixes, return here when done"
-       - After fixes: Re-run validation
-     * If validation passes: Continue with setup
-   - Log: "Environment validated (cache used: yes/no)"
+0. **Pre-flight Environment Validation** (CRITICAL - ENFORCES PROPER SETUP):
+   - Run validation script directly (YOU can run this as conductor):
+     ```bash
+     python ~/.claude/tools/preflight_validator.py {working_directory}
+     ```
+   - This script will:
+     * Detect languages (Python, JavaScript, Go, etc.) in the project
+     * For Python: ENFORCE virtual environment requirement
+       - If no venv found: STOP with clear instructions
+       - User must create venv in another window and return
+     * Install quality tools in the appropriate environment:
+       - Python: radon, vulture, ruff in the project's venv
+       - JavaScript: eslint, prettier as dev dependencies
+       - Go: gocyclo, golangci-lint via go install
+     * Save project preferences including venv paths
+     * Cache validation for 7 days to avoid re-running
+   - If validation fails (returns non-zero):
+     * STOP orchestration
+     * Display error message (usually about missing venv)
+     * User must fix in another terminal and re-run conduct
+   - If validation passes:
+     * Log: "✅ Environment validated and tools installed"
+     * Continue with setup
 
 1. **Working Directory Detection** (CRITICAL):
    - If task mentions specific tool/module (e.g., "tenable_sc", "qualys", etc.):
@@ -175,15 +183,25 @@ Before proceeding with ANY task:
    - Check if `{working_directory}/CLAUDE.md` exists (technical documentation)
      * If missing: Run project-analyzer agent first to create comprehensive docs
      * If exists: Use for reference (doc-maintainer will update if needed)
+   - Check if `{working_directory}/INVARIANTS.md` exists
+     * If missing: Create with template for documenting unbreakable rules
+   - Initialize Decision Memory system:
+     ```bash
+     # Create decision tracking structure
+     touch {working_directory}/.symphony/DECISION_MEMORY.json
+     echo '{"phases": {}, "patterns": {}, "anti_patterns": {}}' > {working_directory}/.symphony/DECISION_MEMORY.json
+     ```
    - Create mission context using orchestration tool:
      ```bash
      python {working_directory}/.symphony/tools/orchestration.py \
        --working-dir {working_directory} \
        create-mission "[User's exact prompt - verbatim]" \
-       --criteria "What completion looks like"
+       --criteria "What completion looks like" \
+       --why "User's business reason if known"
      ```
    - This automatically creates:
-     * MISSION_CONTEXT.json with original request
+     * MISSION_CONTEXT.json with original request and WHY
+     * DECISION_MEMORY.json for tracking choices
      * Directory structure for tracking
      * Proper absolute paths throughout
 
@@ -321,9 +339,10 @@ test_structure:
   e2e_tests: OPTIONAL - only if UI/API exists
 
 quality_validation:
-  tool: Standard language tools (ruff, eslint, go fmt, etc.)
-  frequency: After each phase
-  blocking: Failures prevent phase completion
+  hook: code_quality_gate.py runs on all Write/Edit operations
+  tools: Language-specific (radon/eslint/gocyclo) installed via preflight
+  frequency: Real-time during coding + after each phase
+  blocking: Critical issues block immediately, warnings shown
 ```
 
 ## ORCHESTRATE Phased Workflow (DO NOT IMPLEMENT - ONLY DELEGATE):
@@ -479,8 +498,10 @@ Step 1D: Architecture Planning (ONLY AFTER 95% CONFIDENCE + Business Logic)
    
    Read {working_directory}/.symphony/TASK_CONTEXT.json for validated facts.
    Reference patterns from {working_directory}/CLAUDE.md if it exists.
-   Document architectural decisions in TASK_CONTEXT.json.
-   Output structured BOUNDARIES.json for parallel work."
+   Document architectural decisions in:
+   - TASK_CONTEXT.json (facts and confidence)
+   - DECISION_MEMORY.json (WHY for each decision)
+   Output structured BOUNDARIES.json for parallel work with WHY for boundaries."
 
 - Use Task tool to launch api-contract-designer agent (if APIs involved):
   "Design minimal API contracts. Prefer simple REST over complex patterns."
@@ -643,6 +664,35 @@ GATE 1: Implementation Skeleton Review
   IF verdict = "APPROVED":
   - Log: "Implementation skeleton validated"
   - Proceed to Phase 3
+
+### Phase 2.5: Skeleton Beautification (OPTIONAL BUT RECOMMENDED)
+
+**Trigger**: After skeleton approval, if complexity warrants
+
+- Use Task tool with subagent_type="skeleton-beautifier":
+  "Beautify the implementation skeleton
+   
+   WORKING DIRECTORY: {working_directory}
+   
+   CONTEXT FILES TO READ:
+   - Standards: {working_directory}/CLAUDE.md
+   - Invariants: {working_directory}/INVARIANTS.md  
+   - Decisions: {working_directory}/.symphony/DECISION_MEMORY.json
+   
+   Your mission: Make this skeleton beautiful and obvious
+   - Apply DRY principles from CLAUDE.md
+   - Extract any logic appearing 2+ times
+   - ONLY add WHY if extraction makes reasoning unclear
+   - Document module shapes if missing
+   
+   Update DECISION_MEMORY.json with beautification choices
+   
+   Success: New hire understands in 5 minutes"
+
+- Review beautification:
+  * Check metrics improved
+  * Verify interfaces unchanged
+  * Confirm added documentation
 
 ### Phase 2 → 3 Transition
 - **OUTPUT FOR NEXT PHASE**:
@@ -881,6 +931,9 @@ Step 4B: Implementation Only - No Tests (Multiple agents - 1-2 hours)
      
      === REFERENCE IF NEEDED ===
      MAIN DIRECTORY: {working_directory}
+     - Standards: {working_directory}/CLAUDE.md
+     - Invariants: {working_directory}/INVARIANTS.md
+     - Decisions: {working_directory}/.symphony/DECISION_MEMORY.json
      - For interfaces: src/interfaces/
      - For shared utilities: src/common/
      - For types: src/types/
@@ -1048,6 +1101,51 @@ Step 4F: Guaranteed Workspace Cleanup (CRITICAL)
   * Updates PARALLEL_STATUS.json
   * Reports cleanup status
 - All changes now in working directory only
+
+### Phase 4.5: Implementation Beautification (OPTIONAL BUT VALUABLE)
+
+**Trigger**: When 2+ of these conditions met:
+- Total lines > 500
+- Max complexity > 12  
+- Duplicate blocks > 5
+- Files changed > 10
+
+- Measure baseline:
+  ```bash
+  # Python: radon cc --json
+  # JavaScript: npx eslint --format json
+  # Go: gocyclo -avg
+  ```
+
+- Use Task tool with subagent_type="code-beautifier":
+  "Beautify the implementation - make it obvious
+   
+   WORKING DIRECTORY: {working_directory}
+   
+   CONTEXT FILES:
+   - Standards: {working_directory}/CLAUDE.md
+   - Invariants: {working_directory}/INVARIANTS.md
+   - Decisions: {working_directory}/.symphony/DECISION_MEMORY.json
+   
+   BASELINE METRICS:
+   - Complexity: {current_metrics}
+   - Duplication: {duplication_count}
+   
+   Apply Code Simplicity Standards from CLAUDE.md:
+   - Extract multi-line duplication (2+ instances)
+   - ONLY add WHY if extraction obscures reasoning
+   - Reduce complexity by 20%+
+   - Make error messages actionable
+   
+   Update DECISION_MEMORY.json with improvements
+   
+   All tests must still pass!"
+
+- Verify improvement:
+  * Re-run metrics
+  * Confirm 20%+ complexity reduction
+  * Confirm 50%+ duplication reduction
+  * Run tests to ensure nothing broken
 
 ### Phase 4 → 5 Transition
 - **OUTPUT FOR NEXT PHASE**:
@@ -1376,8 +1474,9 @@ FAILURE_TYPES = {
 
 ```
 {working_directory}/
-├── .claude/
-│   ├── MISSION_CONTEXT.json       # Original request (never changes)
+├── .symphony/
+│   ├── MISSION_CONTEXT.json       # Original request with WHY
+│   ├── DECISION_MEMORY.json       # All decisions with reasoning (NEW)
 │   ├── PHASE_PROGRESS.json        # Current phase and discoveries
 │   ├── PROJECT_CONTEXT.json       # Minimal project info
 │   ├── TASK_CONTEXT.json          # Confidence tracking
@@ -1385,7 +1484,7 @@ FAILURE_TYPES = {
 │   │   └── interrupt_monitor.py   # Auto-checks for critical discoveries
 │   ├── chambers/                  # Worker chambers (cleaned after use)
 │   ├── WORKFLOW_STATE.json        # Current workflow phase & progress
-│   ├── BOUNDARIES.json            # Work zones for parallelization
+│   ├── BOUNDARIES.json            # Work zones with WHY documented
 │   ├── DEPENDENCY_GRAPH.json      # Dependency analysis
 │   ├── COMMON_REGISTRY.json       # Shared resource tracking
 │   ├── PARALLEL_STATUS.json       # Parallel execution tracking
@@ -1394,6 +1493,7 @@ FAILURE_TYPES = {
 │   ├── MODULE_CACHE.json          # Cached module analysis
 │   └── AGENT_METRICS.json         # Agent performance tracking
 ├── CLAUDE.md                       # PROJECT_KNOWLEDGE (persists)
+├── INVARIANTS.md                   # Unbreakable rules with WHY (NEW)
 └── GOTCHAS.md                      # Project-specific rules & gotchas
 ```
 
@@ -1434,10 +1534,15 @@ When launching agents, always provide:
 2. **YOU ARE**: Phase X - [Phase Name]
 3. **CRITICAL WORKING DIRECTORY**: {working_directory} (absolute path)
 4. **YOUR TASK**: [Specific work to complete]
-5. **WHERE TO EXPLORE**: [Directories to investigate]
-6. **HOW TO VALIDATE**: [Specific commands to run]
-7. For parallel agents: Your module scope and interrupt protocol
-8. Quality standards that must be met
+5. **ESSENTIAL CONTEXT FILES**:
+   - Standards: {working_directory}/CLAUDE.md
+   - Invariants: {working_directory}/INVARIANTS.md
+   - Decisions: {working_directory}/.symphony/DECISION_MEMORY.json
+   - Gotchas: {working_directory}/GOTCHAS.md
+6. **WHERE TO EXPLORE**: [Directories to investigate]
+7. **HOW TO VALIDATE**: [Specific commands to run]
+8. For parallel agents: Your module scope and interrupt protocol
+9. Quality standards that must be met
 
 ## Parallel Interrupt System (Critical Discoveries Only)
 

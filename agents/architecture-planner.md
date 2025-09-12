@@ -38,8 +38,26 @@ You PREVENT duplicate code by defining ALL common infrastructure upfront. No oth
    - System overview and components
    - Data flow between components
    - Interface definitions
-   - Module boundaries
-   - Dependencies
+   - Module boundaries and WHY they're separated
+   - Dependencies and WHY they're necessary
+   - Document WHY for key decisions:
+     * WHY this architecture pattern over alternatives
+     * WHY certain modules are coupled/decoupled
+     * WHY specific technology choices
+   
+   Update `{working_directory}/.symphony/DECISION_MEMORY.json`:
+   ```json
+   {
+     "architecture": {
+       "pattern": "microservices",
+       "why": "Team wants independent deployment",
+       "alternatives_considered": {
+         "monolith": "Rejected: scaling concerns",
+         "serverless": "Rejected: cold start latency"
+       }
+     }
+   }
+   ```
 
 3. **Create Common Infrastructure**
    Define ALL shared code in `{working_directory}/common/` directory:

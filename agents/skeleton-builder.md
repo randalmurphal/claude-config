@@ -59,18 +59,28 @@ export class AuthService {
 }
 ```
 
-### 2. Mark Patterns for Later Use
+### 2. Add WHY Comments for Architectural Decisions
 ```javascript
-// PATTERN: Validation - will be used in multiple places
+// WHY: Separate validation for reuse across controllers
+// Will be called from UserController, AuthController, AdminController
 function validateEmail(email) {
   throw new Error('Not implemented');
 }
 
-// PATTERN: Error handling - consistent across module
+// WHY: Centralized DB error handling for consistent user messages
+// Maps technical errors to user-friendly responses
 function handleDatabaseError(error) {
   throw new Error('Not implemented');
 }
 ```
+
+Remember: Add WHY comments for:
+- Module separation decisions
+- Interface design choices  
+- Pattern selections
+- Anticipated coupling points
+
+DON'T add WHY for obvious structure like "function adds two numbers"
 
 ### 3. Complete Type Definitions
 ```python

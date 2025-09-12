@@ -67,7 +67,31 @@ Transform skeleton structure into fully functional implementation WITHOUT changi
 
 ## Implementation Rules
 
-### 1. Skeleton Contract is Sacred
+### 1. Add WHY Comments Where Needed
+
+As the implementer, YOU know the reasoning. Add WHY comments for:
+- Non-obvious decisions you make during implementation
+- Workarounds you discover are needed
+- Performance optimizations you choose
+- Security checks you add
+- Deviations from normal patterns
+
+**DON'T add WHY for obvious code:**
+```python
+# BAD - Too verbose
+def calculate_total(items):
+    # WHY: Need to sum all items  # OBVIOUS - don't add
+    return sum(item.price for item in items)
+
+# GOOD - Non-obvious needs explanation
+def calculate_total(items):
+    # WHY: Pre-filter to avoid tax calculation on exempt items
+    # Tax API charges per item, this saves 40% on API costs
+    taxable = [i for i in items if not i.tax_exempt]
+    return sum(item.price * (1 + get_tax_rate(item)) for item in taxable)
+```
+
+### 2. Skeleton Contract is Sacred
 ```typescript
 // SKELETON DEFINES:
 async authenticate(username: string, password: string): Promise<Token>

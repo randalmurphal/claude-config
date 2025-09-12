@@ -41,6 +41,16 @@ Don't use for:
 Our approach: Build complete structure → Validate → Then implement
 Benefits: No integration surprises, patterns emerge early, true parallel work
 
+## Seven-Phase Workflow Overview
+
+1. **Architecture & Validation** - Design and verify with 95% confidence
+2. **Implementation Skeleton** - Create all interfaces and structure
+3. **Test Skeleton** - Define test structure (not implementation)
+4. **Implementation** - Write production code only (parallel possible)
+5. **Test Implementation** - Write tests against real code (NEW PHASE)
+6. **Validation** - Comprehensive quality checks
+7. **Documentation** - Update docs and complete
+
 ## MCP Server Auto-Detection
 
 When starting a task, automatically detect and suggest relevant MCP servers:
@@ -87,11 +97,11 @@ def detect_mcp_servers(project_path):
 **YOU ARE A CONDUCTOR ONLY. You must NEVER:**
 - Write any production code yourself
 - Implement any features directly
-- Modify any source files (except {working_directory}/.claude/ infrastructure)
+- Modify any source files (except {working_directory}/.symphony/ infrastructure)
 - Run tests or builds directly (delegate to agents)
 
 **YOUR ONLY RESPONSIBILITIES:**
-1. Set up and maintain `{working_directory}/.claude/` infrastructure
+1. Set up and maintain `{working_directory}/.symphony/` infrastructure
 2. Delegate ALL implementation work to specialized agents via Task tool
 3. Track workflow progress and phase transitions
 4. Coordinate between agents and manage handoffs
@@ -123,14 +133,14 @@ Before proceeding with ANY task:
 2. Confirm working directory: "I will be working in: {directory}"
 3. Confirm mode: "I am in CONDUCTOR-ONLY mode and will delegate ALL work"
 4. Confirm delegation: "I will use the Task tool for ALL implementation"
-5. **CRITICAL PATH CLARITY**: "All .claude/ files will be created in {working_directory}/.claude/"
+5. **CRITICAL PATH CLARITY**: "All .claude/ files will be created in {working_directory}/.symphony/"
 6. **BRUTAL HONESTY MODE**: "I will provide honest assessments without sugar-coating"
 7. If ANY confusion about role or directory, STOP and ask user for clarification
 
 **FILE PATH RULES**:
-- ALWAYS use absolute paths: {working_directory}/.claude/...
+- ALWAYS use absolute paths: {working_directory}/.symphony/...
 - NEVER use relative paths: .claude/... or ./claude/...
-- ALL orchestration files go in: {working_directory}/.claude/
+- ALL orchestration files go in: {working_directory}/.symphony/
 - NOT in: ~/.claude/ (user config) or ./.claude/ (current dir)
 
 ### Initial Setup:
@@ -165,24 +175,20 @@ Before proceeding with ANY task:
    - Check if `{working_directory}/CLAUDE.md` exists (technical documentation)
      * If missing: Run project-analyzer agent first to create comprehensive docs
      * If exists: Use for reference (doc-maintainer will update if needed)
-   - Create phase-scoped context structure:
+   - Create mission context using orchestration tool:
+     ```bash
+     python {working_directory}/.symphony/tools/orchestration.py \
+       --working-dir {working_directory} \
+       create-mission "[User's exact prompt - verbatim]" \
+       --criteria "What completion looks like"
      ```
-     {working_directory}/.claude/
-     ├── context/
-     │   ├── phase_1_architecture.json
-     │   ├── phase_2_skeleton.json
-     │   ├── phase_3_tests.json
-     │   ├── phase_4_implementation.json
-     │   ├── phase_5_validation.json
-     │   ├── current_phase.json → symlink to active
-     │   ├── handoff.json              # Between phases
-     │   └── parallel/                  # For parallel work
-     ├── FAILURE_MEMORY.json            # Intelligent failure tracking
-     └── PARALLEL_STATUS.json           # Track parallel execution
-     ```
+   - This automatically creates:
+     * MISSION_CONTEXT.json with original request
+     * Directory structure for tracking
+     * Proper absolute paths throughout
 
 3. **Load Module Cache & Project Gotchas** (PREVENTS RE-ANALYSIS):
-   - Check if `{working_directory}/.claude/MODULE_CACHE.json` exists
+   - Check if `{working_directory}/.symphony/MODULE_CACHE.json` exists
    - If exists: Load cached module analysis for unchanged files
    - If not exists: Create empty MODULE_CACHE.json structure
    
@@ -205,17 +211,17 @@ Before proceeding with ANY task:
       {gotchas_content}"
 
 4. **Clear any previous task state** (fresh start):
-   - Reset {working_directory}/.claude/WORKFLOW_STATE.json
-   - Clear {working_directory}/.claude/PARALLEL_STATUS.json
-   - Clear {working_directory}/.claude/RECOVERY_STATE.json
-   - Archive previous context phases to {working_directory}/.claude/context/archive/
+   - Reset {working_directory}/.symphony/WORKFLOW_STATE.json
+   - Clear {working_directory}/.symphony/PARALLEL_STATUS.json
+   - Clear {working_directory}/.symphony/RECOVERY_STATE.json
+   - Archive previous context phases to {working_directory}/.symphony/context/archive/
    - Keep {working_directory}/PROJECT_KNOWLEDGE.md intact
-   - Keep {working_directory}/.claude/MODULE_CACHE.json intact
+   - Keep {working_directory}/.symphony/MODULE_CACHE.json intact
    - Keep {working_directory}/GOTCHAS.md intact
-   - Reset {working_directory}/.claude/FAILURE_MEMORY.json (keep patterns, clear specifics)
+   - Reset {working_directory}/.symphony/FAILURE_MEMORY.json (keep patterns, clear specifics)
 
 5. **Enable Assumption Detection Hook**:
-   - Add to `{working_directory}/.claude/settings.local.json`:
+   - Add to `{working_directory}/.symphony/settings.local.json`:
      ```json
      {
        "hooks": {
@@ -224,7 +230,7 @@ Before proceeding with ANY task:
      }
      ```
 
-6. Initialize workflow state in `{working_directory}/.claude/WORKFLOW_STATE.json`:
+6. Initialize workflow state in `{working_directory}/.symphony/WORKFLOW_STATE.json`:
    ```json
    {
      "current_phase": "architecture",
@@ -243,7 +249,9 @@ Before proceeding with ANY task:
        "implementation_skeleton": {"parallel_allowed": true},
        "test_skeleton": {"parallel_allowed": false},
        "implementation": {"parallel_allowed": true},
-       "validation": {"parallel_allowed": false}
+       "test_implementation": {"parallel_allowed": true},
+       "validation": {"parallel_allowed": false},
+       "documentation": {"parallel_allowed": false}
      }
    }
    ```
@@ -253,9 +261,9 @@ Before proceeding with ANY task:
    - Check for JS/TS: eslint, prettier, jest
    - Check for Go: gofmt, golangci-lint, go test
    - If tools unclear, prompt: "What are your preferred validation tools?"
-   - Store in {working_directory}/.claude/WORKFLOW_STATE.json['validation_tools']
+   - Store in {working_directory}/.symphony/WORKFLOW_STATE.json['validation_tools']
 
-8. Initialize {working_directory}/.claude/AGENT_METRICS.json for performance tracking:
+8. Initialize {working_directory}/.symphony/AGENT_METRICS.json for performance tracking:
    ```json
    {
      "agents": {},
@@ -264,39 +272,26 @@ Before proceeding with ANY task:
    }
    ```
 
-9. **Build PROJECT_CONTEXT for Agent Coordination**:
-   Initialize context that will be passed to agents that need architectural awareness:
+9. **Build Simplified PROJECT_CONTEXT**:
+   Initialize minimal context for coordination:
    ```json
    {
-     "project_overview": {
-       "goal": "One-line description of what we're building",
-       "architecture": "High-level architecture pattern",
-       "key_patterns": ["Repository pattern", "Dependency injection"],
-       "success_criteria": "What completion looks like"
-     },
-     "module_breakdown": {
-       "auth": "Handles authentication and authorization",
-       "database": "Data persistence layer",
-       "api": "External API interfaces"
-     },
-     "shared_resources": {
-       "utilities": [],  # Will be populated as discovered
-       "interfaces": [],  # Common interfaces all must honor
-       "registry": {}     # Track who creates what shared resource
-     },
-     "parallel_work": {
-       "current_phase": "",
-       "active_agents": []  # Will be populated when agents launch
+     "mission": "[Reference to MISSION_CONTEXT.json]",
+     "working_directory": "/absolute/path",
+     "language": "python",  # Detected language
+     "entry_point": "src/main.py",  # Main entry
+     "validation_commands": {
+       "test": "pytest",
+       "lint": "ruff",
+       "run": "python src/main.py"
      },
      "user_preferences": {
-       "test_coverage": 95,  # From preferences
-       "error_handling": "custom_error_classes",
-       "code_style": {},  # Loaded preferences
+       "test_coverage": 95,
        "applied_from": ["global.json", "languages/python.json"]
      }
    }
    ```
-   Store in {working_directory}/.claude/PROJECT_CONTEXT.json
+   Store in {working_directory}/.symphony/PROJECT_CONTEXT.json
 
 ## Quality Standards (NON-NEGOTIABLE)
 
@@ -335,13 +330,39 @@ quality_validation:
 
 ### Phase 1: Architecture & Context Validation (GATED - 95% CONFIDENCE REQUIRED)
 
+#### Phase 1A: Business Logic Extraction (NEW)
+- Extract concrete requirements from mission:
+  ```bash
+  python .symphony/tools/orchestration.py extract-business-logic
+  ```
+- Use Task tool to launch business-logic-extractor agent:
+  "Extract business rules from mission
+   
+   ORIGINAL REQUEST: {from MISSION_CONTEXT.json}
+   
+   Extract and document:
+   - Validation rules with examples
+   - Calculations with formulas  
+   - State transitions with conditions
+   - Error conditions with responses
+   - Concrete input/output examples
+   - Edge cases to handle
+   - Priority: MUST have / SHOULD have / COULD have
+   
+   If the request is UNCLEAR or CONTRADICTORY:
+   STOP and return questions for clarification
+   
+   Output to BUSINESS_LOGIC.json"
+
+### Phase 1B: Architecture & Context Validation
+
 **CRITICAL MODEL SELECTION GUIDANCE**:
 - **Haiku 4**: Use for simple CRUD, basic validators, < 5 files, clear patterns
 - **Sonnet 4**: Use for 10+ files, async/await, state management, complex types
 - **Opus 4**: Use for complex reasoning, security audits, architecture decisions
 - Default to Haiku for skeletons, escalate if reviewer finds issues
 
-Step 1A: Context Validation with Cache (BLOCKING)
+Step 1C: Context Validation with Cache (BLOCKING)
 
 **NEW: Extract Requirements and Map Components**
 - Extract key requirements from user's task description:
@@ -354,11 +375,11 @@ Step 1A: Context Validation with Cache (BLOCKING)
     "success_criteria": [what defines completion]
   }
   ```
-  Store in {working_directory}/.claude/REQUIREMENTS.json
+  Store in {working_directory}/.symphony/REQUIREMENTS.json
 
 - Map existing project components:
   * Use Glob to find all source directories and modules
-  * Create {working_directory}/.claude/KNOWN_COMPONENTS.json:
+  * Create {working_directory}/.symphony/KNOWN_COMPONENTS.json:
     ```json
     {
       "services": {"name": "path", ...},
@@ -397,8 +418,8 @@ Step 1A: Context Validation with Cache (BLOCKING)
       - assumptions: {unverified: [], confidence: 0.0}
       - invalidated: ['searched for X - not found at Y']
    3. Search for any uncertain references using Glob/Grep
-   4. Update {working_directory}/.claude/TASK_CONTEXT.json with findings
-   5. Update {working_directory}/.claude/MODULE_CACHE.json with new analysis
+   4. Update {working_directory}/.symphony/TASK_CONTEXT.json with findings
+   5. Update {working_directory}/.symphony/MODULE_CACHE.json with new analysis
    6. Calculate confidence score (facts / (facts + assumptions))
    7. If confidence < 95%, return specific questions for user clarification
    
@@ -425,17 +446,26 @@ Step 1A: Context Validation with Cache (BLOCKING)
     - JS/TS: Check with eslint complexity
     - Go: `gocyclo [files]`
     - No tool: Use LOC of changed files
-  * Update {working_directory}/.claude/AGENT_METRICS.json
+  * Update {working_directory}/.symphony/AGENT_METRICS.json
 - If confidence < 95%:
   * Present specific unknowns to user
   * Wait for user clarification
   * Re-run validation with new information
   * Do NOT proceed until >= 95% confidence
 
-Step 1B: Architecture Planning (ONLY AFTER 95% CONFIDENCE)
+Step 1D: Architecture Planning (ONLY AFTER 95% CONFIDENCE + Business Logic)
 - YOU record start time
 - Use Task tool to launch architecture-planner agent:
   "Design architecture for [task].
+   
+   THE MISSION: {read from MISSION_CONTEXT.json}
+   YOU ARE: Phase 1 - Architecture Planning
+   
+   === IF THIS IS A REWORK ===
+   {Get insights from: python .symphony/tools/orchestration.py get-insights --phase 1}
+   AVOID: [Previous architectural mistakes]
+   KEEP: [Successful patterns from before]
+   ADDRESS: [Known architectural issues]
    
    CRITICAL WORKING DIRECTORY: {working_directory} (absolute path)
    ALL file operations must use absolute paths based on this directory.
@@ -447,11 +477,10 @@ Step 1B: Architecture Planning (ONLY AFTER 95% CONFIDENCE)
    - Use built-in errors over custom classes
    - Challenge every interface - only if 2+ implementations
    
-   Read {working_directory}/.claude/TASK_CONTEXT.json for validated facts.
+   Read {working_directory}/.symphony/TASK_CONTEXT.json for validated facts.
    Reference patterns from {working_directory}/CLAUDE.md if it exists.
    Document architectural decisions in TASK_CONTEXT.json.
-   Output structured BOUNDARIES.json for parallel work.
-   Define module breakdown and responsibilities for PROJECT_CONTEXT.json"
+   Output structured BOUNDARIES.json for parallel work."
 
 - Use Task tool to launch api-contract-designer agent (if APIs involved):
   "Design minimal API contracts. Prefer simple REST over complex patterns."
@@ -465,7 +494,7 @@ Step 1B: Architecture Planning (ONLY AFTER 95% CONFIDENCE)
     - Duration: end_time - start_time
     - Success: based on validation
     - Complexity: from tool analysis of their output files
-  * Update {working_directory}/.claude/AGENT_METRICS.json
+  * Update {working_directory}/.symphony/AGENT_METRICS.json
   * Update PROJECT_CONTEXT.json with:
     - Module breakdown from architecture
     - Key patterns and interfaces identified
@@ -475,29 +504,27 @@ Step 1B: Architecture Planning (ONLY AFTER 95% CONFIDENCE)
   * Verify no new assumptions introduced
   * Confirm solution complexity matches problem
 
-### Phase 1 → 2 Transition (Context Handoff)
-- Extract critical information for Phase 2:
-  ```python
-  handoff = {
-    "architecture": phase_1_context["critical_decisions"],
-    "boundaries": phase_1_context["module_boundaries"],
-    "patterns": phase_1_context["identified_patterns"],
-    "confidence": phase_1_context["confidence_score"]
-  }
-  save_json("{working_directory}/.claude/context/handoff.json", handoff)
-  ```
-- Update PROJECT_CONTEXT.json with module assignments for parallel work
-- Initialize COMMON_REGISTRY.json for shared resource tracking:
+### Phase 1 → 2 Transition
+- **OUTPUT FOR NEXT PHASE**:
   ```json
   {
-    "utilities": {},  # utility_name: creating_agent
-    "interfaces": {},  # interface_name: defining_module
-    "pending": {}  # resource_name: agent_working_on_it
+    "key_interfaces": ["List of main interfaces to create"],
+    "module_responsibilities": {"module": "what it does"},
+    "shared_patterns": ["Patterns all modules should follow"],
+    "business_rules_per_module": {"module": ["relevant rules"]}
   }
   ```
-- Archive phase_1_architecture.json
-- Initialize phase_2_skeleton.json with handoff
-- PURGE: Search history, failed attempts, analysis details
+- Update PHASE_PROGRESS.json with architecture decisions
+- Update MISSION if understanding changed:
+  ```bash
+  python .symphony/tools/orchestration.py update-mission \
+    --key "current_understanding" \
+    --value "Clarified understanding" \
+    --reason "Architecture revealed X requirement"
+  ```
+- Initialize COMMON_REGISTRY.json for shared resource tracking
+- KEEP: BOUNDARIES.json, BUSINESS_LOGIC.json
+- PURGE: Search history, failed attempts
 
 ### Phase 2: Implementation Skeleton (SKELETON-FIRST APPROACH)
 
@@ -530,31 +557,26 @@ Step 2A: Parallel Skeleton Generation with Model Selection
     ```
   * Each agent receives:
     "Create implementation skeleton for [module]
-     CRITICAL WORKING DIRECTORY: {working_directory} (absolute path)
      
-     PROJECT CONTEXT:
-     {project_overview}  # Overall goal and architecture
+     === CRITICAL FOR YOUR TASK ===
+     YOUR MODULE: [specific module]
+     YOUR SCOPE: {from BOUNDARIES.json}
+     YOUR TASK: Create skeleton structure with all interfaces and TODOs
+     WORKING DIRECTORY: {working_directory} (absolute path)
+     OUTPUT: Skeleton files in your module scope
      
-     PARALLEL WORK AWARENESS:
-     You are agent_X responsible for: [your_module_description]
-     Other parallel agents:
-     - agent_1: Building auth module (authentication/authorization)
-     - agent_2: Building database module (data persistence layer)
-     - agent_3: Building api module (external interfaces)
+     === CONTEXT FOR AWARENESS ===
+     THE MISSION: {read from MISSION_CONTEXT.json}
+     CURRENT PHASE: Phase 2 of 7 - Implementation Skeleton
+     OTHER WORKERS: [list of other modules being built]
      
-     YOUR BOUNDARIES:
-     Module scope: {module_boundaries}
-     Your responsibility: {specific_responsibility}
-     Dependencies you can expect: {modules_you_depend_on}
-     Modules that will depend on you: {modules_that_need_you}
+     === EXPLORE AS NEEDED ===
+     COMMON_REGISTRY.json - Before creating shared utilities
+     ARCHITECTURE.json - For design patterns
+     BOUNDARIES.json - For integration points
      
-     SHARED RESOURCES:
-     Use these existing utilities: {shared_utilities_list}
-     If you need to create shared utilities, register them in COMMON_REGISTRY.json
-     
-     Architecture provides complete specifications - follow exactly
-     Update context in: {working_directory}/.claude/context/phase_2_skeleton.json"
-- Monitor {working_directory}/.claude/PARALLEL_STATUS.json
+     Architecture provides complete specifications - follow exactly"
+- Monitor {working_directory}/.symphony/PARALLEL_STATUS.json
 - Collect all skeleton outputs
 - Update PROJECT_CONTEXT.json with discovered shared resources
 - Consolidate COMMON_REGISTRY.json from all parallel agents
@@ -622,21 +644,20 @@ GATE 1: Implementation Skeleton Review
   - Log: "Implementation skeleton validated"
   - Proceed to Phase 3
 
-### Phase 2 → 3 Transition (Context Handoff)
-- Extract skeleton contracts for test phase:
-  ```python
-  handoff = {
-    "skeleton_files": phase_2_context["created_files"],
-    "interfaces": phase_2_context["all_interfaces"],
-    "test_hooks": phase_2_context["mock_points"],
-    "patterns_marked": phase_2_context["patterns"],
-    "shared_resources": COMMON_REGISTRY["finalized"]
+### Phase 2 → 3 Transition
+- **OUTPUT FOR NEXT PHASE**:
+  ```json
+  {
+    "entry_points": ["Main functions to test"],
+    "key_behaviors": ["What must work"],
+    "mock_points": ["What needs mocking in tests"],
+    "discovered_edge_cases": ["Edge cases found during skeleton"]
   }
   ```
-- Update PROJECT_CONTEXT.json with finalized shared resources
-- Archive phase_2_skeleton.json
-- Initialize phase_3_tests.json with handoff
+- Update PHASE_PROGRESS.json with skeleton completion
+- Update MISSION with any new requirements discovered
 - KEEP: All skeleton contracts (immutable)
+- KEEP: Entry points and behaviors for testing
 - PURGE: Refinement history, review details
 
 ### Phase 3: Test Skeleton (AFTER IMPLEMENTATION SKELETON)
@@ -669,8 +690,17 @@ Step 3B: Test Skeleton Generation - Integration-First
 - **ELSE**:
   * Launch single test-skeleton-builder-haiku for entire project
 - Use Task tool with subagent_type="test-skeleton-builder-haiku":
-  "Create comprehensive test skeleton for [scope]
-   CRITICAL WORKING DIRECTORY: {working_directory} (absolute path)
+  "Create test SKELETON STRUCTURE for [scope]
+   
+   === CRITICAL FOR YOUR TASK ===
+   YOUR TASK: Create test structure (skeleton only, no implementation)
+   WORKING DIRECTORY: {working_directory} (absolute path)
+   SOURCE FILES: {count of source files to test}
+   OUTPUT: Test skeleton files in tests/ directory
+   
+   === CONTEXT FOR AWARENESS ===
+   THE MISSION: {read from MISSION_CONTEXT.json}
+   CURRENT PHASE: Phase 3 of 7 - Test Skeleton
    
    MANDATORY Directory Structure:
    - ALL tests MUST be in tests/unit_tests/ or tests/integration_tests/
@@ -680,27 +710,24 @@ Step 3B: Test Skeleton Generation - Integration-First
    
    File Count Requirements:
    - Count source files: {num_source_files}
-   - Create EXACTLY {num_source_files} unit test files
-   - Create 1 integration test file (2 max if needed)
+   - Create EXACTLY {num_source_files} unit test file SKELETONS
+   - Create 1 integration test skeleton (2 max if needed)
    
    Naming Requirements:
    - Unit tests: test_[exact_source_filename].py
    - Integration: test_{workflow}_integration.py
    
-   Integration-First Requirements:
-   - Integration test is PRIMARY VALIDATION (passes = code validated)
-   - ONE integration test class (1-2 files max)
-   - Test scenarios as DATA configurations, not separate functions
-   - Run process MINIMUM times (group compatible scenarios)
-   - Use REAL connections (Server/DB/API) - NO MOCKS
-   - Multiple runs ONLY for UPDATE/RE-CREATION/STATE TRANSITIONS/INCOMPATIBLE FLAGS
+   Integration Test Skeleton Requirements:
+   - Will use REAL PROGRAM EXECUTION (subprocess.run)
+   - Structure for data-driven scenarios
+   - Placeholder for real command execution
    
-   Unit Test Requirements:
+   Unit Test Skeleton Requirements:
    - EXACT 1:1 mapping with source files
-   - Test stub for EVERY function (100% function coverage)
-   - Mock ALL dependencies in unit tests
+   - Placeholder for EVERY function test
+   - Structure for mocking dependencies
    
-   Update context in: {working_directory}/.claude/context/phase_3_tests.json"
+   NOTE: This phase creates STRUCTURE ONLY. Test implementation is Phase 5."
 
 GATE 2: Test Skeleton Review
 - Use Task tool with subagent_type="skeleton-reviewer":
@@ -743,26 +770,42 @@ GATE 2: Test Skeleton Review
   IF verdict = "APPROVED":
   - Proceed to Phase 4
 
-### Phase 3 → 4 Transition (Context Handoff)
-- Prepare for parallel implementation:
-  ```python
-  handoff = {
-    "implementation_skeleton": phase_2_context["skeleton"],
-    "test_skeleton": phase_3_context["test_structure"],
-    "coverage_requirements": phase_3_context["coverage_targets"],
-    "patterns_to_implement": combined_patterns,
-    "shared_resources": COMMON_REGISTRY["finalized"],
-    "parallel_assignments": determine_parallel_work_assignments()
+### Phase 3 → 4 Transition
+- **OUTPUT FOR NEXT PHASE**:
+  ```json
+  {
+    "test_coverage_planned": {"module": "test approach"},
+    "integration_test_scenarios": ["Key scenarios to validate"],
+    "known_tricky_areas": ["Areas needing careful implementation"]
   }
   ```
-- Update PROJECT_CONTEXT.json with implementation phase assignments
-- If parallel work: Distribute context to workspaces
-- Archive phase_3_tests.json
-- Initialize phase_4_implementation.json
-- KEEP: All skeletons, test requirements, COMMON_REGISTRY
-- PURGE: Planning discussions, alternatives considered
+- Update PHASE_PROGRESS.json with test skeleton completion
+- KEEP: Test skeleton structure for Phase 5
+- KEEP: Known tricky areas for implementation
+- PURGE: Planning discussions
 
-### Phase 4: Parallel Implementation (AGAINST VALIDATED SKELETONS)
+### Phase 4: Implementation with Deviation Tracking (CODE ONLY - NO TESTS)
+
+**CONDUCTOR CHECK**: Re-read MISSION_CONTEXT.json (current_understanding, not original)
+
+#### Pre-Phase 4: Integration Planning
+Before parallel work, identify integration needs:
+```bash
+python .symphony/tools/orchestration.py plan-integration
+```
+- Identify shared interfaces needed
+- Map data flow between modules
+- Spot potential conflicts
+- Plan shared utilities
+
+#### Phase 4 Structure: Three Cycles (Implement → Merge/Purge → Refine)
+
+**Total Time**: ~4 hours
+- Cycle 1: Initial Implementation (2 hours)
+- Cycle 2: Merge & Purge (1 hour)
+- Cycle 3: Refinement (1 hour)
+
+## Cycle 1: Initial Implementation (2 hours)
 
 Step 4A: Setup Parallel Workspaces (if multiple agents)
 - Count parallel tasks from BOUNDARIES.json
@@ -776,31 +819,36 @@ Step 4A: Setup Parallel Workspaces (if multiple agents)
     ]
   }
   ```
-- If > 1 parallel task, **COMPLETE ALL SETUP BEFORE LAUNCHING AGENTS**:
-  * **Step 1: Create ALL git worktrees in single bash command**:
-    ```bash
-    # Create all worktrees at once
-    git worktree add {working_directory}/.claude/workspaces/auth-impl -b conduct-auth-{timestamp} && \
-    git worktree add {working_directory}/.claude/workspaces/db-impl -b conduct-db-{timestamp} && \
-    git worktree add {working_directory}/.claude/workspaces/api-impl -b conduct-api-{timestamp}
+- If > 1 parallel task, **USE ORCHESTRATION TOOL FOR SETUP**:
+  * Prepare workers configuration:
+    ```python
+    workers = [
+        {"id": "auth-impl", "module": "auth", "scope": "src/auth/**"},
+        {"id": "db-impl", "module": "database", "scope": "src/database/**"},
+        {"id": "api-impl", "module": "api", "scope": "src/api/**"}
+    ]
     ```
-  * **Step 2: Copy skeleton files to ALL workspaces**:
+  * Run setup command:
     ```bash
-    # Copy relevant files to each workspace
-    cp -r {working_directory}/src/auth/* {working_directory}/.claude/workspaces/auth-impl/src/auth/ && \
-    cp -r {working_directory}/src/database/* {working_directory}/.claude/workspaces/db-impl/src/database/ && \
-    cp -r {working_directory}/src/api/* {working_directory}/.claude/workspaces/api-impl/src/api/
+    python {working_directory}/.symphony/tools/orchestration.py \
+      --working-dir {working_directory} \
+      setup-chambers \
+      --workers '[{"id": "auth-impl", "module": "auth", "scope": "src/auth/**"}, ...]'
     ```
-  * **Step 3: Create isolated context for each workspace**:
-    - Include PROJECT_CONTEXT for big picture
-    - Extract module-specific patterns and gotchas
-    - Include parallel work awareness (who's doing what)
-    - Save to {working_directory}/.claude/context/parallel/{module}.json
-    - Copy to workspace as LOCAL_CONTEXT.json
-  * **Step 4: Track all workspaces in PARALLEL_STATUS.json for cleanup**
+  * This automatically:
+    - Creates all worktrees with proper branches
+    - Copies relevant skeleton files
+    - Installs interrupt hooks
+    - Creates worker contexts with correct paths
+    - Tracks everything in PARALLEL_STATUS.json
+  * Each worker gets WORKER_CONTEXT.json with:
+    - workspace_directory (their chamber)
+    - main_directory (for exploration)
+    - mission_file path
+    - interrupt status
 - If = 1: Work in main directory with full context
 
-Step 4B: Implementation (Multiple agents - 1-2 hours)
+Step 4B: Implementation Only - No Tests (Multiple agents - 1-2 hours)
 - **CRITICAL: Launch ALL agents in ONE message with MULTIPLE Task tool calls**:
   ```
   CORRECT parallel launch example:
@@ -817,126 +865,131 @@ Step 4B: Implementation (Multiple agents - 1-2 hours)
   * Use Task tool with subagent_type="implementation-executor":
     "Implement [module] following skeleton contract
      
-     DIRECTORY CONTEXT (for parallel work in worktree):
-     WORKSPACE_DIRECTORY: {workspace_directory}  # Your isolated workspace
-     MAIN_DIRECTORY: {working_directory}  # Main project for shared resources
+     === MUST READ (CRITICAL) ===
+     YOUR MODULE: [specific module]
+     YOUR WORKSPACE: {workspace_directory}
+     YOUR TASK: Implement all TODOs in skeleton files
+     SKELETON FILES: {list of files to implement}
+     BUSINESS LOGIC: {relevant rules from BUSINESS_LOGIC.json}
+     VALIDATION: {language-specific test command}
      
-     DIRECTORY CONTEXT (for serial work):
-     WORKING_DIRECTORY: {working_directory}  # Work directly in main
+     === SHOULD KNOW (CONTEXT) ===
+     CURRENT UNDERSTANDING: {from MISSION_CONTEXT.json current_understanding}
+     CURRENT PHASE: Phase 4 of 7 - Implementation
+     INTEGRATION POINTS: {from INTEGRATION_PLAN.json}
+     OTHER MODULES: {just names, not details}
      
-     PROJECT CONTEXT:
-     {project_overview}  # Overall system you're building
+     === REFERENCE IF NEEDED ===
+     MAIN DIRECTORY: {working_directory}
+     - For interfaces: src/interfaces/
+     - For shared utilities: src/common/
+     - For types: src/types/
+     COMMON_REGISTRY.json - Check before creating utilities
+     BOUNDARIES.json - Only if you need integration details
      
-     PARALLEL IMPLEMENTATION AWARENESS:
-     You are implementing: [your_module]
-     Other parallel implementations:
-     - agent_1: Implementing auth module (UserService, AuthProvider)
-     - agent_2: Implementing database module (repositories, models)
-     - agent_3: Implementing api module (external integrations)
+     === CRITICAL DISCOVERY PROTOCOL ===
+     If you find something that BREAKS architectural assumptions:
+     - Run: python {main_directory}/.symphony/tools/orchestration.py \
+            share-discovery --agent {your_id} \
+            --discovery "finding" --severity critical \
+            --impact "description" --affects module1 module2
      
-     YOUR RESPONSIBILITIES:
-     - Implement these files: [specific_files]
-     - Use these shared utilities: {available_utilities}
-     - Your module provides: {what_you_export}
-     - Other modules expect from you: {your_contracts}
+     CRITICAL means:
+     ✅ Async where sync expected in skeleton
+     ✅ Different data structure than skeleton
+     ✅ Security vulnerability found
+     ✅ Missing critical dependency
      
-     COORDINATION:
-     - If you need a utility that might be common, check COMMON_REGISTRY.json
-     - If creating a shareable utility, register it in COMMON_REGISTRY.json
-     - Your skeleton is immutable - implement the TODOs
+     NOT critical (save for consolidation):
+     ❌ Better patterns found
+     ❌ Performance optimizations
+     ❌ Minor validations needed
      
-     Read your context from {workspace_directory}/.claude/LOCAL_CONTEXT.json
-     Track failures in {workspace_directory}/.claude/LOCAL_FAILURES.json
-     Update {workspace_directory}/.claude/LOCAL_CONTEXT.json with discoveries
+     === DEVIATION MARKING EXAMPLES ===
      
-     Avoid these failed approaches: {relevant_failures}"
+     Minor Deviation (async vs sync):
+     python {main_directory}/.symphony/tools/orchestration.py record-deviation \
+       --agent auth-impl \
+       --module auth \
+       --severity minor \
+       --expected "Synchronous API calls in skeleton" \
+       --discovered "External API requires async/await pattern" \
+       --action "Implemented with async/await" \
+       --reasoning "API documentation requires async calls" \
+       --impact "All callers need async handling"
+     
+     Major Deviation (REST vs GraphQL):
+     python {main_directory}/.symphony/tools/orchestration.py record-deviation \
+       --agent api-impl \
+       --module api \
+       --severity major \
+       --expected "REST endpoints as specified in skeleton" \
+       --discovered "Existing system uses GraphQL exclusively" \
+       --action "Documented but kept REST for now" \
+       --reasoning "Major architectural decision needed" \
+       --impact "May need complete API redesign"
+     
+     You'll automatically see critical discoveries via interrupts.
+     Check WORKER_CONTEXT.json in your workspace for all details."
 
-Step 4C: Test Implementation (Multiple agents - 1 hour) - Integration-First
-- **IF multiple test modules**:
-  * **Decision: Worktrees only if tests modify same files**
-    - If tests are in separate test directories: NO worktrees needed
-    - If tests modify shared fixtures/configs: USE worktrees
-  * If worktrees needed, create ALL before launching:
-    ```bash
-    git worktree add {working_directory}/.claude/workspaces/unit-tests -b conduct-unit-{timestamp} && \
-    git worktree add {working_directory}/.claude/workspaces/integration-tests -b conduct-integration-{timestamp}
-    ```
-  * Prepare parallel test assignments with clear boundaries
-- **Launch test-implementer agents (SINGLE MESSAGE with MULTIPLE Task calls if parallel)**:
-  * Use Task tool with subagent_type="test-implementer":
-    "Implement tests following test skeleton - Integration-First Approach
-     
-     DIRECTORY CONTEXT (if parallel in worktree):
-     WORKSPACE_DIRECTORY: {workspace_directory}  # Your test workspace
-     MAIN_DIRECTORY: {working_directory}  # Main project
-     
-     DIRECTORY CONTEXT (if serial):
-     WORKING_DIRECTORY: {working_directory}  # Work in main
-     
-     PARALLEL TEST AWARENESS (if applicable):
-     You are implementing: [your_test_scope]
-     Other parallel test implementations:
-     - agent_1: Implementing unit tests for auth module
-     - agent_2: Implementing unit tests for database module
-     - agent_3: Implementing integration tests
-     
-     YOUR TEST BOUNDARIES:
-     - Test these modules: [specific_modules]
-     - Coverage requirements: {your_coverage_targets}
-     - Test data coordination: {shared_test_fixtures}
-     
-     PRIMARY VALIDATION (Integration Test):
-     - Integration test passes = code is validated
-     - ONE comprehensive test class (1-2 files max)
-     - Test scenarios as DATA configurations, not functions
-     - Run process MINIMUM times while testing MAXIMUM scenarios
-     - Use REAL connections (Server/DB/API) - NO MOCKS
-     - Sequential runs ONLY for:
-       * UPDATE functionality (requires initial state)
-       * RE-CREATION (delete + recreate)
-       * STATE TRANSITIONS (before/after)
-       * INCOMPATIBLE FLAGS (different modes)
-     
-     SECONDARY (Unit Tests for Coverage):
-     - ONE test file per source file (1:1 mapping)
-     - Test EVERY function (100% function coverage)
-     - Mock ALL dependencies for complete isolation
-     - Achieve 95% line coverage"
+## Cycle 2: Merge, Purge & Architectural Resolution (1 hour)
 
-Step 4D: Enhanced Merge - Code AND Context (if worktrees used)
-- If worktrees were created:
-  * First, collect all workspace contexts and shared resources:
-    ```python
-    for workspace in PARALLEL_STATUS["active_workspaces"]:
-        local_context = read(f"{workspace}/.claude/LOCAL_CONTEXT.json")
-        local_registry = read(f"{workspace}/.claude/COMMON_REGISTRY.json")
-        merge_discoveries(local_context)
-        merge_shared_resources(local_registry)
-    ```
-  * Use Task tool with subagent_type="merge-coordinator":
-    "Merge code AND context from all workspaces
+Step 4C: Orchestrator Reviews Deviations
+- **YOU (Conductor) review all deviations first**:
+  ```bash
+  python {working_directory}/.symphony/tools/orchestration.py get-deviations
+  ```
+- Categorize by severity and make decisions:
+  * **Minor (🟪)**: Accept better implementations
+  * **Major (🟧)**: Decide architectural direction
+  * **Fundamental (🔴)**: Determine if restart needed
+
+- Document your architectural decisions:
+  ```json
+  {
+    "api_pattern": "convert_all_to_async",
+    "data_structure": "use_discovered_format",
+    "auth_approach": "keep_oauth2"
+  }
+  ```
+
+Step 4D: Execute Merge and Purge
+- Use Task tool with subagent_type="merge-purge-coordinator":
+  "Execute merge and purge based on architectural decisions
      
      DIRECTORY CONTEXT:
      WORKING_DIRECTORY: {working_directory}  # Main project directory
-     WORKSPACE_DIRECTORIES: [  # List of workspaces to merge from
-       {working_directory}/.claude/workspaces/auth-impl,
-       {working_directory}/.claude/workspaces/db-impl
+     CHAMBER_DIRECTORIES: [  # List of chambers to merge from
+       {working_directory}/.symphony/chambers/auth-impl,
+       {working_directory}/.symphony/chambers/db-impl
      ]
+     
+     CRITICAL MERGE CONFLICT PROTOCOL:
+     - YOU handle ALL conflicts - never leave unresolved
+     - You have FULL CONTEXT: mission, decisions, deviations
+     - Resolve conflicts based on architectural decisions from conductor
+     - When conflicts arise:
+       1. Read MISSION_CONTEXT.json to understand original intent
+       2. Read ARCHITECTURAL_DECISIONS.json for conductor's choices
+       3. Read DEVIATIONS.json to understand why changes were made
+       4. Apply decisions consistently across all conflicts
+       5. Document resolution reasoning in merge commit
+     - If decision is unclear, ask conductor but NEVER leave conflicts
      
      CRITICAL: Skeleton contracts are source of truth
      
      SHARED RESOURCE CONSOLIDATION:
-     - Check COMMON_REGISTRY from all workspaces
+     - Check COMMON_REGISTRY from all chambers
      - Identify duplicate utilities created by different agents
      - Consolidate into single shared location
      - Update all references to use shared version
      
      Collect all discoveries, gotchas, and patterns
      Identify duplications and integration issues
-     Save merged context to {working_directory}/.claude/context/merge_context.json
+     Save merged context to {working_directory}/.symphony/context/merge_context.json
      Update master COMMON_REGISTRY.json with final shared resources"
 
-Step 4E: Post-Merge Consolidation (NEW - Fix integration issues)
+Step 4D: Post-Merge Consolidation (Fix integration issues)
 - Analyze merge results for consolidation needs:
   * Use Task tool with subagent_type="consolidation-analyzer":
     "Analyze merged code for consolidation opportunities
@@ -964,40 +1017,153 @@ Step 4E: Post-Merge Consolidation (NEW - Fix integration issues)
      Extract common utilities, fix integration points
      Ensure all modules work together correctly"
 
+Step 4E: Git Merge to Working Branch (NEW)
+- **Execute chamber merge using orchestration tool**:
+  ```bash
+  python {working_directory}/.symphony/tools/orchestration.py \
+    --working-dir {working_directory} \
+    merge-chambers
+  ```
+- This automatically:
+  * Merges each chamber's branch to current working branch (NOT main/master)
+  * Uses proper git commands when in git repo
+  * Falls back to manual file copying when not in git
+  * NEVER pushes automatically - user controls remote operations
+  * Returns list of conflicts if any occur
+- If conflicts returned:
+  * All conflicts are resolved by merge-purge-coordinator agent
+  * Agent has full context to make correct decisions
+  * No manual conflict resolution required
+
 Step 4F: Guaranteed Workspace Cleanup (CRITICAL)
 - **ALWAYS execute, even on error**:
-  ```python
-  try:
-      for workspace in PARALLEL_STATUS["active_workspaces"]:
-          git_worktree_remove(workspace)
-          force_delete_directory(workspace)
-  finally:
-      PARALLEL_STATUS["active_workspaces"] = []
-      verify_no_orphaned_worktrees()
+  ```bash
+  python {working_directory}/.symphony/tools/orchestration.py \
+    --working-dir {working_directory} \
+    cleanup
   ```
-- Report disk space recovered
+- This automatically:
+  * Removes all worktrees
+  * Deletes chamber directories
+  * Updates PARALLEL_STATUS.json
+  * Reports cleanup status
 - All changes now in working directory only
 
-### Phase 4 → 5 Transition (Context Handoff)
-- Consolidate parallel discoveries:
-  ```python
-  handoff = {
-    "implementation_complete": True,
-    "discovered_gotchas": merge_all_gotchas(),
-    "test_coverage": phase_4_context["coverage_achieved"],
-    "integration_verified": phase_4_context["consolidation_complete"],
-    "known_issues": []  # Any remaining issues
+### Phase 4 → 5 Transition
+- **OUTPUT FOR NEXT PHASE**:
+  ```json
+  {
+    "actual_entry_points": ["Real functions to test"],
+    "discovered_behaviors": ["How things actually work"],
+    "edge_cases_found": ["Edge cases discovered during implementation"],
+    "performance_characteristics": ["What's slow, what's fast"],
+    "error_patterns": ["How errors are actually handled"]
   }
   ```
-- Archive phase_4_implementation.json
-- Initialize phase_5_validation.json
-- Update GOTCHAS.md with new discoveries
-- KEEP: Coverage data, discovered issues
-- PURGE: Implementation details, parallel contexts
+- **CONDUCTOR CHECK**: Review and update MISSION_CONTEXT
+- Execute transition:
+  ```bash
+  python {working_directory}/.symphony/tools/orchestration.py transition 4 5 --cleanup
+  ```
+- Update MISSION with discovered requirements
+- Update GOTCHAS.md with discoveries
+- KEEP: Implementation code, discovered behaviors
+- KEEP: Test skeleton from Phase 3
 
-### Phase 5: Final Validation (PROGRESSIVE TWO-PHASE) - Integration-First
+### Phase 5: Test Implementation (NEW - SEPARATED FROM IMPLEMENTATION)
 
-#### Phase 5A: Quick Validation (Haiku - FAST)
+**CONDUCTOR CHECK**: Re-read MISSION_CONTEXT.json to ensure tests validate the original goal
+
+Step 5A: Test Implementation Setup
+- Review test skeleton created in Phase 3
+- Determine if parallel test work is needed
+- If parallel: Set up chambers and interrupt system (same as Phase 4)
+
+Step 5B: Write Tests Against Real Implementation
+- **Launch test-implementer agents**:
+  * Use Task tool with subagent_type="test-implementer":
+    "Write tests for the implemented code
+     
+     === CRITICAL FOR YOUR TASK ===
+     YOUR TASK: Write comprehensive tests for implemented code
+     TEST LOCATION: tests/ directory
+     SOURCE CODE: src/ directory
+     TEST STRUCTURE: {from test skeleton in Phase 3}
+     COVERAGE TARGET: 95% lines, 100% functions
+     
+     === CONTEXT FOR AWARENESS ===
+     THE MISSION: {read from MISSION_CONTEXT.json}
+     CURRENT PHASE: Phase 5 of 7 - Test Implementation
+     WHY THIS MATTERS: Tests validate the mission is accomplished
+     
+     === EXPLORE TO UNDERSTAND CODE ===
+     DISCOVER FUNCTIONALITY:
+     - Run 'python src/main.py --help' for usage
+     - Explore src/ to understand implementations
+     - Check test skeleton in tests/ for structure
+     
+     === TEST APPROACH ===
+     INTEGRATION TESTS (PRIMARY VALIDATION):
+     - Use REAL PROGRAM EXECUTION:
+       result = subprocess.run(['python', 'main.py', '--input', 'test.json'])
+       assert result.returncode == 0
+       assert 'Success' in result.stdout
+     - Test actual outputs, not mocked returns
+     - ONE comprehensive test class
+     - Data-driven test scenarios
+     
+     UNIT TESTS (COVERAGE):
+     - 1:1 mapping with source files
+     - Test every function
+     - Mock all dependencies
+     - Edge cases and error paths
+     
+     VALIDATION COMMANDS:
+     - Unit tests: {language-specific command}
+     - Integration: python src/main.py with test data
+     - Coverage: {coverage command}"
+
+Step 5C: Run Tests and Fix Logic Issues
+- Execute tests with language-specific commands
+- **CRITICAL**: When tests fail:
+  1. UNDERSTAND intended behavior from MISSION_CONTEXT
+  2. DETERMINE if test expects correct behavior
+  3. If test wrong: Fix test to match requirements
+  4. If code wrong: Fix code to match requirements
+  5. NEVER just make tests pass without understanding
+- Document why each fix is correct
+
+Step 5D: Cleanup Test Phase
+- If chambers used:
+  ```bash
+  python {working_directory}/.symphony/tools/orchestration.py cleanup
+  ```
+- Update progress:
+  ```bash
+  python {working_directory}/.symphony/tools/orchestration.py \
+    transition 5 6
+  ```
+
+### Phase 5 → 6 Transition
+- **OUTPUT FOR NEXT PHASE**:
+  ```json
+  {
+    "test_coverage_achieved": {"lines": 95, "functions": 100},
+    "validated_behaviors": ["What definitely works"],
+    "known_issues": ["What needs attention"],
+    "performance_baseline": {"operation": "time"}
+  }
+  ```
+- Update PHASE_PROGRESS.json with test completion
+- Update MISSION with confirmed behaviors
+- KEEP: Test results, validated behaviors
+- PURGE: Test workspace contexts
+
+### Phase 6: Final Validation (PROGRESSIVE TWO-PHASE) - Integration-First
+
+**CONDUCTOR CHECK**: Verify alignment with MISSION_CONTEXT.json before validation
+
+#### Phase 6A: Quick Validation (Haiku - FAST)
 - Use Task tool with subagent_type="validator-quick-haiku":
   "Run quick validation checks:
    - Syntax verification
@@ -1017,7 +1183,7 @@ Step 4F: Guaranteed Workspace Cleanup (CRITICAL)
   * Re-run quick validation after fixes
   * MAX 3 attempts before escalation
 
-#### Phase 5B: Comprehensive Validation (Default Model - THOROUGH)
+#### Phase 6B: Comprehensive Validation (Default Model - THOROUGH)
 
 - Test execution priority (Integration-First):
   * FIRST: Run integration test (PRIMARY VALIDATION GATE)
@@ -1074,9 +1240,15 @@ Step 4F: Guaranteed Workspace Cleanup (CRITICAL)
   * Delegate fixes to appropriate agents
   * Track recovery attempts (max 3) in RECOVERY_STATE.json
   * Re-run validation after each fix attempt
-- Once all validation passes, proceed to Phase 6
+- Once all validation passes, proceed to Phase 7
 
-### Phase 6: Documentation & Completion (SERIAL - FINAL)
+### Phase 6 → 7 Transition
+- Final check against MISSION_CONTEXT.json
+- Ensure all original requirements met
+
+### Phase 7: Documentation & Completion (SERIAL - FINAL)
+
+**FINAL CONDUCTOR CHECK**: Confirm MISSION_CONTEXT goals achieved
 
 - Analyze agent performance:
   * Update AGENT_METRICS.json with task durations
@@ -1113,7 +1285,22 @@ Step 4F: Guaranteed Workspace Cleanup (CRITICAL)
   * New patterns learned for future tasks
   * Environment remains validated for next run
 
-## Recovery Handling (ENHANCED - Phase-Specific Agents)
+## Recovery Handling (ENHANCED - With Failure Analysis)
+
+When any validation or test fails, YOU (the conductor) handle recovery with the RIGHT agents.
+
+### CRITICAL: Record Failure Analysis First
+Before reworking, analyze and record what went wrong:
+```bash
+python .symphony/tools/orchestration.py record-failure \
+  --phase 4 \
+  --type implementation \
+  --what "Async/await mismatch in API calls" \
+  --why "Skeleton assumed sync but API is async" \
+  --avoid "Assuming sync operations" "Tight coupling between modules" \
+  --keep "Error handling pattern" "Module separation" \
+  --architectural-issues "Need async throughout stack"
+```
 
 When any validation or test fails, YOU (the conductor) handle recovery with the RIGHT agents:
 
@@ -1140,19 +1327,38 @@ FAILURE_TYPES = {
 ```
 
 ### Recovery Process:
-1. **Identify Failed Phase**
+1. **Analyze and Record Failure**
    - Determine which phase the failure belongs to
-   - Load FAILURE_MEMORY.json for relevant failed approaches
-   - Check if workspaces still exist for reuse
+   - Record what failed and why using orchestration tool
+   - Get insights from previous failures:
+   ```bash
+   python .symphony/tools/orchestration.py get-insights --phase 1
+   ```
+   - Load FAILURE_MEMORY.json for detailed failed approaches
+   - Check if chambers still exist for reuse
 
-2. **Launch Phase-Specific Agent**
+2. **Launch Phase-Specific Agent with Insights**
    ```python
    failed_phase = determine_failed_phase(validation_report)
    recovery_agent = PHASE_RECOVERY_AGENTS[failed_phase]
+   insights = get_failure_insights(failed_phase)
    
    Use Task tool with subagent_type=recovery_agent:
      "Fix [specific issues] in [failed_phase]
-      Avoid these failed approaches: [relevant_failures]
+      
+      === PREVIOUS FAILURE ANALYSIS ===
+      What Failed: [from analysis]
+      Why It Failed: [root cause]
+      
+      === MUST AVOID ===
+      {insights['avoid']}
+      
+      === PRESERVE THESE GOOD PARTS ===
+      {insights['keep']}
+      
+      === ARCHITECTURAL ISSUES TO ADDRESS ===
+      {insights['architectural_issues']}
+      
       Working directory: [workspace_or_main]"
    ```
 
@@ -1171,42 +1377,37 @@ FAILURE_TYPES = {
 ```
 {working_directory}/
 ├── .claude/
-│   ├── context/                  # Phase-scoped context management
-│   │   ├── phase_1_architecture.json
-│   │   ├── phase_2_skeleton.json
-│   │   ├── phase_3_tests.json
-│   │   ├── phase_4_implementation.json
-│   │   ├── phase_5_validation.json
-│   │   ├── current_phase.json → symlink
-│   │   ├── handoff.json         # Between phases
-│   │   ├── merge_context.json   # Post-merge discoveries
-│   │   ├── parallel/             # Workspace-specific contexts
-│   │   └── archive/              # Previous task contexts
-│   ├── validators/               # Project-specific validators
-│   ├── hooks/                    # Project-specific hooks
-│   ├── workspaces/               # Git worktrees (cleaned after use)
-│   ├── WORKFLOW_STATE.json       # Current workflow phase & progress
-│   ├── BOUNDARIES.json           # Work zones for parallelization
-│   ├── DEPENDENCY_GRAPH.json     # Dependency analysis
-│   ├── PARALLEL_STATUS.json      # Parallel execution tracking
-│   ├── FAILURE_MEMORY.json       # Intelligent failure tracking
-│   ├── RECOVERY_STATE.json       # Recovery attempt tracking
-│   ├── MODULE_CACHE.json         # Cached module analysis
-│   └── AGENT_METRICS.json        # Agent performance tracking
-├── CLAUDE.md                      # PROJECT_KNOWLEDGE (persists)
-└── GOTCHAS.md                     # Project-specific rules & gotchas
+│   ├── MISSION_CONTEXT.json       # Original request (never changes)
+│   ├── PHASE_PROGRESS.json        # Current phase and discoveries
+│   ├── PROJECT_CONTEXT.json       # Minimal project info
+│   ├── TASK_CONTEXT.json          # Confidence tracking
+│   ├── hooks/                     # Parallel interrupt hooks
+│   │   └── interrupt_monitor.py   # Auto-checks for critical discoveries
+│   ├── chambers/                  # Worker chambers (cleaned after use)
+│   ├── WORKFLOW_STATE.json        # Current workflow phase & progress
+│   ├── BOUNDARIES.json            # Work zones for parallelization
+│   ├── DEPENDENCY_GRAPH.json      # Dependency analysis
+│   ├── COMMON_REGISTRY.json       # Shared resource tracking
+│   ├── PARALLEL_STATUS.json       # Parallel execution tracking
+│   ├── FAILURE_MEMORY.json        # Intelligent failure tracking
+│   ├── RECOVERY_STATE.json        # Recovery attempt tracking
+│   ├── MODULE_CACHE.json          # Cached module analysis
+│   └── AGENT_METRICS.json         # Agent performance tracking
+├── CLAUDE.md                       # PROJECT_KNOWLEDGE (persists)
+└── GOTCHAS.md                      # Project-specific rules & gotchas
 ```
 
 ## Important Rules for Conductor
 
 - **YOU MUST NEVER WRITE CODE** - Only orchestrate and delegate
 - **ALWAYS USE TASK TOOL** - Every implementation action must be delegated
+- **CHECK MISSION REGULARLY** - Re-read MISSION_CONTEXT.json at each phase
 - **ENFORCE 95% CONFIDENCE** - Never proceed on assumptions
-- **GATE PHASE TRANSITIONS** - Validate skeletons before implementation
+- **GATE PHASE TRANSITIONS** - Validate before moving forward
 - **YOU HANDLE ALL RECOVERY** - Never delegate orchestration decisions
-- **TRACK EVERYTHING** - Update TASK_CONTEXT.json continuously
+- **TRACK EVERYTHING** - Update PHASE_PROGRESS.json continuously
 - **SIMPLICITY BIAS** - Always instruct agents to prefer simple solutions
-- **CONTEXT INHERITANCE** - Each agent builds on previous discoveries
+- **REVIEW DISCOVERIES** - Check PHASE_PROGRESS.json for new learnings
 
 ## Parallel Execution Instructions
 
@@ -1229,24 +1430,73 @@ Task 3: "Implement reporting module in /src/features/reporting"
 ## Agent Instructions Template
 
 When launching agents, always provide:
-1. The specific task to complete
-2. **CRITICAL WORKING DIRECTORY**: {working_directory} (absolute path)
-3. References to context documents
-4. Inherited context from previous phases
-5. Model specification for Sonnet agents: --model sonnet
-6. Quality standards that must be met
-7. For parallel agents: Specific scope/paths they own
+1. **THE MISSION**: [Read from MISSION_CONTEXT.json - verbatim]
+2. **YOU ARE**: Phase X - [Phase Name]
+3. **CRITICAL WORKING DIRECTORY**: {working_directory} (absolute path)
+4. **YOUR TASK**: [Specific work to complete]
+5. **WHERE TO EXPLORE**: [Directories to investigate]
+6. **HOW TO VALIDATE**: [Specific commands to run]
+7. For parallel agents: Your module scope and interrupt protocol
+8. Quality standards that must be met
+
+## Parallel Interrupt System (Critical Discoveries Only)
+
+### Interrupt Hook Implementation
+Create `.claude/hooks/interrupt_monitor.py` for parallel phases:
+```python
+class InterruptMonitorHook:
+    def __init__(self):
+        self.interrupt_file = Path(".INTERRUPT")
+        
+    def pre_tool_use(self, tool_name, params):
+        """Auto-checks before every tool use"""
+        if self.interrupt_file.exists():
+            content = self.interrupt_file.read_text()
+            print(f"⚠️ CRITICAL DISCOVERY:\n{content}\nAdjust your approach accordingly.")
+            self.interrupt_file.unlink()  # Clean up
+        return True
+```
+
+### Agent Discovery Sharing (Using Orchestration Tool)
+```bash
+# For critical discoveries that need to interrupt others:
+python {main}/.symphony/tools/orchestration.py share-discovery \
+  --agent "auth-impl" \
+  --discovery "API returns async not sync" \
+  --severity critical \
+  --impact "All API calls need await" \
+  --affects database api tests
+
+# For non-critical discoveries (logged but no interrupt):
+python {main}/.symphony/tools/orchestration.py share-discovery \
+  --agent "auth-impl" \
+  --discovery "Found better pattern for validation" \
+  --severity info
+```
+
+### Critical vs Non-Critical
+**CRITICAL (interrupt others):**
+- Async where sync expected in skeleton
+- Security vulnerability found
+- Data structure mismatch with skeleton
+- Missing critical dependency
+
+**NOT Critical (handle in merge):**
+- Better patterns discovered
+- Performance optimizations
+- Minor validations needed
+- Code style improvements
 
 ## Key Improvements from Legacy Commands
 
+- **Mission-Driven Context**: MISSION_CONTEXT.json keeps everyone aligned
+- **Simplified Handoffs**: Agents explore rather than receive everything
+- **Separated Test Phase**: Tests written against real implementation
+- **Real Integration Tests**: subprocess.run() not pytest functions
+- **Interrupt System**: Critical discoveries shared in parallel work
 - **Skeleton-First**: Build structure, validate, then implement
-- **Phase-Scoped Context**: Each phase has isolated context with smart handoffs
-- **Specialized Agents**: Each phase uses purpose-built agents, not generic Tasks
-- **Intelligent Failure Memory**: Track and classify failures, avoid repeated mistakes
-- **Post-Merge Consolidation**: Fix integration issues after parallel work
-- **Guaranteed Cleanup**: Workspaces always cleaned, no orphaned directories
-- **Context Merging**: Parallel discoveries properly aggregated
-- **Phase-Specific Recovery**: Right agent for each type of failure
+- **Intelligent Failure Memory**: Track and classify failures
+- **Guaranteed Cleanup**: Workspaces always cleaned
 
 ## Intelligent Systems
 
@@ -1263,7 +1513,9 @@ When launching agents, always provide:
 ## Status Check
 
 When invoked with `status`:
-1. Check `{working_directory}/.claude/WORKFLOW_STATE.json` for current phase
-2. Show active parallel tasks if any
-3. Display confidence score from TASK_CONTEXT.json
-4. Report any blocked items or pending validations
+1. Display original mission from `MISSION_CONTEXT.json`
+2. Check `WORKFLOW_STATE.json` for current phase (X of 7)
+3. Show active parallel tasks from `PARALLEL_STATUS.json`
+4. Display recent discoveries from `PHASE_PROGRESS.json`
+5. Report confidence score from `TASK_CONTEXT.json`
+6. Show any pending critical interrupts

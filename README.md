@@ -1,26 +1,30 @@
-# Claude Conductor - Advanced Orchestration System
+# Symphony - Advanced Orchestration System for Claude Code
 
-A sophisticated orchestration system for Claude Code that implements skeleton-first development with intelligent validation gates and learning capabilities.
+A sophisticated orchestration system that implements skeleton-first development with merge-purge-continue patterns, architectural deviation tracking, and intelligent parallel execution.
 
 ## 🎯 Overview
 
-This is a complete orchestration system that transforms Claude Code into a powerful development conductor, capable of managing complex multi-file projects with parallel execution, intelligent refinement, and quality gates. Features a musical theme with personality vibes and tempo-based status indicators.
+Symphony transforms Claude Code into a powerful development conductor, managing complex multi-file projects through:
+- **Merge-Purge-Continue Pattern**: No interruptions, progressive refinement
+- **Deviation Tracking**: Handles architectural discoveries without stopping work
+- **Smart Parallel Execution**: Workers in isolated "chambers" with git worktrees
+- **Living Mission Context**: Requirements evolve as understanding improves
 
 ## 🚀 Key Features
 
-### 1. **Skeleton-First Architecture**
+### 1. **Skeleton-First Architecture with Deviation Handling**
 - Builds complete structure before implementation
-- Specialized agents for each phase (not generic tasks)
-- Enables true parallel development with git worktrees
-- Post-merge consolidation fixes integration issues
-- Guaranteed workspace cleanup after parallel work
+- Workers mark deviations when skeleton doesn't match reality
+- Three implementation cycles: Implement → Merge/Purge → Refine
+- Preserves good code even when architecture changes
+- No work interruption - complete then resolve
 
 ### 2. **Intelligent Context Management**
-- Phase-scoped contexts with smart handoffs
-- Context inheritance rules (MUST_INHERIT, CAN_INHERIT, MUST_PURGE)
-- Parallel workers get isolated LOCAL_CONTEXT.json
-- Merge-coordinator aggregates all discoveries
-- FAILURE_MEMORY.json tracks and classifies failures
+- Context importance scoring: MUST READ / SHOULD KNOW / REFERENCE
+- Living mission context that evolves with discoveries
+- Business logic extraction before architecture
+- Progressive context refinement between phases
+- Each phase outputs what the next needs
 
 ### 3. **Smart Validation & Recovery**
 - Phase-specific recovery agents for targeted fixes
@@ -32,7 +36,19 @@ This is a complete orchestration system that transforms Claude Code into a power
 ## 📁 System Structure
 
 ```
-~/.claude/
+{project}/.symphony/           # Orchestration infrastructure (not .claude)
+├── tools/
+│   └── orchestration.py       # Main orchestration tool
+├── chambers/                  # Worker chambers (git worktrees)
+│   ├── auth-impl/
+│   │   └── .chamber/         # Chamber-specific context
+│   └── db-impl/
+├── MISSION_CONTEXT.json      # Evolving understanding
+├── DEVIATIONS.json           # Architectural mismatches
+├── BUSINESS_LOGIC.json       # Extracted rules
+└── ARCHITECTURAL_DECISIONS.json # Merge/purge decisions
+
+~/.claude/                    # User configuration (separate)
 ├── agents/                    # Specialized sub-agents
 │   ├── skeleton-builder.md    # Creates implementation structure (Sonnet)
 │   ├── skeleton-builder-haiku.md # Fast skeleton creation (Haiku) ✨
@@ -72,47 +88,76 @@ This is a complete orchestration system that transforms Claude Code into a power
     └── downloads/          # Downloaded files
 ```
 
-## 🎭 The Conductor Pattern
+## 🎭 The Symphony Pattern
 
 ### Main Command: `/conduct`
 
-The conductor orchestration follows this sophisticated workflow:
+The Symphony orchestration follows a **7-phase workflow** with merge-purge-continue cycles:
 
 ```
-1. Pre-flight Validation → preflight-validator-haiku (FAST cached checks)
-2. Architecture & Context → Validate 95% confidence before proceeding
-   └── Creates PROJECT_CONTEXT.json for agent coordination
-3. Implementation Skeleton → PARALLEL skeleton-builder-haiku agents (one per module)
-   └── GATE 1: skeleton-reviewer categorizes issues:
-       - ARCHITECTURE_FLAW → back to Phase 1
-       - MODEL_LIMITATION → escalate to better model
-       - QUALITY_ISSUE → skeleton-builder with fix instructions
-4. Test Skeleton → test-skeleton-builder-haiku (parallel if multiple modules)
-   └── GATE 2: Validate structure and coverage planning
-5. Parallel Implementation (with context awareness):
-   a. Setup workspaces with PROJECT_CONTEXT distribution
-   b. implementation-executor agents (know about parallel work)
-   c. test-implementer agents implement tests (Integration-First)
-   d. merge-coordinator merges code AND shared resources
-   e. consolidation-analyzer fixes duplications
-   f. Guaranteed workspace cleanup
-6. Progressive Validation (TWO-PHASE):
-   a. Quick validation with Haiku agents (syntax, tests, lint)
-   b. If passes → Comprehensive validation with default model
-7. Documentation → Update CLAUDE.md and GOTCHAS.md
+1. Business Logic Extraction → Extract rules before architecture
+2. Architecture & Validation → 95% confidence required
+3. Implementation Skeleton → Create structure with interfaces
+4. Test Skeleton → Define test structure (no implementation)
+5. Implementation (3 Cycles):
+   Cycle 1: Initial Implementation (2 hours)
+   - Workers implement in chambers
+   - Mark deviations when skeleton doesn't match
+   - Document architectural discoveries
+   
+   Cycle 2: Merge, Purge & Resolution (1 hour)
+   - Orchestrator reviews deviations
+   - Makes architectural decisions
+   - Merge agent applies decisions
+   - Preserves good code, purges incompatible
+   
+   Cycle 3: Refinement (1 hour)
+   - Redistribute clean code
+   - Continue from consistent state
+   
+6. Test Implementation → Write tests against real code
+7. Validation → Comprehensive checks
+8. Documentation → Update project docs
 ```
 
 ### Key Principles
 
-- **Orchestrator Never Implements**: Main agent only delegates
-- **95% Confidence Gate**: Never proceed on assumptions
-- **Phase-Scoped Context**: Each phase has isolated context with handoffs
-- **Parallel Work Awareness**: Agents know what others are building
-- **Shared Resource Registry**: COMMON_REGISTRY.json prevents duplication
-- **Specialized Agents**: Each phase uses purpose-built agents
-- **Intelligent Failure Memory**: Learn from mistakes, avoid repetition
-- **Post-Merge Consolidation**: Fix integration issues after parallel work
-- **Guaranteed Cleanup**: Workspaces always removed after use
+- **No Interruptions**: Workers complete tasks despite discoveries
+- **Deviation Tracking**: Mark architectural mismatches, continue working
+- **Merge-Purge-Continue**: Progressive refinement without restarts
+- **Living Mission**: Requirements evolve as understanding improves
+- **Context Importance**: MUST READ / SHOULD KNOW / REFERENCE levels
+- **Git Safety**: Merge to working branch only, never auto-push
+- **Preserve Good Code**: Keep working patterns even when architecture changes
+- **Clear Decisions**: Orchestrator makes calls, agents execute
+
+## 🔄 Deviation Handling
+
+When workers discover architectural mismatches:
+
+### Severity Levels
+
+**🟢 Minor**: Implementation detail differs
+- Action: Implement better way, mark deviation
+- Example: Sync in skeleton, async is better
+
+**🟡 Major**: Architectural pattern change
+- Action: Create stub, document, continue elsewhere
+- Example: REST expected but GraphQL needed
+
+**🔴 Fundamental**: Entire approach invalid
+- Action: Interface stubs only, extensive docs
+- Example: Auth system completely different
+
+### Recording Deviations
+
+```bash
+python .symphony/tools/orchestration.py record-deviation \
+  --agent "auth-impl" --module "auth" \
+  --severity major \
+  --expected "REST API" \
+  --discovered "GraphQL required"
+```
 
 ## 🧠 Intelligent Systems
 
@@ -216,6 +261,33 @@ claude
 
 # For simple tasks (< 30 minutes)
 # Just use Claude directly without orchestration
+```
+
+## 🔧 Key Orchestration Commands
+
+### Symphony Tools
+
+```bash
+# Setup chambers for parallel work
+python .symphony/tools/orchestration.py setup-chambers \
+  --workers '[{"id": "auth-impl", "module": "auth", "scope": "src/auth/**"}]'
+
+# Record architectural deviation
+python .symphony/tools/orchestration.py record-deviation \
+  --agent "auth-impl" --severity major \
+  --expected "REST" --discovered "GraphQL"
+
+# Get all deviations for review
+python .symphony/tools/orchestration.py get-deviations
+
+# Format architectural decisions
+python .symphony/tools/orchestration.py format-decisions
+
+# Merge chambers to working branch
+python .symphony/tools/orchestration.py merge-chambers
+
+# Clean up after task
+python .symphony/tools/orchestration.py cleanup-task
 ```
 
 ## 🔧 Advanced Features

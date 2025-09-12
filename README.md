@@ -55,12 +55,6 @@ This is a complete orchestration system that transforms Claude Code into a power
 │   ├── coda.md               # Generate handoff summaries
 │   └── vibe.md               # Set personality mode (solo/concert/duo/mentor)
 │
-├── quality-tools/            # Language-specific quality validation
-│   ├── python/              # Python linting, formatting, testing
-│   ├── go/                 # Go validation tools
-│   ├── typescript/          # TS/JS validation
-│   └── scripts/            # Universal quality scripts
-│
 ├── hooks/                   # Event-driven automation
 │   ├── auto_formatter.py    # Universal code formatter for multiple languages
 │   ├── assumption_detector.py # Catches assumptions in real-time

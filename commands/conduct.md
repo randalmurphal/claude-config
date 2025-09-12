@@ -326,7 +326,7 @@ test_structure:
   e2e_tests: OPTIONAL - only if UI/API exists
 
 quality_validation:
-  tool: ~/.claude/quality-tools/scripts/quick-validate.sh  # User config, not project
+  tool: Standard language tools (ruff, eslint, go fmt, etc.)
   frequency: After each phase
   blocking: Failures prevent phase completion
 ```

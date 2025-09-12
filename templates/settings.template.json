@@ -1,5 +1,5 @@
 {
-  "model": "opus",
+  "model": "{{USER_MODEL}}",
   "hooks": {
     "PreCompact": [
       {
@@ -28,6 +28,10 @@
           {
             "type": "command",
             "command": "python3 ~/.claude/hooks/file_protection.py"
+          },
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/code_quality_gate.py"
           }
         ]
       },
@@ -37,6 +41,10 @@
           {
             "type": "command",
             "command": "python3 ~/.claude/hooks/file_protection.py"
+          },
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/code_quality_gate.py"
           }
         ]
       },
@@ -46,6 +54,10 @@
           {
             "type": "command",
             "command": "python3 ~/.claude/hooks/file_protection.py"
+          },
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/code_quality_gate.py"
           }
         ]
       },
@@ -55,15 +67,6 @@
           {
             "type": "command",
             "command": "python3 ~/.claude/hooks/file_protection.py"
-          }
-        ]
-      },
-      {
-        "matcher": "Read",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.claude-code-docs/claude-docs-helper.sh hook-check"
           }
         ]
       },

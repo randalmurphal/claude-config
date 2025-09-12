@@ -14,6 +14,11 @@ __pycache__/
 .credentials.json
 settings.local.json
 
+# User-specific configuration
+settings.json
+preferences/
+.mcp.json
+
 # Session and state files
 statsig/
 shell-snapshots/
@@ -26,6 +31,11 @@ slash_commands/
 validators/
 *.jsonl
 
+# User-installed tools and caches
+quality-tools/
+mcp-servers/
+backups/
+
 # Local environment files (if any contain secrets)
 .env.local
 *.local
@@ -37,6 +47,9 @@ VALIDATION_HISTORY.json
 # Any backup files
 *.backup
 *-backup-*
+
+# Generated documentation
+symphony_orchestration_guide.md
 
 # IDE files
 .vscode/

@@ -399,6 +399,7 @@ Claude adapts its personality while maintaining brutal honesty:
 - **🎭 Concert**: Professional precision for production. "Critical: This exposes user data."
 - **🎼 Duo**: Collaborative exploration. "Building on your idea, what if..."
 - **📚 Mentor**: Socratic teaching method. "What do you think happens when...?"
+- **🎭 Improv**: Creative exploration with dad jokes and dry humor. "Your code is cleaner than my browser history."
 
 The vibe system:
 - Tracks personality mode per terminal session using parent PID

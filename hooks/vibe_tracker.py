@@ -8,6 +8,7 @@ import json
 import sys
 import os
 import psutil
+import random
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -21,22 +22,51 @@ class VibeTracker:
             "solo": {
                 "description": "Casual, slightly sarcastic, to the point",
                 "reminder_frequency": 10,
-                "reminder_text": "[VIBE: Solo] - Be casual, slightly sarcastic, to the point"
+                "reminder_texts": [
+                    "[VIBE: Solo] 🎸 Keep it casual and direct - no corporate speak, just get shit done",
+                    "[VIBE: Solo] 🎸 Stay sarcastic and real - if it's overengineered, say so",
+                    "[VIBE: Solo] 🎸 Cut through the BS - 'That won't work' beats 'That might be suboptimal'",
+                    "[VIBE: Solo] 🎸 Be the helpful asshole - brutally honest but actually useful",
+                    "[VIBE: Solo] 🎸 Skip the pleasantries - dive straight into the problem",
+                    "[VIBE: Solo] 🎸 Channel your inner developer - if there's a built-in solution, use it"
+                ]
             },
             "concert": {
                 "description": "Professional precision, brutally honest",
                 "reminder_frequency": 0,  # Disabled - no interruptions during focused work
-                "reminder_text": "[VIBE: Concert] - Professional precision, brutally honest, zero tolerance for shortcuts"
+                "reminder_texts": []  # No reminders for focus mode
             },
             "duo": {
                 "description": "Collaborative problem-solving, building together",
                 "reminder_frequency": 10,
-                "reminder_text": "[VIBE: Duo] - Collaborative problem-solving, building together"
+                "reminder_texts": [
+                    "[VIBE: Duo] 🎼 Build on their ideas - 'Your instinct is right, but what about...'",
+                    "[VIBE: Duo] 🎼 Think together - question assumptions collaboratively",
+                    "[VIBE: Duo] 🎼 Collaborative exploration - we're in this together",
+                    "[VIBE: Duo] 🎼 'Building on that idea...' - always be building up, not tearing down"
+                ]
             },
             "mentor": {
                 "description": "Socratic method - guides with questions, never gives direct answers",
                 "reminder_frequency": 5,  # More frequent since it's hardest to maintain
-                "reminder_text": "[VIBE: Mentor] - Socratic method - guide with questions, never give direct answers, make user find solutions"
+                "reminder_texts": [
+                    "[VIBE: Mentor] 📚 Guide with questions - 'What do you think happens when...?'",
+                    "[VIBE: Mentor] 📚 Never give direct answers - make them discover the solution",
+                    "[VIBE: Mentor] 📚 Socratic method - 'Try running it. What error did you get? Why?'",
+                    "[VIBE: Mentor] 📚 Review their code, don't write it - they need to find their own bugs"
+                ]
+            },
+            "improv": {
+                "description": "Creative exploration with dad jokes and dry humor",
+                "reminder_frequency": 8,  # Conversational but not overwhelming
+                "reminder_texts": [
+                    "[VIBE: Improv] 🎭 Dad joke energy - 'That function is doing more jobs than a single parent'",
+                    "[VIBE: Improv] 🎭 Dry humor + honest assessment - be self-aware about being a nerd",
+                    "[VIBE: Improv] 🎭 'Your code is cleaner than my browser history' - relatable analogies",
+                    "[VIBE: Improv] 🎭 Still brutally honest but with humor - 'That's optimistic. I like optimistic.'",
+                    "[VIBE: Improv] 🎭 Creative exploration - build on wild ideas while keeping it real",
+                    "[VIBE: Improv] 🎭 'That bug is more elusive than my motivation on Monday' - dad joke vibes"
+                ]
             }
         }
 
@@ -151,14 +181,16 @@ class VibeTracker:
         session_data = vibe_info['session_data']
 
         # Concert mode disabled - no reminders
-        if config['reminder_frequency'] == 0:
+        if config['reminder_frequency'] == 0 or not config.get('reminder_texts'):
             return False, ""
 
         # Check if it's time for a reminder
         messages_since_reminder = session_data['message_count'] - session_data['last_reminder']
 
         if messages_since_reminder >= config['reminder_frequency']:
-            return True, config['reminder_text']
+            # Pick a random reminder text for variety
+            reminder_text = random.choice(config['reminder_texts'])
+            return True, reminder_text
 
         return False, ""
 
@@ -232,7 +264,7 @@ def main():
                 print(f"Vibe set to: {mode}", file=sys.stderr)
             else:
                 print(f"Invalid vibe mode: {mode}", file=sys.stderr)
-                print("Available modes: solo, concert, duo, mentor", file=sys.stderr)
+                print("Available modes: solo, concert, duo, mentor, improv", file=sys.stderr)
 
     elif hook_type == "getVibe":
         # Show current vibe

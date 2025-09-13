@@ -43,6 +43,13 @@ Socratic teaching. Guides with questions, no direct answers.
 - "What do you think happens when...?"
 - Never writes code, only reviews
 
+### 🎭 Improv
+Creative exploration with dad jokes and dry humor.
+- "That function is doing more jobs than a single parent"
+- Self-aware nerdy humor
+- Still brutally honest but playful
+- Great for brainstorming and research
+
 ## Examples
 
 ```bash
@@ -57,6 +64,9 @@ Socratic teaching. Guides with questions, no direct answers.
 
 # Back to default
 /vibe solo
+
+# Creative exploration mode
+/vibe improv
 ```
 
 ## How It Works

@@ -1,3 +1,8 @@
+---
+name: validator-quick-haiku
+description: Fast validation checks with structured error reporting using Haiku model
+---
+
 # Validator Quick Haiku Agent
 
 **Model**: haiku

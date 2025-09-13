@@ -66,6 +66,13 @@ Store these in settings.json based on the template.
 
 ### Phase 3: MCP Servers (BEFORE Credentials)
 
+First, check existing MCP configuration:
+```bash
+claude mcp list
+```
+
+If servers already configured, ask if user wants to reconfigure.
+
 ```
 🔌 MCP SERVERS (Model Context Protocol)
 These servers extend Claude's capabilities. Let's set up the ones you need.
@@ -93,10 +100,10 @@ Enter numbers separated by commas (e.g., 1,2,6):
 ```
 
 For each selected MCP server:
-1. Check if already installed
-2. If not, provide installation command
-3. Help configure it
-4. Add to .mcp.json if needed
+1. Check if already configured in ~/.claude.json
+2. Add configuration to ~/.claude.json under 'mcpServers' key
+3. Use npx with -y flag for automatic package installation
+4. Test connection with `claude mcp list`
 
 ### Phase 4: Credentials Setup (Based on MCP Selections)
 
@@ -127,34 +134,103 @@ For each credential:
 
 ```
 🛠️ DEVELOPMENT TOOLS
-Detecting your common programming languages...
+Detecting your programming languages and tools...
+```
 
-Found: Python, JavaScript, Go
+#### Python Setup
+1. Check if Python is installed:
+   - If not installed: Automatically install Python3 and pip
+   - If installed: Check version
+2. Check for quality tools (ruff, black, radon, mypy, vulture)
+3. If user wants tools and they're missing:
+   ```bash
+   # Install Python if missing
+   if ! which python3; then
+     sudo apt-get update && sudo apt-get install -y python3 python3-pip
+   fi
+   
+   # Install Python quality tools
+   pip install --user ruff black radon mypy vulture flake8-cognitive-complexity
+   ```
 
-PYTHON SETUP:
-✓ Virtual environment enforcement will be enabled
-□ Install quality tools? (radon, ruff, black) [y/n]: 
-□ Default venv location [./venv]: 
+#### JavaScript/TypeScript Setup
+1. Check if Node.js is installed:
+   - If not installed: Install via nvm or apt
+   - If installed: Check version
+2. Check for quality tools (eslint, prettier)
+3. If user wants tools and they're missing:
+   ```bash
+   # Install Node.js if missing
+   if ! which node; then
+     curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
+     source ~/.bashrc
+     nvm install --lts
+   fi
+   
+   # Install JavaScript quality tools
+   npm install -g eslint prettier typescript @typescript-eslint/eslint-plugin
+   ```
 
-JAVASCRIPT SETUP:
-□ Install ESLint and Prettier? [y/n]: 
-□ Prefer npm, yarn, or pnpm? [npm]: 
+#### Go Setup
+1. Check if Go is installed:
+   - If not installed: Automatically download and install Go
+   - If installed: Check version
+2. Check for quality tools (gocyclo, golangci-lint)
+3. If user wants Go tools:
+   ```bash
+   # Install Go if missing
+   if ! which go; then
+     echo "Installing Go..."
+     wget -q https://go.dev/dl/go1.23.0.linux-amd64.tar.gz
+     sudo tar -C /usr/local -xzf go1.23.0.linux-amd64.tar.gz
+     rm go1.23.0.linux-amd64.tar.gz
+     echo 'export PATH=$PATH:/usr/local/go/bin:$HOME/go/bin' >> ~/.bashrc
+     echo 'export PATH=$PATH:/usr/local/go/bin:$HOME/go/bin' >> ~/.zshrc 2>/dev/null
+     export PATH=$PATH:/usr/local/go/bin:$HOME/go/bin
+   fi
+   
+   # Install Go quality tools
+   go install github.com/fzipp/gocyclo/cmd/gocyclo@latest
+   curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin
+   ```
 
-GO SETUP:
-□ Install gocyclo and golangci-lint? [y/n]: 
+Display progress:
+```
+🛠️ LANGUAGE SETUP PROGRESS
+
+PYTHON:
+□ Python3: [checking/installing/✓]
+□ pip: [checking/installing/✓]
+□ ruff: [checking/installing/✓]
+□ black: [checking/installing/✓]
+□ radon: [checking/installing/✓]
+□ mypy: [checking/installing/✓]
+
+JAVASCRIPT:
+□ Node.js: [checking/installing/✓]
+□ npm: [checking/installing/✓]
+□ eslint: [checking/installing/✓]
+□ prettier: [checking/installing/✓]
+
+GO:
+□ Go: [checking/installing/✓]
+□ gocyclo: [checking/installing/✓]
+□ golangci-lint: [checking/installing/✓]
 ```
 
 If any installation fails:
 ```
 ⚠️ Failed to install [tool]
-This might be due to missing permissions or network issues.
 
-Let's try to fix this together:
-1. Do you have [python/npm/go] installed? [y/n]
-2. Should I try with sudo? [y/n]
-3. Would you prefer to install manually later? [y/n]
+Attempting automatic fix...
+[Show specific error and solution]
 
-Manual installation command: [show command]
+Alternative installation methods:
+1. Try with different package manager
+2. Download binary directly
+3. Install from source
+
+Would you like me to try alternative method? [y/n]:
 ```
 
 ### Phase 6: Directory Structure
@@ -175,11 +251,11 @@ Creating:
 
 ### Phase 7: Generate Configuration Files
 
-Create from templates:
-1. **settings.json** from settings.template.json
-2. **.credentials.json** from .credentials.template.json (if needed)
-3. **preferences/global.json** for user preferences
-4. **.mcp.json** for MCP server configuration
+Create/update configuration files:
+1. **~/.claude/settings.json** from settings.template.json
+2. **~/.claude/.credentials.json** from .credentials.template.json (if needed)
+3. **~/.claude/preferences/global.json** for user preferences
+4. **~/.claude.json** - Add MCP servers under 'mcpServers' key (NOT in a separate .mcp.json)
 
 ### Phase 8: Verification
 
@@ -255,15 +331,34 @@ Your choice:
 3. **Make everything resumable** - save progress after each phase
 4. **Validate inputs** - don't assume user entries are correct
 5. **Provide rollback** - ability to undo changes if needed
+6. **MCP Configuration**: Must be added to ~/.claude.json under 'mcpServers' key
+7. **Use npx with -y flag** for automatic MCP server package installation
 
-## Files Created
+## Files Created/Modified
 
-The command should create:
+The command should create/update:
 - `~/.claude/settings.json` (from template)
 - `~/.claude/.credentials.json` (if user wants)
 - `~/.claude/preferences/global.json`
-- `~/.claude/.mcp.json` (if MCP servers selected)
+- `~/.claude.json` - Add 'mcpServers' configuration (NOT a separate .mcp.json)
 - All required directories
+
+## MCP Server Configuration Examples
+
+```python
+# Example for adding MCP servers to ~/.claude.json
+config['mcpServers'] = {
+    "filesystem": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/user/.claude", "/tmp"]
+    },
+    "github": {
+        "command": "npx", 
+        "args": ["-y", "@modelcontextprotocol/server-github"],
+        "env": {"GITHUB_TOKEN": "${GITHUB_TOKEN}"}
+    }
+}
+```
 
 ## Success Metrics
 

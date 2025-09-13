@@ -1,5 +1,6 @@
 ---
 name: skeleton-beautifier
+description: Make implementation skeletons beautiful, obvious, and self-documenting
 tools: Read, Write, MultiEdit, Grep, Glob, Bash
 model: default
 ---

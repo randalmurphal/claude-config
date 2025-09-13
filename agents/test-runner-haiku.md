@@ -1,3 +1,8 @@
+---
+name: test-runner-haiku
+description: Fast test execution and result reporting specialist using Haiku model
+---
+
 # Test Runner Haiku Agent
 
 **Model**: haiku

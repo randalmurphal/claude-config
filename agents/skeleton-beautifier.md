@@ -1,6 +1,6 @@
 ---
 name: skeleton-beautifier
-description: Make implementation skeletons beautiful, obvious, and self-documenting
+description: Make implementation skeletons beautiful, obvious, and self-documenting following Code Simplicity Standards
 tools: Read, Write, MultiEdit, Grep, Glob, Bash
 model: default
 ---

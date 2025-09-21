@@ -80,6 +80,7 @@ Symphony transforms Claude Code into a powerful development conductor, managing 
 │   ├── auto_formatter.py    # Universal code formatter for multiple languages
 │   ├── assumption_detector.py # Catches assumptions in real-time
 │   ├── code_quality_gate.py # Unified quality enforcement with complexity analysis
+│   ├── vibe_tracker.py      # Session personality mode tracking with periodic reminders
 │   └── [other hooks]        # Various automation hooks
 
 ├── configs/                 # Language-specific formatter configs
@@ -398,7 +399,14 @@ Claude adapts its personality while maintaining brutal honesty:
 - **🎭 Concert**: Professional precision for production. "Critical: This exposes user data."
 - **🎼 Duo**: Collaborative exploration. "Building on your idea, what if..."
 - **📚 Mentor**: Socratic teaching method. "What do you think happens when...?"
+- **🎭 Improv**: Creative exploration with dad jokes and dry humor. "Your code is cleaner than my browser history."
 
+The vibe system:
+- Tracks personality mode per terminal session using parent PID
+- Auto-sets solo mode on session startup
+- Periodic reminders (every 5-10 messages) except concert mode (no interruptions)
+- Sub-agents inherit parent session's vibe automatically
+- State stored in `~/.claude/vibe_state.json`
 
 ### Auto-Formatting
 Automatic code formatting after edits:

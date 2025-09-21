@@ -1,6 +1,8 @@
 ---
 name: test-runner-haiku
-description: Fast test execution and result reporting specialist using Haiku model
+description: Test execution and result reporting specialist using Haiku model
+tools: Bash, Read
+model: haiku
 ---
 
 # Test Runner Haiku Agent

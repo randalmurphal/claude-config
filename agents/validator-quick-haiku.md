@@ -1,6 +1,8 @@
 ---
 name: validator-quick-haiku
 description: Fast validation checks with structured error reporting using Haiku model
+tools: Bash, Read
+model: haiku
 ---
 
 # Validator Quick Haiku Agent

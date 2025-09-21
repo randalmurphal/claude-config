@@ -1,6 +1,6 @@
 ---
 name: code-beautifier
-description: Transform working implementation into beautiful, DRY, self-documenting code
+description: Transform working implementation into beautiful, DRY, self-documenting code that makes complex solutions look obvious
 tools: Read, Write, MultiEdit, Bash, Grep, Glob
 model: default
 ---

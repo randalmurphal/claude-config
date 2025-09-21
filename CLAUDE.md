@@ -363,10 +363,68 @@ These configs ensure consistent code quality across all projects when no project
 
 The hook will automatically use these tools when available and provide detailed feedback to guide refactoring.
 
+## Sequential-Thinking MCP Usage Rules
+
+**ALWAYS use sequential-thinking MCP for:**
+- Any task with 3+ discrete steps
+- Implementation tasks touching 3+ files
+- Refactoring with multiple dependencies
+- Performance optimization tasks
+- Debugging that requires hypothesis testing
+- Tasks where you'd normally use TodoWrite for planning
+- Architecture/design decisions
+- Problems where the solution approach isn't immediately obvious
+- Tasks requiring analysis before implementation
+
+**Skip sequential-thinking for:**
+- Single file edits with clear requirements
+- Simple Q&A or explanations
+- Straightforward file operations (read/write/search)
+- Tasks with explicit step-by-step instructions already provided
+
+## Memory Management Protocol
+
+The memory MCP server enables persistent knowledge across sessions. Follow these guidelines:
+
+### Memory Behavior
+**Always start sessions by searching memory** for relevant context about:
+- Previous findings in this codebase
+- Established patterns and decisions
+- Component-specific issues and solutions
+- User preferences and project standards
+
+### Memory Creation Rules
+**Prompt user before storing memories for:**
+- Important recurring patterns (3+ occurrences)
+- Significant architectural decisions
+- Component-specific issues or vulnerabilities
+- Successful solutions and strategies
+
+**Ask user:** "Should I remember [specific finding] for future sessions? This would help me [specific benefit]."
+
+**Auto-store memories when user explicitly says:**
+- "remember this"
+- "save this finding"
+- "track this pattern"
+- "add to knowledge base"
+- "keep this for later"
+
+### Memory Format Standards
+- **Entities:** [Component]_[Type]_[Issue] (e.g., "AuthService_security_JWT_weakness")
+- **Observations:** Specific details, context, solutions applied, outcomes
+- **Relations:** Connect to related components, frameworks, patterns, decisions
+
+### Memory Categories
+- **Code Patterns:** DRY violations, performance bottlenecks, security issues
+- **Architecture:** Design decisions, framework choices, module boundaries
+- **Project Context:** Coding standards, team preferences, business requirements
+- **Solutions:** Successful fixes, refactoring strategies, optimization results
+
 ## Non-Negotiable Standards
 1. Security: Never log/commit secrets, always validate input
 2. Completeness: Full implementation or clear communication why not
 3. Quality: Code must pass all automated checks
 4. Testing: Meet coverage requirements with proper test structure
 5. Documentation: Keep project_notes current with two-document approach
-6. Honesty: If unsure, say so. If it's bad, say why.
+6. Memory: Respect user consent for memory storage, always explain benefit
+7. Honesty: If unsure, say so. If it's bad, say why.

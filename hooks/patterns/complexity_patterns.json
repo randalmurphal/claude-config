@@ -1,0 +1,182 @@
+{
+  "simple": {
+    "description": "Simple code patterns with low complexity",
+    "examples": [
+      {
+        "code": "def get_value(self): return self._value",
+        "features": ["getter_method", "single_return"],
+        "cognitive_score": 1.0,
+        "cyclomatic_complexity": 1
+      },
+      {
+        "code": "x = y + z",
+        "features": ["arithmetic_operation", "assignment"],
+        "cognitive_score": 1.0,
+        "cyclomatic_complexity": 1
+      },
+      {
+        "code": "if condition: return True",
+        "features": ["simple_conditional", "early_return"],
+        "cognitive_score": 2.0,
+        "cyclomatic_complexity": 2
+      },
+      {
+        "code": "data = {'key': 'value'}",
+        "features": ["data_structure", "literal"],
+        "cognitive_score": 1.0,
+        "cyclomatic_complexity": 1
+      },
+      {
+        "code": "for item in items: print(item)",
+        "features": ["simple_loop", "iteration"],
+        "cognitive_score": 2.0,
+        "cyclomatic_complexity": 2
+      }
+    ],
+    "characteristics": [
+      "Single responsibility",
+      "No nested structures",
+      "Linear execution flow",
+      "Minimal branching"
+    ]
+  },
+  "moderate": {
+    "description": "Moderate complexity with some control structures",
+    "examples": [
+      {
+        "code": "for i in range(len(items)):\n    for j in range(len(items[i])):\n        process(items[i][j])",
+        "features": ["nested_loops", "indexing", "method_calls"],
+        "cognitive_score": 6.0,
+        "cyclomatic_complexity": 3
+      },
+      {
+        "code": "try:\n    result = risky_operation()\nexcept Exception as e:\n    handle_error(e)",
+        "features": ["exception_handling", "method_calls"],
+        "cognitive_score": 3.0,
+        "cyclomatic_complexity": 2
+      },
+      {
+        "code": "result = [func(x) for x in items if condition(x)]",
+        "features": ["list_comprehension", "filtering", "transformation"],
+        "cognitive_score": 4.0,
+        "cyclomatic_complexity": 3
+      },
+      {
+        "code": "with context_manager() as cm:\n    return cm.process(data)",
+        "features": ["context_manager", "method_chaining"],
+        "cognitive_score": 3.0,
+        "cyclomatic_complexity": 2
+      },
+      {
+        "code": "async def fetch_data():\n    return await api_call()",
+        "features": ["async_function", "await_expression"],
+        "cognitive_score": 3.0,
+        "cyclomatic_complexity": 1
+      }
+    ],
+    "characteristics": [
+      "Some nesting",
+      "Basic error handling",
+      "Async operations",
+      "Data transformations"
+    ]
+  },
+  "complex": {
+    "description": "Complex patterns requiring careful analysis",
+    "examples": [
+      {
+        "code": "def recursive_search(node, target):\n    if not node: return None\n    if node.value == target: return node\n    left = recursive_search(node.left, target)\n    return left if left else recursive_search(node.right, target)",
+        "features": ["recursion", "multiple_conditions", "early_returns"],
+        "cognitive_score": 8.0,
+        "cyclomatic_complexity": 4
+      },
+      {
+        "code": "async def parallel_process():\n    tasks = [asyncio.create_task(process(item)) for item in items]\n    return await asyncio.gather(*tasks)",
+        "features": ["async_parallel", "task_management", "comprehension"],
+        "cognitive_score": 7.0,
+        "cyclomatic_complexity": 2
+      },
+      {
+        "code": "class MetaClass(type):\n    def __new__(cls, name, bases, attrs):\n        return super().__new__(cls, name, bases, attrs)",
+        "features": ["metaclass", "inheritance", "magic_methods"],
+        "cognitive_score": 10.0,
+        "cyclomatic_complexity": 1
+      },
+      {
+        "code": "with threading.Lock():\n    shared_resource.modify()\n    if complex_condition():\n        raise CustomException()",
+        "features": ["threading", "synchronization", "conditional_exception"],
+        "cognitive_score": 8.0,
+        "cyclomatic_complexity": 2
+      }
+    ],
+    "characteristics": [
+      "Deep nesting",
+      "Recursion",
+      "Threading/concurrency",
+      "Advanced language features"
+    ]
+  },
+  "critical": {
+    "description": "Critical patterns requiring extreme caution",
+    "examples": [
+      {
+        "code": "exec(user_input)",
+        "features": ["dynamic_execution", "security_risk"],
+        "cognitive_score": 15.0,
+        "cyclomatic_complexity": 1,
+        "security_risk": true
+      },
+      {
+        "code": "os.system(command)",
+        "features": ["system_command", "security_risk"],
+        "cognitive_score": 12.0,
+        "cyclomatic_complexity": 1,
+        "security_risk": true
+      },
+      {
+        "code": "eval(expression)",
+        "features": ["code_evaluation", "security_risk"],
+        "cognitive_score": 15.0,
+        "cyclomatic_complexity": 1,
+        "security_risk": true
+      },
+      {
+        "code": "subprocess.run(shell_command, shell=True)",
+        "features": ["subprocess", "shell_execution", "security_risk"],
+        "cognitive_score": 12.0,
+        "cyclomatic_complexity": 1,
+        "security_risk": true
+      },
+      {
+        "code": "cursor.execute(f'DROP TABLE {table_name}')",
+        "features": ["sql_injection", "database_manipulation", "security_risk"],
+        "cognitive_score": 20.0,
+        "cyclomatic_complexity": 1,
+        "security_risk": true
+      },
+      {
+        "code": "pickle.loads(untrusted_data)",
+        "features": ["deserialization", "security_risk"],
+        "cognitive_score": 12.0,
+        "cyclomatic_complexity": 1,
+        "security_risk": true
+      }
+    ],
+    "characteristics": [
+      "Security vulnerabilities",
+      "Dynamic code execution",
+      "Unvalidated input usage",
+      "System-level operations"
+    ]
+  },
+  "meta": {
+    "version": "1.0",
+    "last_updated": "2024-09-18",
+    "description": "CodeT5+ complexity pattern database for semantic analysis",
+    "scoring_criteria": {
+      "cognitive_score": "Subjective complexity based on human understanding difficulty",
+      "cyclomatic_complexity": "Structural complexity based on control flow paths",
+      "security_risk": "Boolean flag for patterns with security implications"
+    }
+  }
+}

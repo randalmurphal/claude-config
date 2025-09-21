@@ -1,0 +1,308 @@
+{
+  "code_quality": {
+    "description": "Anti-patterns that reduce code quality and maintainability",
+    "patterns": [
+      {
+        "name": "god_function",
+        "examples": [
+          {
+            "code": "def do_everything(data):\n    # 200+ lines of code\n    # Multiple responsibilities\n    # Complex business logic\n    pass",
+            "issues": ["Single responsibility violation", "High complexity", "Hard to test"],
+            "cognitive_score": 25.0,
+            "maintainability_impact": "high"
+          }
+        ],
+        "detection_criteria": [
+          "Function length > 50 lines",
+          "Cyclomatic complexity > 10",
+          "Multiple distinct responsibilities"
+        ],
+        "refactoring_suggestions": [
+          "Extract smaller functions",
+          "Separate concerns",
+          "Use composition over inheritance"
+        ]
+      },
+      {
+        "name": "nested_ternary",
+        "examples": [
+          {
+            "code": "result = a if condition1 else b if condition2 else c if condition3 else d",
+            "issues": ["Readability nightmare", "Hard to debug", "Error-prone"],
+            "cognitive_score": 12.0,
+            "maintainability_impact": "medium"
+          }
+        ],
+        "detection_criteria": [
+          "Multiple ternary operators chained",
+          "Nesting depth > 2"
+        ],
+        "refactoring_suggestions": [
+          "Use if-elif-else chains",
+          "Extract to helper functions",
+          "Use lookup tables when appropriate"
+        ]
+      },
+      {
+        "name": "deep_nesting",
+        "examples": [
+          {
+            "code": "if condition1:\n    if condition2:\n        if condition3:\n            if condition4:\n                if condition5:\n                    do_something()",
+            "issues": ["High cognitive load", "Hard to follow logic", "Testing complexity"],
+            "cognitive_score": 15.0,
+            "maintainability_impact": "high"
+          }
+        ],
+        "detection_criteria": [
+          "Nesting depth > 4 levels",
+          "Multiple nested conditionals"
+        ],
+        "refactoring_suggestions": [
+          "Use early returns",
+          "Extract guard clauses",
+          "Flatten conditional structure"
+        ]
+      },
+      {
+        "name": "magic_numbers",
+        "examples": [
+          {
+            "code": "if user.age > 18 and user.score > 750 and user.income > 50000:",
+            "issues": ["Unclear business rules", "Hard to maintain", "No context"],
+            "cognitive_score": 5.0,
+            "maintainability_impact": "medium"
+          }
+        ],
+        "detection_criteria": [
+          "Numeric literals in conditions",
+          "Repeated numeric values",
+          "No explanatory constants"
+        ],
+        "refactoring_suggestions": [
+          "Define named constants",
+          "Use configuration files",
+          "Extract business rules to classes"
+        ]
+      }
+    ]
+  },
+  "performance": {
+    "description": "Anti-patterns that negatively impact performance",
+    "patterns": [
+      {
+        "name": "n_plus_one_query",
+        "examples": [
+          {
+            "code": "for user in users:\n    orders = db.query('SELECT * FROM orders WHERE user_id = ?', user.id)",
+            "issues": ["Database performance", "Scalability problems", "Resource waste"],
+            "performance_impact": "high",
+            "scale_sensitivity": "high"
+          }
+        ],
+        "detection_criteria": [
+          "Database queries in loops",
+          "Linear scaling with data size"
+        ],
+        "optimization_suggestions": [
+          "Use bulk queries",
+          "Implement eager loading",
+          "Use JOINs instead of multiple queries"
+        ]
+      },
+      {
+        "name": "premature_optimization",
+        "examples": [
+          {
+            "code": "# Complex caching for rarely used data\ncache = LRUCache(maxsize=10000)\n@cache\ndef get_user_count():\n    return len(users)  # Called once per day",
+            "issues": ["Unnecessary complexity", "Maintenance overhead", "Unclear benefits"],
+            "performance_impact": "negative",
+            "maintainability_impact": "medium"
+          }
+        ],
+        "detection_criteria": [
+          "Complex optimizations without profiling",
+          "Caching of infrequently accessed data",
+          "Micro-optimizations in non-critical paths"
+        ],
+        "refactoring_suggestions": [
+          "Profile before optimizing",
+          "Focus on algorithmic improvements",
+          "Optimize hot paths first"
+        ]
+      },
+      {
+        "name": "memory_leak",
+        "examples": [
+          {
+            "code": "global_cache = {}\ndef store_data(key, data):\n    global_cache[key] = data  # Never cleaned up",
+            "issues": ["Memory growth", "System instability", "Resource exhaustion"],
+            "performance_impact": "critical",
+            "reliability_impact": "high"
+          }
+        ],
+        "detection_criteria": [
+          "Unbounded data structures",
+          "Missing cleanup logic",
+          "Static references to dynamic data"
+        ],
+        "optimization_suggestions": [
+          "Implement cleanup mechanisms",
+          "Use weak references where appropriate",
+          "Set maximum cache sizes"
+        ]
+      }
+    ]
+  },
+  "security": {
+    "description": "Anti-patterns that introduce security vulnerabilities",
+    "patterns": [
+      {
+        "name": "hardcoded_secrets",
+        "examples": [
+          {
+            "code": "API_KEY = 'sk-1234567890abcdef'\nDATABASE_PASSWORD = 'admin123'",
+            "issues": ["Credential exposure", "Source control leaks", "Deployment risks"],
+            "security_impact": "critical",
+            "compliance_risk": "high"
+          }
+        ],
+        "detection_criteria": [
+          "String literals containing secrets",
+          "Hardcoded passwords or keys",
+          "Embedded tokens"
+        ],
+        "mitigation_strategies": [
+          "Use environment variables",
+          "Implement secret management",
+          "Encrypt sensitive configuration"
+        ]
+      },
+      {
+        "name": "insufficient_validation",
+        "examples": [
+          {
+            "code": "def transfer_money(amount, from_account, to_account):\n    from_account.balance -= amount\n    to_account.balance += amount",
+            "issues": ["No input validation", "Business rule violations", "Data integrity risks"],
+            "security_impact": "high",
+            "business_impact": "critical"
+          }
+        ],
+        "detection_criteria": [
+          "Missing input validation",
+          "No boundary checks",
+          "Unverified business rules"
+        ],
+        "mitigation_strategies": [
+          "Validate all inputs",
+          "Implement business rule checks",
+          "Use type annotations and validation"
+        ]
+      },
+      {
+        "name": "information_leakage",
+        "examples": [
+          {
+            "code": "except Exception as e:\n    return {'error': str(e), 'traceback': traceback.format_exc()}",
+            "issues": ["Sensitive information disclosure", "System enumeration", "Attack surface exposure"],
+            "security_impact": "medium",
+            "information_disclosure_risk": "high"
+          }
+        ],
+        "detection_criteria": [
+          "Detailed error messages to users",
+          "Stack traces in responses",
+          "Debug information in production"
+        ],
+        "mitigation_strategies": [
+          "Log details, return generic errors",
+          "Implement proper error handling",
+          "Separate development and production error handling"
+        ]
+      }
+    ]
+  },
+  "maintainability": {
+    "description": "Anti-patterns that make code hard to maintain",
+    "patterns": [
+      {
+        "name": "copy_paste_programming",
+        "examples": [
+          {
+            "code": "def validate_email(email):\n    if '@' not in email:\n        return False\n    return True\n\ndef validate_user_email(email):\n    if '@' not in email:\n        return False\n    return True",
+            "issues": ["Code duplication", "Maintenance burden", "Inconsistent updates"],
+            "maintainability_impact": "high",
+            "bug_multiplication_risk": "high"
+          }
+        ],
+        "detection_criteria": [
+          "Similar code blocks",
+          "Repeated logic patterns",
+          "Near-identical functions"
+        ],
+        "refactoring_suggestions": [
+          "Extract common functions",
+          "Create utility modules",
+          "Use inheritance or composition"
+        ]
+      },
+      {
+        "name": "shotgun_surgery",
+        "examples": [
+          {
+            "code": "# Adding a new field requires changes in 15+ files\n# User model, serializers, validators, forms, templates, tests, etc.",
+            "issues": ["High change impact", "Error-prone modifications", "Development slowdown"],
+            "maintainability_impact": "critical",
+            "change_risk": "high"
+          }
+        ],
+        "detection_criteria": [
+          "Changes require multiple file modifications",
+          "High coupling between components",
+          "Scattered related functionality"
+        ],
+        "refactoring_suggestions": [
+          "Increase cohesion",
+          "Reduce coupling",
+          "Use dependency injection"
+        ]
+      },
+      {
+        "name": "feature_envy",
+        "examples": [
+          {
+            "code": "class OrderProcessor:\n    def calculate_total(self, order):\n        total = 0\n        for item in order.items:\n            total += item.price * item.quantity\n            total += item.price * item.quantity * item.tax_rate\n        return total",
+            "issues": ["Misplaced responsibility", "Tight coupling", "Violation of encapsulation"],
+            "maintainability_impact": "medium",
+            "design_quality": "poor"
+          }
+        ],
+        "detection_criteria": [
+          "Excessive use of another class's data",
+          "Methods that belong in different classes",
+          "Breaking encapsulation"
+        ],
+        "refactoring_suggestions": [
+          "Move methods to appropriate classes",
+          "Improve encapsulation",
+          "Review class responsibilities"
+        ]
+      }
+    ]
+  },
+  "meta": {
+    "version": "1.0",
+    "last_updated": "2024-09-18",
+    "description": "Anti-pattern database for code quality analysis",
+    "impact_levels": {
+      "critical": "Severe impact requiring immediate attention",
+      "high": "Significant impact that should be addressed soon",
+      "medium": "Moderate impact worth addressing in next iteration",
+      "low": "Minor impact, address when convenient"
+    },
+    "detection_methods": {
+      "static_analysis": "Pattern matching in code structure",
+      "semantic_analysis": "Understanding code meaning and context",
+      "metric_analysis": "Quantitative measures like complexity scores"
+    }
+  }
+}

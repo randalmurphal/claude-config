@@ -62,3 +62,7 @@ node_modules/
 ACTIVE_WORK.json
 PARALLEL_STATUS.json
 RESOURCE_LOCKS.json
+
+
+vibe_state.json
+

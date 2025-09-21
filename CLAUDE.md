@@ -363,6 +363,25 @@ These configs ensure consistent code quality across all projects when no project
 
 The hook will automatically use these tools when available and provide detailed feedback to guide refactoring.
 
+## Sequential-Thinking MCP Usage Rules
+
+**ALWAYS use sequential-thinking MCP for:**
+- Any task with 3+ discrete steps
+- Implementation tasks touching 3+ files
+- Refactoring with multiple dependencies
+- Performance optimization tasks
+- Debugging that requires hypothesis testing
+- Tasks where you'd normally use TodoWrite for planning
+- Architecture/design decisions
+- Problems where the solution approach isn't immediately obvious
+- Tasks requiring analysis before implementation
+
+**Skip sequential-thinking for:**
+- Single file edits with clear requirements
+- Simple Q&A or explanations
+- Straightforward file operations (read/write/search)
+- Tasks with explicit step-by-step instructions already provided
+
 ## Memory Management Protocol
 
 The memory MCP server enables persistent knowledge across sessions. Follow these guidelines:

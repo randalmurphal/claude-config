@@ -1,37 +1,86 @@
 #!/opt/envs/py3.13/bin/python
 """
-PRISM Client for Claude Code Hooks
-Simple wrapper around HTTP client.
+PRISM HTTP Client for Claude Code Hooks
+Uses HTTP API to communicate with PRISM server.
 """
 
-from prism_http_client import PrismHTTPClient
+import json
+import logging
+import requests
 from typing import Dict, List, Optional, Tuple, Any
+from urllib.parse import urljoin
 
-class PrismClient:
-    """PRISM client that uses HTTP interface."""
+logger = logging.getLogger(__name__)
 
-    def __init__(self):
-        self._client = PrismHTTPClient()
+class PrismHTTPClient:
+    """PRISM client that uses HTTP API."""
+
+    def __init__(self, base_url: str = "http://localhost:8090"):
+        """Initialize HTTP client.
+
+        Args:
+            base_url: Base URL for PRISM HTTP server
+        """
+        self.base_url = base_url
+        self.session = requests.Session()
+        self.session.headers.update({"Content-Type": "application/json"})
 
     def is_available(self) -> bool:
-        """Check if PRISM MCP is available."""
-        return self._client.is_available()
+        """Check if PRISM HTTP server is available."""
+        try:
+            response = self.session.get(urljoin(self.base_url, "/health"), timeout=2)
+            if response.status_code == 200:
+                health = response.json()
+                return all(health.get("services", {}).values())
+            return False
+        except:
+            return False
 
     def store_memory(self, content: str, tier: str = "LONGTERM", metadata: Optional[Dict] = None) -> bool:
         """Store memory in PRISM."""
-        return self._client.store_memory(content, tier, metadata)
+        try:
+            response = self.session.post(
+                urljoin(self.base_url, "/store_memory"),
+                json={
+                    "content": content,
+                    "tier": tier.upper(),
+                    "metadata": metadata or {}
+                },
+                timeout=5
+            )
+            if response.status_code == 200:
+                result = response.json()
+                return result.get("success", False)
+            return False
+        except Exception as e:
+            logger.error(f"Failed to store memory: {e}")
+            return False
 
     def search_memory(self, query: str, limit: int = 10, tiers: Optional[List[str]] = None) -> List[Dict]:
         """Search PRISM memory."""
-        # MCP interface only supports searching one tier at a time or all
-        if tiers and len(tiers) == 1:
-            return self._client.search_memory(query, limit, tiers[0])
-        else:
-            # Search all tiers
-            return self._client.search_memory(query, limit, None)
+        try:
+            # HTTP API expects single tier or None for all
+            tier = tiers[0] if tiers and len(tiers) == 1 else None
+
+            response = self.session.post(
+                urljoin(self.base_url, "/search_memory"),
+                json={
+                    "query": query,
+                    "limit": limit,
+                    "tier": tier
+                },
+                timeout=5
+            )
+            if response.status_code == 200:
+                result = response.json()
+                return result.get("results", [])
+            return []
+        except Exception as e:
+            logger.error(f"Failed to search memory: {e}")
+            return []
 
     def retrieve_memory(self, key: str, tier: str = "LONGTERM") -> Optional[Dict]:
-        """Retrieve specific memory by key (search for exact key)."""
+        """Retrieve specific memory by key."""
         results = self.search_memory(key, limit=1, tiers=[tier])
         if results and results[0].get('key') == key:
             return results[0]
@@ -39,30 +88,58 @@ class PrismClient:
 
     def analyze(self, text: str) -> Optional[Dict]:
         """Analyze text using PRISM reasoning."""
-        result = self._client.analyze(text)
-        if result:
-            # Extract key fields from analysis result
-            analysis = result.get('analysis', {})
-            return {
-                'confidence': analysis.get('confidence', 0),
-                'zone': analysis.get('reasoning', {}).get('zone', 'yellow'),
-                'method': analysis.get('reasoning', {}).get('method', 'unknown'),
-                'solutions': analysis.get('reasoning', {}).get('solutions', []),
-                'info': analysis
-            }
-        return None
+        try:
+            response = self.session.post(
+                urljoin(self.base_url, "/analyze"),
+                json={"text": text},
+                timeout=10
+            )
+            if response.status_code == 200:
+                return response.json()
+            return None
+        except Exception as e:
+            logger.error(f"Failed to analyze text: {e}")
+            return None
 
     def detect_hallucination(self, text: str, confidence_threshold: float = 0.8) -> Optional[Dict]:
         """Detect hallucination risk in text."""
-        return self._client.detect_hallucination(text, confidence_threshold)
+        try:
+            response = self.session.post(
+                urljoin(self.base_url, "/detect_hallucination"),
+                json={
+                    "text": text,
+                    "confidence_threshold": confidence_threshold
+                },
+                timeout=10
+            )
+            if response.status_code == 200:
+                return response.json()
+            return None
+        except Exception as e:
+            logger.error(f"Failed to detect hallucination: {e}")
+            return None
 
     def calculate_semantic_drift(self, input_text: str, ground_truth: str) -> Optional[Dict]:
         """Calculate semantic drift between texts."""
-        return self._client.calculate_semantic_drift(input_text, ground_truth)
+        try:
+            response = self.session.post(
+                urljoin(self.base_url, "/semantic_residue"),
+                json={
+                    "input_text": input_text,
+                    "ground_truth": ground_truth
+                },
+                timeout=10
+            )
+            if response.status_code == 200:
+                return response.json()
+            return None
+        except Exception as e:
+            logger.error(f"Failed to calculate semantic drift: {e}")
+            return None
 
     def generate_embedding(self, text: str) -> Optional[List[float]]:
-        """Generate embedding for text (not available via MCP)."""
-        # MCP doesn't expose embedding generation directly
+        """Generate embedding for text (not exposed via HTTP yet)."""
+        # Could add this endpoint if needed
         return None
 
     def extract_intent(self, text: str) -> Tuple[str, float]:
@@ -158,21 +235,20 @@ class PrismClient:
 
     def hybrid_search(self, query: str, limit: int = 10) -> List[Dict]:
         """Hybrid search across all memory tiers."""
-        # MCP searches all tiers by default when tier is not specified
         return self.search_memory(query, limit, None)
 
     def close(self):
-        """Close the MCP connection."""
-        self._client.close()
+        """Close the HTTP session."""
+        self.session.close()
 
 # Singleton instance management
 _client_instance = None
 
-def get_prism_client() -> PrismClient:
+def get_prism_client() -> PrismHTTPClient:
     """Get or create PRISM client instance."""
     global _client_instance
     if _client_instance is None:
-        _client_instance = PrismClient()
+        _client_instance = PrismHTTPClient()
     return _client_instance
 
 def prism_context():
@@ -186,4 +262,4 @@ def prism_context():
     return PrismContext()
 
 # Export for compatibility
-__all__ = ['PrismClient', 'get_prism_client', 'prism_context']
+__all__ = ['PrismHTTPClient', 'get_prism_client', 'prism_context']

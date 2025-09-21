@@ -6,6 +6,10 @@
         "hooks": [
           {
             "type": "command",
+            "command": "$HOME/.claude/hooks/prism_http_startup.py"
+          },
+          {
+            "type": "command",
             "command": "$HOME/.claude/hooks/vibe_tracker.py setVibe solo"
           }
         ]

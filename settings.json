@@ -11,6 +11,14 @@
           {
             "type": "command",
             "command": "$HOME/.claude/hooks/vibe_tracker.py setVibe solo"
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/chamber_cleanup.py"
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/orchestration_dashboard.py"
           }
         ]
       }
@@ -21,6 +29,14 @@
           {
             "type": "command",
             "command": "$HOME/.claude/hooks/unified_context_provider.py"
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/auto_orchestration_detector.py"
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/orchestration_dashboard.py"
           }
         ]
       }
@@ -45,6 +61,10 @@
           {
             "type": "command",
             "command": "$HOME/.claude/hooks/file_protection.py"
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/edit_tracker.py"
           }
         ]
       },
@@ -65,6 +85,10 @@
           {
             "type": "command",
             "command": "$HOME/.claude/hooks/auto_formatter.py"
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/edit_tracker.py"
           }
         ]
       },
@@ -74,6 +98,10 @@
           {
             "type": "command",
             "command": "$HOME/.claude/hooks/orchestration_learner.py"
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/orchestration_progress.py"
           }
         ]
       },
@@ -83,6 +111,15 @@
           {
             "type": "command",
             "command": "$HOME/.claude/hooks/unified_context_provider.py"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/test_coverage_enforcer.py"
           }
         ]
       }

@@ -51,6 +51,22 @@ Use the orchestration MCP tool: `get_agent_context`
    # FAIL if any function > 10 complexity
    ```
 
+5. **Beauty Standards Check**
+   ```bash
+   # Function length analysis
+   # FAIL if functions < 10 lines (micro-functions)
+   # FAIL if functions > 50 lines (too complex)
+
+   # DRY violations
+   # FAIL if code blocks repeated 3+ times
+
+   # Wrapper detection
+   # FAIL if pointless wrapper functions exist
+
+   # Naming clarity
+   # WARN if abbreviations or unclear names
+   ```
+
 ### 3. Report Issues (Never Fix)
 
 When you find problems:
@@ -67,6 +83,9 @@ Then delegate fixes:
 Use Task tool to launch appropriate agent:
 - Low coverage → test-implementer
 - High complexity → code-beautifier
+- Beauty violations → code-beautifier
+- Micro-functions → code-beautifier
+- DRY violations → code-beautifier
 - Linting errors → implementation-executor
 ```
 
@@ -89,6 +108,13 @@ Create `.claude/VALIDATION_REPORT.md`:
 - Linting: 0 errors ✅
 - Complexity: All functions < 10 ✅
 
+## Beauty Metrics
+- Function sizing: 20-50 lines ✅
+- DRY violations: 0 ✅
+- Wrapper functions: 0 ✅
+- Self-documenting names: Yes ✅
+- Beauty score: 8.5/10 ✅
+
 ## Issues Found
 1. [Module]: [Issue] → Delegated to [agent]
 2. ...
@@ -103,6 +129,10 @@ Create `.claude/VALIDATION_REPORT.md`:
 ✅ No linting errors
 ✅ Complexity < threshold
 ✅ PRISM confidence > 0.7
+✅ Beauty score ≥ 8.0
+✅ No micro-functions (< 10 lines)
+✅ No over-complex functions (> 50 lines)
+✅ No DRY violations (3+ duplicates)
 
 ## What You DON'T Do
 
@@ -117,5 +147,10 @@ If work is bad, say it's bad:
 - "This code is unnecessarily complex"
 - "Coverage is unacceptable at 60%"
 - "PRISM detected high hallucination risk"
+- "Too many micro-functions - combine them"
+- "This 200-line function is unreadable"
+- "Same validation logic in 5 places - extract it"
+- "Pointless wrapper function adds no value"
+- "Variable names like 'x' and 'tmp' are unclear"
 
 Never sugarcoat. Identify issues clearly. Delegate fixes.

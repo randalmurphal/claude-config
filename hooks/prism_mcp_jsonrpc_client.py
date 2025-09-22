@@ -21,7 +21,7 @@ class PrismMCPClient:
 
     def __init__(self):
         """Initialize MCP client with persistent subprocess."""
-        self.mcp_binary = Path.home() / "repos" / "claude_mcp" / "prism_mcp" / "bin" / "prism-mcp-launcher"
+        self.mcp_binary = Path.home() / "repos" / "claude_mcp" / "prism_mcp" / "bin" / "prism-mcp-run"
         self.process = None
         self.request_id = 0
         self.response_queue = queue.Queue()
@@ -55,6 +55,23 @@ class PrismMCPClient:
             # Start reader thread
             self.reader_thread = threading.Thread(target=self._read_responses, daemon=True)
             self.reader_thread.start()
+
+            # Initialize MCP server
+            try:
+                init_result = self._call_method_raw("initialize", {
+                    "protocolVersion": "1.0.0",
+                    "clientInfo": {
+                        "name": "prism-hooks",
+                        "version": "1.0.0"
+                    },
+                    "capabilities": {}
+                })
+                if init_result:
+                    self._connected = True
+                    logger.info("MCP server connected and initialized")
+                    return True
+            except:
+                pass
 
             self._connected = True
             logger.info("MCP server connected via JSON-RPC")

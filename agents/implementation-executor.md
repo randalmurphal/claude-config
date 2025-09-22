@@ -106,6 +106,78 @@ Complete when done.
 
 That's it! 10 lines instead of 300+.
 
+## Implementation Beauty Standards
+
+### Self-Testing After Each Method
+```python
+# After implementing each significant function:
+def implement_register_user():
+    # 1. Write the implementation
+    code = '''
+    def register_user(email, password, full_name):
+        # Validate inputs first (guard clause)
+        if not email or '@' not in email:
+            raise ValueError("Invalid email format")
+
+        # Check for existing user (clear intent)
+        existing_user = db.query(User).filter_by(email=email).first()
+        if existing_user:
+            raise ConflictError(f"User with email {email} already exists")
+
+        # Create user with obvious steps
+        password_hash = bcrypt.hash(password)
+        user = User(
+            email=email,
+            password_hash=password_hash,
+            full_name=full_name
+        )
+
+        # Save and return
+        db.session.add(user)
+        db.session.commit()
+        return user
+    '''
+
+    # 2. Immediately test it
+    test_result = test_implementation()
+
+    # 3. Check for beauty violations
+    beauty_check = check_code_beauty(code)
+    if beauty_check['issues']:
+        # Fix: too complex, needs splitting
+        # Fix: unclear naming
+        # Fix: missing error context
+        pass
+```
+
+### Code Beauty Checklist
+- [ ] Functions 20-50 lines (no micro-functions)
+- [ ] Self-documenting variable names
+- [ ] Guard clauses instead of nested ifs
+- [ ] Clear separation of concerns
+- [ ] Obvious data flow
+- [ ] Descriptive intermediate variables
+- [ ] No clever one-liners
+- [ ] No unnecessary wrappers
+
+### Patterns to Apply
+```python
+# GOOD: Obvious what it does
+def calculate_order_total(order):
+    # Clear intermediate steps
+    subtotal = sum(item.price * item.quantity for item in order.items)
+    tax_rate = get_tax_rate(order.shipping_address)
+    tax_amount = subtotal * tax_rate
+    shipping_cost = calculate_shipping(order.weight, order.shipping_method)
+
+    total = subtotal + tax_amount + shipping_cost
+    return total
+
+# BAD: Too clever, hard to debug
+def calculate_order_total(order):
+    return sum(i.price * i.qty for i in order.items) * (1 + get_tax(order.addr)) + ship(order)
+```
+
 ## Success Criteria
 
 1. All TODOs implemented
@@ -113,7 +185,14 @@ That's it! 10 lines instead of 300+.
 3. Tests will pass (phase 5 writes them)
 4. No placeholder code
 5. Production-ready implementation
+6. **Code is beautiful and obvious**
+7. **Self-tested after each method**
+8. **No beauty violations remain**
 
 ## Remember
 
-You're a focused implementer. The MCP server handles all orchestration complexity. Just write great code!
+You're a focused implementer who writes **beautiful, obvious code**. The MCP server handles orchestration complexity. Your job is to write code that:
+- Makes the solution look simple
+- Is a joy to read and maintain
+- Doesn't need extensive comments because it's self-documenting
+- Has complexity in the problem being solved, not in reading the code

@@ -1,15 +1,17 @@
 #!/bin/bash
 
-# Claude Code statusLine script matching zsh prompt style
+# Claude Code statusLine script matching custom zsh prompt style
 # Format: (venv) [user:host]:(git-branch):curr_dir
+# Your actual prompt: (py3.13)[randy:Nexus]::~$
+# Colors: venv=orange(214), user=green, host=blue, git=dark_gray(8), dir=magenta
 
 # Read JSON input from stdin
 input=$(cat)
 
 # Extract current working directory from JSON
-cwd=$(echo "$input" | jq -r '.workspace.current_dir // .cwd')
+cwd=$(echo "$input" | jq -r '.workspace.current_dir // .cwd // "."')
 
-# Function to get git branch (skip optional locks)
+# Function to get git branch
 get_git_branch() {
     if [ -d "$cwd/.git" ]; then
         cd "$cwd" 2>/dev/null || return
@@ -17,39 +19,47 @@ get_git_branch() {
     fi
 }
 
-# Function to get virtualenv info
-get_virtualenv_info() {
-    if [[ -n "$VIRTUAL_ENV" ]]; then
-        printf "\033[38;5;214m($(basename "$VIRTUAL_ENV"))\033[0m"
-    fi
-}
+# Define colors using printf format (more reliable than echo -e)
+# These match your zsh colors exactly
+COLOR_ORANGE=$(printf '\033[38;5;214m')  # venv - matches zsh %F{214}
+COLOR_GREEN=$(printf '\033[32m')          # user - matches zsh %F{green}
+COLOR_BLUE=$(printf '\033[34m')           # host - matches zsh %F{blue}
+COLOR_DARK_GRAY=$(printf '\033[38;5;8m')  # git - matches zsh %F{8}
+COLOR_MAGENTA=$(printf '\033[35m')        # dir - matches zsh %F{magenta}
+COLOR_RESET=$(printf '\033[0m')           # reset
 
 # Get components
-venv_info=$(get_virtualenv_info)
 username=$(whoami)
-hostname=$(hostname -s)
+hostname_short=$(hostname)
 git_branch=$(get_git_branch)
 current_dir=$(basename "$cwd")
 
-# Build the status line with colors matching your zsh prompt
-# Format: (venv) [user:host]:(git-branch):curr_dir
+# Special case for home directory
+if [ "$cwd" = "$HOME" ]; then
+    current_dir="~"
+fi
+
+# Build status line with colors
 status_line=""
 
-# Add virtualenv if present
-if [[ -n "$venv_info" ]]; then
-    status_line="${venv_info} "
+# Add virtualenv if present (orange)
+if [[ -n "$VIRTUAL_ENV" ]]; then
+    venv_name=$(basename "$VIRTUAL_ENV")
+    status_line="${COLOR_ORANGE}(${venv_name})${COLOR_RESET} "
 fi
 
 # Add [user:host] with green user and blue host
-status_line="${status_line}[\033[32m${username}\033[0m:\033[34m${hostname}\033[0m]"
+status_line="${status_line}[${COLOR_GREEN}${username}${COLOR_RESET}:${COLOR_BLUE}${hostname_short}${COLOR_RESET}]"
 
-# Add git branch if present (gray color)
+# Add git branch (dark gray) or extra colon
 if [[ -n "$git_branch" ]]; then
-    status_line="${status_line}:\033[90m${git_branch}\033[0m"
+    status_line="${status_line}:${COLOR_DARK_GRAY}${git_branch}${COLOR_RESET}"
+else
+    status_line="${status_line}:"
 fi
 
-# Add current directory (magenta color)
-status_line="${status_line}:\033[35m${current_dir}\033[0m"
+# Add current directory (magenta)
+status_line="${status_line}:${COLOR_MAGENTA}${current_dir}${COLOR_RESET}"
 
-# Output the final status line
+# Output without trailing newline
 printf "%s" "$status_line"

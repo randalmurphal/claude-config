@@ -33,10 +33,7 @@ Exception: Preserve unclear TODOs that lack context (notify user about them)
 ## Quality Gates (Run Before Claiming Completion)
 After implementing ANY code changes:
 1. Run all existing tests - they must pass
-2. Run linters/formatters for the language:
-   - JS/TS: `npm run lint` or `eslint` + `prettier`
-   - Python: `ruff check` or `pylint` + `black`
-   - Go: `go fmt` + `go vet` + `golangci-lint`
+2. Run linters/formatters for the language (see Language Tools Configuration below)
 3. **FIX all linter errors properly - NEVER use ignore comments:**
    - Unused variables/functions: Remove them entirely
    - Unused parameters: Remove or prefix with `_` if required by interface
@@ -46,6 +43,61 @@ After implementing ANY code changes:
    - Console.log: Use proper logging or remove
 4. If you can't fix a linter error, STOP and explain why
 5. If you can't determine the project's lint command, ASK
+
+## Language Tools Configuration
+
+### Container Management
+Use `nerdctl` for all container operations (Docker is not available):
+```bash
+nerdctl ps       # List containers
+nerdctl logs     # View logs
+nerdctl exec     # Execute commands
+```
+
+### Configuration Files Location
+All language-specific linting and formatting configs are in `~/.claude/configs/`:
+- **Python**: `~/.claude/configs/python/`
+  - `ruff.toml` - Primary formatter and linter
+  - `pylintrc.toml` - Additional linting rules
+  - `mypy.ini` - Type checking
+- **JavaScript/TypeScript**: `~/.claude/configs/javascript/`
+  - `prettier.json` - Code formatting
+  - `.eslintrc.json` - Linting and complexity rules
+- **Go**: `~/.claude/configs/go/`
+  - `golangci.yml` - Comprehensive linting
+
+### Python Tools
+Always use configs from `~/.claude/configs/python/`:
+```bash
+# Format code (ALWAYS run first)
+ruff format <file/dir> --config ~/.claude/configs/python/ruff.toml
+
+# Check linting
+ruff check <file/dir> --config ~/.claude/configs/python/ruff.toml
+
+# Additional linting
+pylint --rcfile=~/.claude/configs/python/pylintrc.toml <file/dir>
+
+# Type checking
+mypy --config-file=~/.claude/configs/python/mypy.ini <file/dir>
+```
+
+### JavaScript/TypeScript Tools
+```bash
+# Format code
+prettier --config ~/.claude/configs/javascript/prettier.json --write <files>
+
+# Lint code
+eslint --config ~/.claude/configs/javascript/.eslintrc.json <files>
+```
+
+### Go Tools
+```bash
+# Format and lint
+golangci-lint run --config ~/.claude/configs/go/golangci.yml
+```
+
+**Important**: These configs ensure consistent code quality across all projects. Always use them unless a project has its own configs (check for `ruff.toml`, `.eslintrc`, etc. in project root first).
 
 ## Communication Style (All Modes)
 - Always be brutally honest and direct
@@ -381,6 +433,28 @@ The hook will automatically use these tools when available and provide detailed 
 - Simple Q&A or explanations
 - Straightforward file operations (read/write/search)
 - Tasks with explicit step-by-step instructions already provided
+
+## User Preference Detection & Enforcement
+
+The system automatically detects and enforces your coding preferences through hooks:
+
+### Automatic Preference Detection
+- **Explicit preferences**: "Always use X", "Never do Y", "Prefer A over B"
+- **Correction tracking**: Repeated edits to fix same issue = stored preference
+- **Frustration detection**: Multiple corrections increase enforcement priority
+
+### How It Works
+1. **Detection**: Hooks detect preferences in your messages
+2. **Storage**: Preferences stored in PRISM memory (ANCHORS tier for high-frustration items)
+3. **Enforcement**: Code validator blocks violations, shows ALL issues at once
+4. **Learning**: System tracks correction patterns to prevent repeated mistakes
+
+### Examples
+- Say "always use .format() instead of f-strings" → Enforced automatically
+- Fix same issue twice → System learns and prevents it
+- "Stop adding docstrings" → Blocks docstring additions
+
+The validator now reports ALL violations together (preferences, security, complexity) to avoid multiple fix cycles.
 
 ## Memory Management Protocol
 

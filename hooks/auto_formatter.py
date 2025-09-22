@@ -102,27 +102,32 @@ class PythonFormatter(LanguageFormatter):
     def format_with_ruff(self) -> Tuple[bool, str]:
         """Try to format with ruff"""
         try:
-            subprocess.run(['ruff', '--version'], 
+            subprocess.run(['ruff', '--version'],
                           capture_output=True, check=True)
         except (subprocess.CalledProcessError, FileNotFoundError):
             return False, "Ruff not available"
-        
+
         config_path = self.find_config('ruff')
         quote_style = self.detect_quote_style()
-        
+
         cmd = ['ruff', 'format']
-        
+
         if config_path:
             cmd.extend(['--config', config_path])
-        
-        # Override quote style based on file detection
-        cmd.extend(['--quote-style', quote_style])
+        else:
+            # Use global config if no project config found
+            global_config = self.claude_config_dir / 'python' / 'ruff.toml'
+            if global_config.exists():
+                cmd.extend(['--config', str(global_config)])
+
+        # Quote style must be set via config, not command line
+        # The config file already has quote-style settings
         cmd.append(self.file_path)
-        
+
         try:
             result = subprocess.run(cmd, capture_output=True, text=True)
             if result.returncode == 0:
-                return True, f"Formatted with ruff (quote style: {quote_style})"
+                return True, f"Formatted with ruff"
             else:
                 return False, f"Ruff error: {result.stderr}"
         except Exception as e:

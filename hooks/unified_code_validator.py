@@ -26,11 +26,12 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 import subprocess
 
-# Import PRISM client, universal learner, and no_fallback enforcer
+# Import PRISM client, universal learner, no_fallback enforcer, and preference manager
 sys.path.append(str(Path(__file__).parent))
 from prism_client import get_prism_client
 from universal_learner import get_learner
 from no_fallback_enforcer import NoFallbackEnforcer
+from preference_manager import get_preference_manager
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -50,6 +51,7 @@ class UnifiedCodeValidator:
         self.client = get_prism_client()
         self.no_fallback = NoFallbackEnforcer()
         self.learner = get_learner()
+        self.preference_manager = get_preference_manager()
         self.validated_patterns = self.load_validated_patterns()
         self.context_cache = {}
 
@@ -410,7 +412,24 @@ class UnifiedCodeValidator:
         """Main validation function."""
         issues = {}
 
-        # 1. Detect fallback patterns (CRITICAL - check first)
+        # 1. Check user preferences (HIGHEST PRIORITY)
+        preference_violations = self.preference_manager.check_violations(code, file_path)
+        if preference_violations:
+            issues['preference_violations'] = preference_violations
+            # Learn from preference violations
+            for violation in preference_violations:
+                if violation.get('correction_count', 0) >= 2:
+                    # User has corrected this multiple times - increase frustration
+                    pattern = {
+                        "type": "preference_violation",
+                        "content": f"Repeated violation: {violation['rule']}",
+                        "file": file_path,
+                        "frustration_level": min(1.0, violation.get('correction_count', 0) * 0.3),
+                        "confidence": 0.95
+                    }
+                    self.learner.learn_pattern(pattern)
+
+        # 2. Detect fallback patterns (CRITICAL - check second)
         fallback_violations = self.no_fallback.check_for_fallback_patterns(code)
         if fallback_violations:
             issues['fallback_violations'] = fallback_violations
@@ -510,33 +529,56 @@ def main():
     # Learn from validation errors using universal learner
     learner = get_learner()
 
-    # Collect all validation errors for learning
+    # Collect ALL validation errors (don't stop at first category)
     all_errors = []
-    error_type = None
+    error_types = []
+    has_critical = False
+    has_high = False
 
-    # Check for fallback violations FIRST (highest priority)
+    # 1. User preference violations
+    if issues.get('preference_violations'):
+        error_types.append("preference_violation")
+        all_errors.append("## 📝 User Preference Violations:")
+        for violation in issues['preference_violations']:
+            all_errors.append(f"- {violation['message']}")
+            if violation.get('correction_count', 0) >= 2:
+                all_errors.append(f"  ⚠️ You've corrected this {violation['correction_count']} times already!")
+            if violation.get('severity') == 'HIGH':
+                has_high = True
+
+    # 2. Fallback violations
     if issues.get('fallback_violations'):
+        error_types.append("fallback_violation")
+        has_critical = True
+        all_errors.append("\n## ❌ Forbidden Patterns:")
         for violation in issues['fallback_violations']:
-            all_errors.append(f"❌ FORBIDDEN PATTERN: {violation['description']}")
+            all_errors.append(f"- {violation['description']}")
             suggestion = validator.no_fallback.suggest_proper_solution(violation)
-            all_errors.append(f"   FIX: {suggestion}")
-        error_type = "fallback_violation"
+            all_errors.append(f"  FIX: {suggestion}")
 
+    # 3. Hallucination detection
     if issues.get('hallucination', {}).get('detected'):
-        all_errors.append(f"Hallucination: {issues['hallucination']['reason']}")
-        if not error_type:
-            error_type = "hallucination"
+        error_types.append("hallucination")
+        has_high = True
+        all_errors.append(f"\n## 🤔 Hallucination Detected:")
+        all_errors.append(f"- {issues['hallucination']['reason']}")
 
+    # 4. Security issues
     if issues.get('security'):
+        error_types.append("security")
+        all_errors.append("\n## 🔒 Security Issues:")
         for sec_issue in issues['security']:
-            all_errors.append(f"Security {sec_issue['type']}: {sec_issue.get('message', '')}")
-        if not error_type:
-            error_type = "security"
+            all_errors.append(f"- {sec_issue['type']}: {sec_issue.get('message', '')}")
+            if sec_issue.get('severity') == 'CRITICAL':
+                has_critical = True
 
+    # 5. Complexity issues
     if issues.get('complexity'):
-        all_errors.append(f"Complexity: cyclomatic={issues['complexity']['cyclomatic_complexity']}, cognitive={issues['complexity']['cognitive_complexity']}")
-        if not error_type:
-            error_type = "complexity"
+        error_types.append("complexity")
+        all_errors.append("\n## 📊 Complexity Issues:")
+        all_errors.append(f"- Cyclomatic: {issues['complexity']['cyclomatic_complexity']} (threshold: {COMPLEXITY_THRESHOLD})")
+        all_errors.append(f"- Cognitive: {issues['complexity']['cognitive_complexity']} (threshold: {COGNITIVE_COMPLEXITY_THRESHOLD})")
+        all_errors.append(f"- Maintainability: {issues['complexity']['maintainability_index']:.1f} (should be > 50)")
 
     # Learn if there are errors
     if all_errors:
@@ -544,47 +586,53 @@ def main():
             "type": "validation_error",
             "file": file_path,
             "errors": all_errors,
-            "error_type": error_type,
-            "context": f"Validation errors in {file_path}"
+            "error_types": error_types,  # Now plural, tracks all types
+            "context": f"Multiple validation errors in {file_path}"
         })
 
     # Format feedback
     feedback = validator.format_validation_feedback(issues)
 
-    # Determine intervention level
+    # Determine intervention level based on ALL issues found
     intervention = None
 
-    # BLOCK fallback patterns (highest priority)
-    if issues.get('fallback_violations'):
+    if all_errors:
+        # Determine severity based on worst violation
+        if has_critical:
+            severity = "CRITICAL"
+            action = "block_execution"
+            header = "❌ BLOCKED: Critical issues detected"
+        elif has_high:
+            severity = "HIGH"
+            action = "block_execution"
+            header = "❌ BLOCKED: High-priority issues detected"
+        else:
+            severity = "MEDIUM"
+            action = "warning"
+            header = "⚠️ WARNING: Issues detected"
+
+        # Build comprehensive message with ALL violations
+        message_parts = [
+            header,
+            "",
+            "Please fix ALL of the following issues:",
+            ""
+        ]
+        message_parts.extend(all_errors)
+
+        # Add summary of what needs fixing
+        message_parts.extend([
+            "",
+            "## 📋 Summary:",
+            f"Found {len(error_types)} categories of issues: {', '.join(error_types)}",
+            "",
+            "Fix all issues before proceeding. This prevents multiple back-and-forth corrections."
+        ])
+
         intervention = {
-            "type": "block_execution",
-            "severity": "CRITICAL",
-            "message": "❌ FORBIDDEN: Fallback/degraded logic detected\n\n" +
-                      "\n".join(all_errors) +
-                      "\n\nYou MUST:\n1. Fix the root cause, not add fallbacks\n" +
-                      "2. Raise clear errors if something is broken\n" +
-                      "3. Require dependencies instead of checking availability"
-        }
-    elif issues.get('hallucination', {}).get('detected'):
-        # Block hallucinated code
-        intervention = {
-            "type": "block_execution",
-            "severity": "HIGH",
-            "message": feedback or "Hallucination detected - implement actual logic"
-        }
-    elif any(i['severity'] == 'CRITICAL' for i in issues.get('security', [])):
-        # Block critical security issues
-        intervention = {
-            "type": "block_execution",
-            "severity": "CRITICAL",
-            "message": feedback or "Critical security vulnerability detected"
-        }
-    elif feedback:
-        # Warn about other issues
-        intervention = {
-            "type": "warning",
-            "severity": "MEDIUM",
-            "message": feedback
+            "type": action,
+            "severity": severity,
+            "message": "\n".join(message_parts)
         }
 
     # Output result

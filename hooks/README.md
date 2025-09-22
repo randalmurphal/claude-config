@@ -23,20 +23,20 @@ These hooks integrate with Claude Code to provide:
 - **universal_learner_session_end.py**: Promotes patterns based on usage, saves session summary
 
 ### UserPromptSubmit
-- **unified_context_provider.py**: Retrieves relevant context from PRISM memory
+- **unified_context_provider.py**: Retrieves relevant context from PRISM memory, detects user preferences
 - **auto_orchestration_detector.py**: Detects complex tasks needing orchestration
 - **orchestration_dashboard.py**: Updates task progress
 
 ### PreToolUse
 - **unified_bash_guardian.py** (Bash): Analyzes command safety, learns error fixes
-- **unified_code_validator.py** (Write/Edit): Validates patterns, prevents fallbacks
+- **unified_code_validator.py** (Write/Edit): Validates patterns, enforces user preferences, prevents fallbacks
 - **file_protection.py** (Write/Edit): Protects critical files
 - **edit_tracker.py** (Write/Edit): Tracks file edit patterns
 - **assumption_detector.py** (Task): Catches unstated assumptions
 
 ### PostToolUse
 - **auto_formatter.py** (Write/Edit): Auto-formats code with language-specific tools
-- **edit_tracker.py** (Write/Edit): Records file relationships
+- **edit_tracker.py** (Write/Edit): Records file relationships, detects user corrections
 - **orchestration_learner.py** (Task): Learns from agent outcomes
 - **orchestration_progress.py** (Task): Updates orchestration status
 - **unified_context_provider.py** (Read/Bash): Updates context after operations
@@ -100,12 +100,14 @@ These hooks integrate with Claude Code to provide:
 
 #### unified_context_provider.py
 - **Trigger**: UserPromptSubmit, PostToolUse (Read/Bash)
-- **Purpose**: Intelligent context retrieval
+- **Purpose**: Intelligent context retrieval and preference detection
 - **Features**:
+  - Detects user preferences from messages (always/never/prefer statements)
   - Searches PRISM for relevant patterns
   - Provides error fixes
   - Suggests related files
   - Updates operation history
+  - Stores preferences in PRISM memory tiers
 
 #### orchestration_learner.py
 - **Trigger**: PostToolUse (Task)
@@ -140,6 +142,49 @@ These hooks integrate with Claude Code to provide:
   - Parses pytest/jest output
   - Learns coverage patterns
   - Blocks on low coverage
+
+## 🎯 User Preference Detection System
+
+### preference_manager.py
+- **Type**: Shared module (used by other hooks)
+- **Purpose**: Central manager for user preferences and corrections
+- **Features**:
+  - Detects preferences in user messages (always/never/prefer/don't)
+  - Tracks repeated corrections as high-priority preferences
+  - Stores preferences in PRISM tiers based on frustration level:
+    - ANCHORS: High frustration (3+ corrections)
+    - LONGTERM: Explicit preferences
+    - WORKING: Session-specific preferences
+  - Validates code against stored preferences
+  - Builds detection patterns for violations
+
+### How Preferences Are Detected and Enforced
+
+1. **Detection Phase** (UserPromptSubmit):
+   - `unified_context_provider.py` detects preference statements
+   - Patterns like "always use X", "never do Y", "stop using Z"
+   - Stores immediately in PRISM with confidence scores
+
+2. **Correction Tracking** (PostToolUse):
+   - `edit_tracker.py` detects repeated edits to same file
+   - After 2+ corrections of same pattern → stored as preference
+   - Frustration level increases with correction count
+
+3. **Enforcement** (PreToolUse):
+   - `unified_code_validator.py` checks ALL violations at once
+   - Reports preferences, security, complexity, etc. together
+   - Prevents multiple fix cycles by showing everything upfront
+
+### Recent Agent Additions
+
+#### agent_learner.py
+- **Trigger**: SubagentStop
+- **Purpose**: Captures agent discoveries and patterns
+- **Features**:
+  - Extracts findings from agent outputs
+  - Stores architectural patterns from skeleton agents
+  - Captures test patterns and bug fixes
+  - Builds semantic relationships
 
 ### File Tracking
 

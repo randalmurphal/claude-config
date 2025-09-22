@@ -13,6 +13,10 @@ import re
 from pathlib import Path
 from typing import Tuple, Optional, Dict, List
 
+# Import universal learner for developer preferences
+sys.path.insert(0, str(Path(__file__).parent))
+from universal_learner import get_learner
+
 
 class LanguageFormatter:
     """Base class for language-specific formatters"""
@@ -379,6 +383,162 @@ class YAMLFormatter(LanguageFormatter):
             return False, f"Error running prettier: {str(e)}"
 
 
+class DeveloperPreferences:
+    """Manage and apply developer-specific preferences"""
+
+    def __init__(self):
+        self.learner = get_learner()
+        self.developer = os.environ.get('CLAUDE_DEVELOPER', os.environ.get('USER', 'default'))
+        self.preferences = self.load_preferences()
+        self.project_requirements = self.load_project_requirements()
+
+    def load_preferences(self) -> Dict:
+        """Load developer-specific preferences from memory"""
+        if not self.learner:
+            return {}
+
+        # Search for developer preferences
+        results = self.learner.search_patterns(
+            f"developer_preferences {self.developer}",
+            mode='exact',
+            limit=1
+        )
+
+        if results:
+            try:
+                content = results[0].get('content', '{}')
+                if isinstance(content, str):
+                    prefs = json.loads(content)
+                else:
+                    prefs = content
+                return prefs
+            except:
+                pass
+
+        # Default preferences
+        return {
+            'spacing': 'spaces',  # or 'tabs'
+            'indent_size': 4,
+            'line_length': 100,
+            'quote_style': 'single',  # or 'double'
+            'trailing_comma': True,
+            'semicolons': False,  # for JS
+            'blank_lines': 2,  # between functions
+            'comment_style': 'inline',  # or 'block'
+            'type_hints': 'always',  # for Python
+            'async_style': 'async/await',  # or 'promises' for JS
+            'preferred_libraries': {}
+        }
+
+    def load_project_requirements(self) -> Dict:
+        """Load project-wide requirements that override preferences"""
+        if not self.learner:
+            return {}
+
+        # Search for project coding standards
+        results = self.learner.search_patterns(
+            "coding_standard architecture_pattern",
+            mode='semantic',
+            limit=5
+        )
+
+        requirements = {}
+        for result in results:
+            if result.get('type') == 'coding_standard':
+                try:
+                    content = result.get('content', {})
+                    if isinstance(content, str):
+                        content = json.loads(content)
+                    requirements.update(content)
+                except:
+                    pass
+
+        return requirements
+
+    def learn_preferences_from_code(self, file_path: str, content: str):
+        """Learn developer preferences from their code"""
+        preferences = {}
+
+        # Detect indentation
+        if '\t' in content[:1000]:
+            preferences['spacing'] = 'tabs'
+        else:
+            # Count spaces for indentation
+            indent_matches = re.findall(r'^( +)', content, re.MULTILINE)
+            if indent_matches:
+                common_indent = min(len(m) for m in indent_matches if m)
+                preferences['indent_size'] = common_indent
+
+        # Detect quote style (Python/JS)
+        if file_path.endswith('.py') or file_path.endswith('.js'):
+            single_quotes = len(re.findall(r"'[^']*'", content))
+            double_quotes = len(re.findall(r'"[^"]*"', content))
+            preferences['quote_style'] = 'double' if double_quotes > single_quotes else 'single'
+
+        # Detect semicolons (JS)
+        if file_path.endswith('.js') or file_path.endswith('.ts'):
+            lines = content.split('\n')
+            semicolon_lines = sum(1 for line in lines if line.strip().endswith(';'))
+            preferences['semicolons'] = semicolon_lines > len(lines) * 0.3
+
+        # Store learned preferences
+        if preferences:
+            pattern = {
+                'type': 'developer_preferences',
+                'developer': self.developer,
+                'content': json.dumps({**self.preferences, **preferences}),
+                'file': file_path,
+                'confidence': 0.8
+            }
+            self.learner.learn_pattern(pattern)
+
+    def apply_preferences(self, content: str, file_path: str) -> str:
+        """Apply non-conflicting developer preferences to formatted code"""
+        # Don't modify if project requirements exist
+        if self.project_requirements:
+            # Only apply preferences that don't conflict
+            for key in self.project_requirements:
+                if key in self.preferences:
+                    del self.preferences[key]
+
+        # Apply spacing preferences
+        if self.preferences.get('spacing') == 'tabs' and '    ' in content:
+            # Convert spaces to tabs (carefully)
+            lines = content.split('\n')
+            new_lines = []
+            for line in lines:
+                # Count leading spaces
+                stripped = line.lstrip(' ')
+                spaces = len(line) - len(stripped)
+                if spaces > 0 and spaces % 4 == 0:
+                    tabs = '\t' * (spaces // 4)
+                    new_lines.append(tabs + stripped)
+                else:
+                    new_lines.append(line)
+            content = '\n'.join(new_lines)
+
+        # Apply quote style for new files (if formatter didn't handle it)
+        if file_path.endswith('.py') and self.preferences.get('quote_style'):
+            # Only for simple cases, don't break code
+            if self.preferences['quote_style'] == 'double':
+                # Convert single quotes to double (carefully)
+                content = re.sub(r"(?<!\')\'([^\']+)\'(?!\')", r'"\1"', content)
+
+        return content
+
+    def should_apply_preference(self, pref_name: str) -> bool:
+        """Check if a preference should be applied"""
+        # Don't apply if project has a requirement for this
+        if pref_name in self.project_requirements:
+            return False
+
+        # Don't apply if confidence is low
+        if pref_name in self.preferences:
+            return True
+
+        return False
+
+
 def get_formatter_for_file(file_path: str) -> Optional[LanguageFormatter]:
     """Get the appropriate formatter based on file extension"""
     ext = Path(file_path).suffix.lower()
@@ -417,32 +577,58 @@ def main():
     except:
         print(json.dumps({"action": "continue"}))
         return
-    
+
     # Only process Write, Edit, and MultiEdit tools
     tool = input_data.get("tool", "")
     if tool not in ["Write", "Edit", "MultiEdit"]:
         print(json.dumps({"action": "continue"}))
         return
-    
+
     # Get file path
     params = input_data.get("parameters", {})
     file_path = params.get("file_path", "")
-    
+
     if not file_path:
         print(json.dumps({"action": "continue"}))
         return
-    
+
     # Get formatter for the file type
     formatter = get_formatter_for_file(file_path)
-    
+
     if not formatter:
         # No formatter for this file type
         print(json.dumps({"action": "continue"}))
         return
-    
+
     # Run formatting
     success, message = formatter.format()
-    
+
+    # Apply developer preferences after formatting
+    if success:
+        try:
+            # Load developer preferences
+            pref_manager = DeveloperPreferences()
+
+            # Read the formatted file
+            with open(file_path, 'r') as f:
+                content = f.read()
+
+            # Learn from the code (for future)
+            pref_manager.learn_preferences_from_code(file_path, content)
+
+            # Apply non-conflicting preferences
+            modified_content = pref_manager.apply_preferences(content, file_path)
+
+            # Write back if modified
+            if modified_content != content:
+                with open(file_path, 'w') as f:
+                    f.write(modified_content)
+                message += " + developer preferences"
+
+        except Exception as e:
+            # Don't fail if preference application fails
+            sys.stderr.write(f"⚠️ Could not apply developer preferences: {str(e)}\n")
+
     # Log result to stderr (won't interfere with stdout JSON)
     if success:
         sys.stderr.write(f"✅ Auto-format: {file_path} - {message}\n")
@@ -450,7 +636,7 @@ def main():
         # Don't log failures for unavailable formatters (too noisy)
         if "not available" not in message.lower():
             sys.stderr.write(f"⚠️ Auto-format failed: {file_path} - {message}\n")
-    
+
     # Always continue (non-blocking)
     print(json.dumps({"action": "continue"}))
 

@@ -14,6 +14,7 @@ Key Features:
 - Pattern validation against known good/bad patterns
 - Stores validated patterns for reuse
 - Provides actionable feedback with fix suggestions
+- Universal learning integration for validation patterns
 """
 
 import json
@@ -25,9 +26,10 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 import subprocess
 
-# Import PRISM client
+# Import PRISM client and universal learner
 sys.path.append(str(Path(__file__).parent))
 from prism_client import get_prism_client
+from universal_learner import get_learner
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -218,10 +220,12 @@ class UnifiedCodeValidator:
                     if radon_data:
                         # Extract complexity from radon output
                         for item in radon_data.get('-', []):
-                            metrics['cyclomatic_complexity'] = max(
-                                metrics['cyclomatic_complexity'],
-                                item.get('complexity', 0)
-                            )
+                            # Ensure item is a dict before calling .get()
+                            if isinstance(item, dict):
+                                metrics['cyclomatic_complexity'] = max(
+                                    metrics['cyclomatic_complexity'],
+                                    item.get('complexity', 0)
+                                )
             except (subprocess.SubprocessError, json.JSONDecodeError, FileNotFoundError):
                 # Fallback to simple heuristic
                 metrics['cyclomatic_complexity'] = self._estimate_complexity(code)
@@ -478,6 +482,38 @@ def main():
 
     # Validate the code
     issues = validator.validate_code(code, file_path, tool_name)
+
+    # Learn from validation errors using universal learner
+    learner = get_learner()
+
+    # Collect all validation errors for learning
+    all_errors = []
+    error_type = None
+
+    if issues.get('hallucination', {}).get('detected'):
+        all_errors.append(f"Hallucination: {issues['hallucination']['reason']}")
+        error_type = "hallucination"
+
+    if issues.get('security'):
+        for sec_issue in issues['security']:
+            all_errors.append(f"Security {sec_issue['type']}: {sec_issue.get('message', '')}")
+        if not error_type:
+            error_type = "security"
+
+    if issues.get('complexity'):
+        all_errors.append(f"Complexity: cyclomatic={issues['complexity']['cyclomatic_complexity']}, cognitive={issues['complexity']['cognitive_complexity']}")
+        if not error_type:
+            error_type = "complexity"
+
+    # Learn if there are errors
+    if all_errors:
+        learner.learn_pattern({
+            "type": "validation_error",
+            "file": file_path,
+            "errors": all_errors,
+            "error_type": error_type,
+            "context": f"Validation errors in {file_path}"
+        })
 
     # Format feedback
     feedback = validator.format_validation_feedback(issues)

@@ -14,6 +14,7 @@ Key Features:
 - RETRIEVES and USES stored patterns (fixes current gap)
 - Works for both orchestration agents and solo development
 - Provides visible value through helpful suggestions
+- Universal learning integration for command patterns
 """
 
 import json
@@ -26,9 +27,10 @@ from typing import Dict, List, Optional, Tuple, Any
 from collections import defaultdict
 import re
 
-# Import PRISM client
+# Import PRISM client and universal learner
 sys.path.append(str(Path(__file__).parent))
 from prism_client import get_prism_client
+from universal_learner import get_learner
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -74,7 +76,9 @@ class UnifiedBashGuardian:
         try:
             if ERROR_FIX_MAPPING_FILE.exists():
                 with open(ERROR_FIX_MAPPING_FILE, 'r') as f:
-                    return json.load(f)
+                    data = json.load(f)
+                    # Convert to defaultdict to handle missing keys
+                    return defaultdict(list, data)
         except Exception as e:
             logger.debug(f"Failed to load error-fix mappings: {e}")
         return defaultdict(list)
@@ -219,14 +223,38 @@ class UnifiedBashGuardian:
 
         # Extract key error phrases
         error_patterns = []
+        error_type = "unknown"
         if 'command not found' in error_output:
             error_patterns.append('command_not_found')
+            error_type = "missing_command"
         if 'permission denied' in error_output.lower():
             error_patterns.append('permission_denied')
+            error_type = "permission_error"
         if 'no such file or directory' in error_output.lower():
             error_patterns.append('file_not_found')
+            error_type = "missing_file"
         if 'connection refused' in error_output.lower():
             error_patterns.append('connection_refused')
+            error_type = "network_error"
+
+        # Create rich semantic pattern
+        from universal_learner import get_learner
+        learner = get_learner()
+
+        pattern = {
+            "type": "command_error",
+            "content": f"Error: '{error_output[:100]}...' can be fixed with command: '{fix_command}'",
+            "error": error_output,
+            "fix": fix_command,
+            "error_type": error_type,
+            "error_patterns": error_patterns,
+            "confidence": 0.8,
+            "relationships": [
+                (error_output[:100], "FIXED_BY", fix_command)
+            ]
+        }
+
+        learner.learn_pattern(pattern)
 
         # Store the fix for each error pattern
         for pattern in error_patterns:
@@ -287,35 +315,46 @@ class UnifiedBashGuardian:
 
     def store_workflow_pattern(self, command_data: Dict):
         """Store successful command workflows for future retrieval."""
-        if not self.client or not command_data.get('success'):
-            return
+        # Import learner here to avoid circular imports
+        from universal_learner import get_learner
+        learner = get_learner()
 
-        # Create workflow from recent history
+        # Store individual command if it succeeded
+        if command_data.get('exit_code') == 0:
+            pattern = {
+                "type": "command_workflow",
+                "content": f"Command '{command_data['command']}' succeeded in {command_data.get('pwd', 'unknown')}",
+                "command": command_data['command'],
+                "pwd": command_data.get('pwd', os.getcwd()),
+                "duration": command_data.get('duration', 0),
+                "confidence": 0.7
+            }
+            learner.learn_pattern(pattern)
+
+        # Create workflow from recent history if we have multiple commands
         if len(self.history) >= 2:
             recent_commands = [h['command'] for h in self.history[-3:]]
+            success_rate = sum(1 for h in self.history[-3:] if h.get('exit_code') == 0) / min(3, len(self.history))
 
-            workflow_data = {
-                'type': 'command_sequence',
-                'commands': recent_commands,
-                'pwd': command_data.get('pwd', os.getcwd()),
-                'success_rate': sum(1 for h in self.history[-3:] if h.get('success', False)) / min(3, len(self.history)),
-                'learned_at': time.time(),
-                'context': 'bash_guardian'
-            }
+            if success_rate > 0.5:  # Only store successful workflows
+                workflow_pattern = {
+                    'type': 'command_workflow',
+                    'content': f"Workflow sequence: {' -> '.join(recent_commands)}",
+                    'sequence': recent_commands,
+                    'pwd': command_data.get('pwd', os.getcwd()),
+                    'success_rate': success_rate,
+                    'confidence': min(0.9, 0.5 + success_rate * 0.4),
+                    'relationships': [
+                        (recent_commands[i], "FOLLOWED_BY", recent_commands[i+1])
+                        for i in range(len(recent_commands)-1)
+                    ]
+                }
 
-            try:
-                # Store in LONGTERM for reliable retrieval
-                self.client.store_memory(
-                    content=json.dumps(workflow_data),
-                    tier='LONGTERM',
-                    metadata={
-                        'importance': 'medium' if workflow_data['success_rate'] > 0.8 else 'low',
-                        'tags': ['workflow', 'bash', 'learned']
-                    }
-                )
-                logger.debug(f"Stored workflow pattern: {recent_commands[0][:30]}...")
-            except Exception as e:
-                logger.debug(f"Failed to store workflow: {e}")
+                try:
+                    learner.learn_pattern(workflow_pattern)
+                    logger.debug(f"Stored workflow pattern: {recent_commands[0][:30]}...")
+                except Exception as e:
+                    logger.debug(f"Failed to store workflow: {e}")
 
     def process_pre_execution(self, input_data: Dict) -> Dict:
         """Process pre-execution hook for bash commands."""
@@ -427,6 +466,29 @@ class UnifiedBashGuardian:
 
         self.history.append(command_data)
         self.save_command_history()
+
+        # Learn using universal learner
+        learner = get_learner()
+
+        # Calculate execution duration if possible
+        duration = None
+        if len(self.history) > 1 and self.history[-2].get('timestamp'):
+            duration = command_data['timestamp'] - self.history[-2]['timestamp']
+
+        # Get recent context (last few commands for context)
+        context = {
+            'pwd': os.getcwd(),
+            'recent_commands': [h['command'] for h in self.history[-3:]]
+        }
+
+        # Learn the command pattern
+        learner.learn_command_pattern(
+            command=command,
+            exit_code=exit_code,
+            error=output if exit_code != 0 else None,
+            duration=duration,
+            context=context
+        )
 
         # Learn from execution
         if exit_code == 0:

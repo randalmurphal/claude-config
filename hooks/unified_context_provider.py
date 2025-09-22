@@ -29,9 +29,10 @@ from typing import Dict, List, Optional, Tuple, Any
 from collections import defaultdict
 from datetime import datetime, timedelta
 
-# Import PRISM client
+# Import PRISM client and universal learner
 sys.path.append(str(Path(__file__).parent))
 from prism_client import get_prism_client
+from universal_learner import get_learner
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -53,11 +54,13 @@ class UnifiedContextProvider:
 
     def __init__(self):
         self.client = get_prism_client()
+        self.learner = get_learner()
         self.operation_history = self.load_operation_history()
         self.project_knowledge = self.load_project_knowledge()
         self.last_learning_time = time.time()
         self.operation_count = 0
         self.current_session_id = f"session_{int(time.time())}"
+        self.architecture_cache = {}  # Cache for layer detection
 
     def load_operation_history(self) -> List[Dict]:
         """Load recent operation history."""
@@ -330,6 +333,166 @@ class UnifiedContextProvider:
         # Fallback to first line
         return error_message.split('\n')[0][:50] if error_message else ''
 
+    def detect_layer(self, file_path: str) -> str:
+        """Detect architectural layer from file path and content."""
+        if file_path in self.architecture_cache:
+            return self.architecture_cache[file_path]
+
+        path_parts = Path(file_path).parts
+        file_name = Path(file_path).name.lower()
+
+        # Common layer patterns
+        layer_patterns = {
+            'presentation': ['ui', 'view', 'controller', 'handler', 'route', 'api', 'endpoint'],
+            'business': ['service', 'manager', 'processor', 'business', 'logic', 'use_case'],
+            'data': ['repository', 'dao', 'model', 'entity', 'database', 'db', 'storage'],
+            'infrastructure': ['config', 'util', 'helper', 'common', 'shared'],
+            'test': ['test', 'spec', 'tests']
+        }
+
+        # Check path and filename
+        for layer, patterns in layer_patterns.items():
+            for pattern in patterns:
+                if pattern in file_name or any(pattern in part.lower() for part in path_parts):
+                    self.architecture_cache[file_path] = layer
+                    return layer
+
+        # Default to infrastructure
+        self.architecture_cache[file_path] = 'infrastructure'
+        return 'infrastructure'
+
+    def extract_imports(self, content: str, language: str = 'python') -> List[str]:
+        """Extract import statements from code."""
+        imports = []
+
+        if language == 'python':
+            # Python imports
+            import_patterns = [
+                r'^import\s+([\w.]+)',
+                r'^from\s+([\w.]+)\s+import'
+            ]
+            for pattern in import_patterns:
+                matches = re.findall(pattern, content, re.MULTILINE)
+                imports.extend(matches)
+
+        elif language in ['javascript', 'typescript']:
+            # JS/TS imports
+            import_patterns = [
+                r"import\s+.*\s+from\s+['\"]([^'\"]+)['\"]",
+                r"require\(['\"]([^'\"]+)['\"]\)"
+            ]
+            for pattern in import_patterns:
+                matches = re.findall(pattern, content)
+                imports.extend(matches)
+
+        return imports
+
+    def check_architecture_violations(self, file_path: str, imports: List[str]) -> List[Dict]:
+        """Check for architecture boundary violations."""
+        violations = []
+        source_layer = self.detect_layer(file_path)
+
+        # Define allowed dependencies (higher layers can depend on lower)
+        layer_hierarchy = {
+            'presentation': ['business', 'infrastructure'],
+            'business': ['data', 'infrastructure'],
+            'data': ['infrastructure'],
+            'infrastructure': [],
+            'test': ['presentation', 'business', 'data', 'infrastructure']
+        }
+
+        allowed_layers = layer_hierarchy.get(source_layer, [])
+
+        for import_path in imports:
+            # Try to resolve the import to a layer
+            if '.' in import_path:
+                # Likely a module path
+                target_layer = self.detect_layer(import_path.replace('.', '/') + '.py')
+            else:
+                target_layer = self.detect_layer(import_path)
+
+            # Check if this violates hierarchy
+            if target_layer not in allowed_layers and target_layer != source_layer:
+                if target_layer != 'infrastructure':  # Infrastructure is always allowed
+                    violations.append({
+                        'source': file_path,
+                        'source_layer': source_layer,
+                        'import': import_path,
+                        'target_layer': target_layer,
+                        'message': f"{source_layer} layer should not import from {target_layer} layer"
+                    })
+
+        return violations
+
+    def get_bug_prevention_context(self, file_path: str, operation: str) -> List[Dict]:
+        """Get relevant bug fixes and patterns to prevent issues."""
+        bug_context = []
+
+        if not self.learner:
+            return bug_context
+
+        # Search for bug fixes related to this file
+        search_query = f"bug fix {Path(file_path).name} {operation}"
+
+        # Query Neo4j for FIXED_BY relationships
+        try:
+            results = self.learner.search_patterns(
+                search_query,
+                mode='graph',
+                limit=5
+            )
+
+            for result in results:
+                if result.get('relationships'):
+                    for rel in result['relationships']:
+                        if rel[1] == 'FIXED_BY':
+                            bug_context.append({
+                                'type': 'bug_fix',
+                                'pattern': rel[0],
+                                'fix': rel[2],
+                                'confidence': result.get('confidence', 0.8)
+                            })
+        except Exception as e:
+            logger.debug(f"Failed to get bug prevention context: {e}")
+
+        return bug_context
+
+    def inject_architecture_context(self, file_path: str) -> Dict:
+        """Inject architectural rules and constraints for a file."""
+        layer = self.detect_layer(file_path)
+
+        # Get layer-specific rules
+        rules = self.learner.search_patterns(
+            f"architecture rules {layer}",
+            mode='exact',
+            limit=3
+        ) if self.learner else []
+
+        # Get known violations to avoid
+        violations = self.learner.search_patterns(
+            f"architecture violation {layer}",
+            mode='semantic',
+            limit=3
+        ) if self.learner else []
+
+        return {
+            'layer': layer,
+            'rules': rules,
+            'violations_to_avoid': violations,
+            'allowed_imports': self.get_allowed_imports(layer)
+        }
+
+    def get_allowed_imports(self, layer: str) -> List[str]:
+        """Get allowed import layers for a given layer."""
+        layer_hierarchy = {
+            'presentation': ['business', 'infrastructure'],
+            'business': ['data', 'infrastructure'],
+            'data': ['infrastructure'],
+            'infrastructure': [],
+            'test': ['presentation', 'business', 'data', 'infrastructure']
+        }
+        return layer_hierarchy.get(layer, [])
+
     def format_context_for_injection(self, intent: str, confidence: float,
                                     context: List[Dict], is_agent: bool = False) -> str:
         """Format retrieved context for injection."""
@@ -510,9 +673,81 @@ def main():
                         }
                     }
 
+    elif event_type == "PreToolUse":
+        # Inject architecture and bug prevention context before writes
+        tool_name = input_data.get("tool_name", "")
+        if tool_name in ["Write", "Edit", "MultiEdit"]:
+            file_path = input_data.get("tool_input", {}).get("file_path", "")
+            if file_path:
+                # Get architecture context
+                arch_context = provider.inject_architecture_context(file_path)
+
+                # Get bug prevention context
+                bug_context = provider.get_bug_prevention_context(file_path, tool_name)
+
+                # Format context message
+                context_messages = []
+
+                if arch_context:
+                    context_messages.append(f"📋 Architecture: {arch_context['layer']} layer")
+                    if arch_context['allowed_imports']:
+                        context_messages.append(f"   Can import from: {', '.join(arch_context['allowed_imports'])}")
+                    if arch_context['rules']:
+                        context_messages.append("   Rules to follow:")
+                        for rule in arch_context['rules'][:2]:
+                            context_messages.append(f"   - {rule.get('content', '')[:100]}")
+
+                if bug_context:
+                    context_messages.append("\n⚠️ Previous bugs to avoid:")
+                    for bug in bug_context[:2]:
+                        context_messages.append(f"   - {bug['pattern'][:50]} → Fix: {bug['fix'][:50]}")
+
+                if context_messages:
+                    result = {
+                        "intervention": {
+                            "type": "context_injection",
+                            "severity": "INFO",
+                            "message": "\n".join(context_messages)
+                        }
+                    }
+
     elif event_type == "PostToolUse":
         # Track operations for learning
         provider.track_operation(input_data)
+
+        # Check for architecture violations after writes
+        tool_name = input_data.get("tool_name", "")
+        if tool_name in ["Write", "Edit", "MultiEdit"]:
+            file_path = input_data.get("tool_input", {}).get("file_path", "")
+            content = input_data.get("tool_input", {}).get("content", "")
+            if not content and tool_name == "Edit":
+                content = input_data.get("tool_input", {}).get("new_string", "")
+
+            if file_path and content:
+                # Extract imports and check violations
+                language = 'python' if file_path.endswith('.py') else 'javascript'
+                imports = provider.extract_imports(content, language)
+                violations = provider.check_architecture_violations(file_path, imports)
+
+                if violations:
+                    # Store violation patterns for learning
+                    for violation in violations:
+                        provider.learner.learn_pattern({
+                            'type': 'architecture_violation',
+                            'content': violation['message'],
+                            'file': violation['source'],
+                            'confidence': 0.9
+                        })
+
+                    # Only warn, don't block
+                    result = {
+                        "intervention": {
+                            "type": "context_injection",
+                            "severity": "WARNING",
+                            "message": f"⚠️ Architecture violations detected:\n" +
+                                     "\n".join([v['message'] for v in violations[:3]])
+                        }
+                    }
 
     elif event_type == "SessionStart":
         # Initialize session and load project knowledge

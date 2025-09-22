@@ -62,7 +62,21 @@ node_modules/
 ACTIVE_WORK.json
 PARALLEL_STATUS.json
 RESOURCE_LOCKS.json
-
-
 vibe_state.json
+
+# Session tracking files
+edit_session.json
+operation_history.json
+last_coverage_result.json
+last_task_analysis.json
+error_fix_mappings.json
+agent_performance.json
+confidence_calibration.json
+
+# Backup files
+*.bak
+*.backup
+*.swp
+*.swo
+*~
 

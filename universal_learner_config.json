@@ -1,0 +1,102 @@
+{
+  "search": {
+    "similarity_threshold": {
+      "default": 0.3,
+      "exact_match": 0.8,
+      "semantic": 0.3,
+      "exploration": 0.2
+    },
+    "result_limits": {
+      "default": 15,
+      "exact": 5,
+      "semantic": 15,
+      "graph": 20,
+      "debug": 50
+    },
+    "graph_traversal_depth": {
+      "default": 2,
+      "deep_exploration": 4,
+      "performance_mode": 1
+    }
+  },
+  "validation": {
+    "hallucination_risk_threshold": {
+      "default": 0.7,
+      "production": 0.5,
+      "experimentation": 0.8,
+      "security": 0.3
+    },
+    "min_confidence": {
+      "default": 0.3,
+      "strict": 0.6,
+      "relaxed": 0.2
+    },
+    "content_quality": {
+      "min_length": 10,
+      "max_length": 5000,
+      "required_fields": ["type", "content"],
+      "semantic_coherence": 0.4
+    }
+  },
+  "memory_tiers": {
+    "ANCHORS": {
+      "min_confidence": 0.95,
+      "types": ["security", "critical", "compliance"],
+      "max_age_days": null,
+      "promotion_threshold": 0.98
+    },
+    "LONGTERM": {
+      "min_confidence": 0.75,
+      "types": ["architecture", "coding_standard", "best_practice"],
+      "max_age_days": 365,
+      "promotion_threshold": 0.85
+    },
+    "EPISODIC": {
+      "min_confidence": 0.5,
+      "types": ["session_learning", "workflow", "debugging"],
+      "max_age_days": 30,
+      "promotion_threshold": 0.7
+    },
+    "WORKING": {
+      "min_confidence": 0.0,
+      "types": ["temporary", "experiment", "draft"],
+      "max_age_days": 7,
+      "promotion_threshold": 0.5
+    }
+  },
+  "caching": {
+    "redis_ttl_by_type": {
+      "session_learning": 7200,
+      "command_workflow": 3600,
+      "file_coupling": 86400,
+      "architecture": 604800,
+      "coding_standard": 2592000,
+      "temporary": 600,
+      "default": 3600
+    },
+    "pattern_cache_max_size": 10000,
+    "session_duration": 86400,
+    "cleanup_interval": 3600
+  },
+  "performance": {
+    "operation_timeout": 5,
+    "embedding_batch_size": 100,
+    "search_parallelism": 5,
+    "neo4j_batch_size": 500,
+    "pattern_learn_batch": 50,
+    "max_retries": 3,
+    "retry_delay": 0.5
+  },
+  "adaptive_tuning": {
+    "enabled": false,
+    "feedback_weight": 0.1,
+    "adjustment_interval": 86400,
+    "min_samples": 100,
+    "metrics_to_track": [
+      "search_precision",
+      "search_recall",
+      "pattern_usage_rate",
+      "false_positive_rate"
+    ]
+  }
+}

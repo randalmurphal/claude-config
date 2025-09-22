@@ -83,6 +83,10 @@
         "hooks": [
           {
             "type": "command",
+            "command": "$HOME/.claude/hooks/unified_context_provider.py"
+          },
+          {
+            "type": "command",
             "command": "$HOME/.claude/hooks/assumption_detector.py"
           }
         ]
@@ -130,6 +134,16 @@
           {
             "type": "command",
             "command": "$HOME/.claude/hooks/test_coverage_enforcer.py"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/agent_learner.py"
           }
         ]
       }

@@ -1,4 +1,4 @@
-#!/opt/envs/py3.13/bin/python
+#!/usr/bin/env python3
 """
 Test Coverage Enforcement Hook
 Verifies test coverage meets oracle targets after test execution.

@@ -1,4 +1,4 @@
-#!/opt/envs/py3.13/bin/python
+#!/usr/bin/env python3
 """
 Chamber Cleanup Hook
 Automatically removes orphaned git worktrees from abandoned orchestrations.

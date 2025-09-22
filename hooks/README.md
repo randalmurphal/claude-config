@@ -1,170 +1,252 @@
 # Claude Code Hooks
 
-Custom hooks that enhance Claude Code's development workflow with architecture enforcement, fallback prevention, and intelligent learning.
+Event-driven automation hooks that enhance Claude Code with intelligent learning, validation, and safety features.
 
-## 🚀 Major Features
+## 🎯 Overview
 
-### Architecture Enforcement
-- Automatic layer detection (presentation/business/data/infrastructure)
-- Import validation to prevent boundary violations
-- Bug prevention using Neo4j FIXED_BY relationships
+These hooks integrate with Claude Code to provide:
+- **PRISM Integration**: Semantic reasoning and persistent memory
+- **Universal Learning**: Cross-session pattern recognition
+- **Quality Gates**: Code validation and formatting
+- **Safety Checks**: Command and code safety analysis
+- **Pattern Tracking**: File relationships and workflow learning
 
-### NO FALLBACK Prevention
-- **BLOCKS** fallback logic and degraded error handling
-- Forces proper solutions or clear failures
-- Detects and prevents workarounds
+## 🔧 Active Hooks by Event
 
-### Universal Learning System
-- Semantic content storage with proper embeddings
-- Sprint review for pattern validation
-- Developer preference learning and application
+### SessionStart
+- **prism_http_startup.py**: Starts PRISM HTTP server at localhost:8090
+- **vibe_tracker.py**: Sets personality mode (solo/concert/duo/mentor)
+- **chamber_cleanup.py**: Cleans up git worktrees from orchestration
+- **orchestration_dashboard.py**: Displays task status
 
-## Available Hooks
+### SessionEnd
+- **universal_learner_session_end.py**: Promotes patterns based on usage, saves session summary
 
-### interface_validator.py
-**Purpose**: Validates interface compatibility to catch breaking changes early.
+### UserPromptSubmit
+- **unified_context_provider.py**: Retrieves relevant context from PRISM memory
+- **auto_orchestration_detector.py**: Detects complex tasks needing orchestration
+- **orchestration_dashboard.py**: Updates task progress
 
-**Features**:
-- Detects removed fields (breaking changes)
-- Identifies type changes that break compatibility
-- Finds consumer files that would be affected
-- Caches interface definitions for comparison
-- Supports TypeScript, JavaScript, Python, and Go
+### PreToolUse
+- **unified_bash_guardian.py** (Bash): Analyzes command safety, learns error fixes
+- **unified_code_validator.py** (Write/Edit): Validates patterns, prevents fallbacks
+- **file_protection.py** (Write/Edit): Protects critical files
+- **edit_tracker.py** (Write/Edit): Tracks file edit patterns
+- **assumption_detector.py** (Task): Catches unstated assumptions
 
-**How it works**:
-1. Extracts interface/type/class definitions from files
-2. Compares with cached versions to detect changes
-3. Identifies breaking changes (removed fields, incompatible type changes)
-4. Searches for consumer files that import the interface
-5. Reports issues with affected files and suggestions
+### PostToolUse
+- **auto_formatter.py** (Write/Edit): Auto-formats code with language-specific tools
+- **edit_tracker.py** (Write/Edit): Records file relationships
+- **orchestration_learner.py** (Task): Learns from agent outcomes
+- **orchestration_progress.py** (Task): Updates orchestration status
+- **unified_context_provider.py** (Read/Bash): Updates context after operations
+- **test_coverage_enforcer.py** (Bash): Enforces test coverage requirements
 
-**Supported patterns**:
-- TypeScript: `interface`, `type`
-- Python: `@dataclass`, `TypedDict`
-- Go: `struct`
+## 📚 Core Hooks
 
-**Usage**:
+### PRISM Integration Hooks
+
+#### prism_http_startup.py
+- **Trigger**: SessionStart
+- **Purpose**: Auto-starts PRISM HTTP server
+- **Features**: Health checks, detached process, graceful startup
+
+#### prism_client.py / prism_http_client.py
+- **Type**: Library (not a hook)
+- **Purpose**: HTTP client for PRISM communication
+- **Used by**: Most other hooks for memory and analysis
+
+### Learning System
+
+#### universal_learner.py
+- **Type**: Library
+- **Purpose**: Core learning system with semantic extraction
+- **Features**:
+  - Extracts human-readable content from patterns
+  - Stores in PRISM memory tiers
+  - Creates Neo4j relationships
+  - Multi-mode search (semantic, graph, hybrid)
+
+#### universal_learner_session_end.py
+- **Trigger**: SessionEnd
+- **Purpose**: Consolidates and promotes patterns
+- **Features**:
+  - Promotes patterns used 3+ times
+  - Fast-tracks security patterns (2+ uses)
+  - Saves session summaries
+  - Cleans up stale patterns (7+ days)
+
+### Validation & Safety
+
+#### unified_code_validator.py
+- **Trigger**: PreToolUse (Write/Edit)
+- **Purpose**: Prevents bad patterns and fallbacks
+- **Blocks**:
+  - Linter suppressions (noqa, eslint-disable)
+  - Silent fallbacks and error masking
+  - Nested ternaries and double negation
+  - Poor error messages
+
+#### unified_bash_guardian.py
+- **Trigger**: PreToolUse (Bash)
+- **Purpose**: Command safety and learning
+- **Features**:
+  - Detects dangerous commands
+  - Learns error fixes
+  - Provides recovery suggestions
+  - Stores workflow patterns
+
+### Context & Learning
+
+#### unified_context_provider.py
+- **Trigger**: UserPromptSubmit, PostToolUse (Read/Bash)
+- **Purpose**: Intelligent context retrieval
+- **Features**:
+  - Searches PRISM for relevant patterns
+  - Provides error fixes
+  - Suggests related files
+  - Updates operation history
+
+#### orchestration_learner.py
+- **Trigger**: PostToolUse (Task)
+- **Purpose**: Learns from orchestration agents
+- **Features**:
+  - Tracks agent performance
+  - Promotes successful patterns
+  - Stores workflow patterns
+  - Updates confidence scores
+
+### Code Quality
+
+#### auto_formatter.py
+- **Trigger**: PostToolUse (Write/Edit)
+- **Purpose**: Auto-formats code
+- **Language Support**:
+  - Python: ruff → black fallback
+  - JavaScript/TypeScript: prettier → eslint
+  - Go: goimports → gofmt
+- **Features**:
+  - Detects project configs
+  - Preserves quote styles
+  - Learns developer preferences
+
+#### test_coverage_enforcer.py
+- **Trigger**: PostToolUse (Bash)
+- **Purpose**: Enforces test coverage
+- **Requirements**:
+  - 95% line coverage
+  - 100% function coverage
+- **Features**:
+  - Parses pytest/jest output
+  - Learns coverage patterns
+  - Blocks on low coverage
+
+### File Tracking
+
+#### edit_tracker.py
+- **Trigger**: Pre/PostToolUse (Write/Edit)
+- **Purpose**: Tracks file relationships
+- **Features**:
+  - Detects file coupling
+  - Identifies architecture layers
+  - Records edit sequences
+  - Creates Neo4j relationships
+
+#### file_protection.py
+- **Trigger**: PreToolUse (Write/Edit)
+- **Purpose**: Protects critical files
+- **Protected**:
+  - Package files (package.json, pyproject.toml)
+  - Configs (.env, settings.json)
+  - CI/CD files
+- **Features**: Requires confirmation for critical changes
+
+## 🔧 Configuration
+
+### Hook Registration (settings.json)
+```json
+{
+  "hooks": {
+    "SessionEnd": [{"hooks": [{"type": "command", "command": "$HOME/.claude/hooks/universal_learner_session_end.py"}]}],
+    "SessionStart": [{"hooks": [{"type": "command", "command": "$HOME/.claude/hooks/prism_http_startup.py"}]}],
+    // ... other hooks
+  }
+}
+```
+
+### Universal Learner Config (universal_learner_config.json)
+- Memory tier thresholds
+- Promotion rules (usage counts)
+- Cleanup settings
+- Graph relationships
+- Redis TTL by pattern type
+
+### PRISM Config (prism_config.yaml)
+- HTTP server settings
+- Service endpoints
+- Memory tier configurations
+
+## 🧠 Memory Tiers
+
+Patterns are stored in PRISM memory tiers:
+
+1. **WORKING**: Active session patterns (0+ uses)
+2. **EPISODIC**: Recent patterns (1+ uses, 30-day retention)
+3. **LONGTERM**: Established patterns (3+ uses, 1-year retention)
+4. **ANCHORS**: Critical patterns (5+ uses, permanent)
+
+Security and critical patterns get fast-track promotion.
+
+## 📊 Pattern Types
+
+Common pattern types learned:
+- `command_error`: Error → fix mappings
+- `command_workflow`: Command sequences
+- `file_coupling`: Frequently co-edited files
+- `test_coverage`: Coverage insights
+- `validation_error`: Code quality issues
+- `best_practice`: Coding standards
+- `security`: Security patterns
+- `architecture`: Design decisions
+- `orchestration_workflow`: Agent workflows
+- `session_summary`: Session insights
+
+## 🚀 Usage
+
+Hooks run automatically based on events. To check their status:
+
 ```bash
-python interface_validator.py <file_path> <content>
+# View hook configuration
+cat ~/.claude/settings.json | jq '.hooks'
+
+# Test PRISM connectivity
+curl http://localhost:8090/health
+
+# Manually trigger session end
+echo '{"hook_event_name":"SessionEnd"}' | python ~/.claude/hooks/universal_learner_session_end.py
+
+# Check learned patterns
+python -c "from universal_learner import get_learner; l=get_learner(); print(len(l.pattern_cache['patterns']))"
 ```
 
-**Example output**:
-```
-⚠️  Interface Compatibility Issues Detected
+## 🔍 Debugging
 
-Breaking change in UserDTO:
-  • Field 'email' was removed (breaking change)
-  • Field 'id' type changed from 'number' to 'string' (breaking change)
-  Affected files:
-    - src/services/auth.ts
-    - src/components/UserProfile.tsx
-    - tests/user.test.ts
-
-Suggestions:
-  1. Make the changes backward compatible
-  2. Update all consumers to handle the new interface
-  3. Version the interface (e.g., UserV2) for gradual migration
+Enable debug output by setting environment variables:
+```bash
+export HOOK_DEBUG=1
+export PRISM_DEBUG=1
 ```
 
-## Integration with Claude Code
+Check hook logs in stderr output during Claude sessions.
 
-### no_fallback_enforcer.py
-**Purpose**: Prevents fallback logic and degraded error handling.
+## 💡 Tips
 
-**Features**:
-- Stores forbidden patterns in ANCHORS tier
-- Detects silent fallbacks, feature detection, error masking
-- Provides specific fix suggestions
-- Blocks workarounds and temporary fixes
+1. **Let hooks learn**: They improve with usage
+2. **Review promotions**: Check session end summaries
+3. **Trust validators**: They prevent common issues
+4. **Check patterns**: Periodically review learned patterns
+5. **Configure tiers**: Adjust promotion thresholds as needed
 
-### sprint_review_command.py
-**Purpose**: Reviews and validates patterns from development sprints.
+---
 
-**Command**: `/sprint-review [days]`
-
-**Features**:
-- Auto-detects main git branch
-- Categorizes patterns by survival rate
-- Bulk promote/demote/archive operations
-
-### universal_learner.py
-**Purpose**: Core learning system with semantic storage.
-
-**Features**:
-- Proper semantic content storage
-- Neo4j relationship management
-- Multi-tier memory system (ANCHORS, LONGTERM, EPISODIC, WORKING)
-
-### unified_context_provider.py
-**Purpose**: Provides architecture and bug prevention context.
-
-**Features**:
-- Architecture layer detection
-- Bug prevention via FIXED_BY relationships
-- Import validation
-- Context injection before writes
-
-### edit_tracker.py
-**Purpose**: Tracks edit patterns and detects degradation.
-
-**Features**:
-- File coupling detection
-- Architecture pattern tracking
-- Degradation detection across edits
-- Violation tracking
-
-### unified_code_validator.py
-**Purpose**: Comprehensive code validation with fallback prevention.
-
-**Features**:
-- Fallback pattern blocking (highest priority)
-- Security scanning
-- Complexity analysis
-- Hallucination detection
-
-### auto_formatter.py
-**Purpose**: Applies formatting with developer preferences.
-
-**Features**:
-- Learns from developer's actual code
-- Applies preferences after project standards
-- Supports Python, JavaScript, TypeScript, Go, Rust
-
-## Integration
-
-These hooks can be integrated into your workflow by:
-
-1. **Manual execution**: Run hooks before committing changes
-2. **Git hooks**: Add to pre-commit hooks for automatic validation
-3. **CI/CD**: Include in continuous integration pipelines
-4. **Editor integration**: Configure your editor to run on save
-
-## Configuration
-
-Hooks store their cache and configuration in:
-- `.claude/interface_cache.json` - Interface definitions cache
-- `.claude/hook_config.json` - Hook-specific configuration (if needed)
-- `.claude/universal_learner_config.json` - Learning system configuration
-- `.claude/edit_session.json` - Edit tracking session data
-- `.claude/project_knowledge.json` - Accumulated project knowledge
-- `.claude/FORBIDDEN_PATTERNS.md` - Documentation of blocked patterns
-- `.claude/SYSTEM_IMPROVEMENTS_2025.md` - System enhancement documentation
-
-## Adding New Hooks
-
-To add a new hook:
-
-1. Create a Python script in this directory
-2. Follow the pattern of existing hooks:
-   - Accept file path and content as arguments
-   - Return 0 for success, 1 for validation failure
-   - Print colored output for clarity
-3. Document the hook in this README
-
-## Color Codes
-
-Hooks use ANSI color codes for terminal output:
-- 🔴 RED: Errors and breaking changes
-- 🟡 YELLOW: Warnings and suggestions
-- 🟢 GREEN: Success messages
-- 🔵 BLUE: Information and file paths
+*Intelligent hooks that make Claude Code learn and improve across sessions*

@@ -11,6 +11,7 @@
       "exact": 5,
       "semantic": 15,
       "graph": 20,
+      "hybrid": 25,
       "debug": 50
     },
     "graph_traversal_depth": {
@@ -24,12 +25,18 @@
       "default": 0.7,
       "production": 0.5,
       "experimentation": 0.8,
-      "security": 0.3
+      "security": 0.3,
+      "critical": 0.4,
+      "architecture": 0.5,
+      "best_practice": 0.6
     },
     "min_confidence": {
       "default": 0.3,
       "strict": 0.6,
-      "relaxed": 0.2
+      "relaxed": 0.2,
+      "security": 0.7,
+      "critical": 0.6,
+      "architecture": 0.5
     },
     "content_quality": {
       "min_length": 10,
@@ -40,43 +47,70 @@
   },
   "memory_tiers": {
     "ANCHORS": {
-      "min_confidence": 0.95,
-      "types": ["security", "critical", "compliance"],
+      "min_confidence": 0.9,
+      "types": ["security", "critical", "compliance", "architecture", "no_fallback"],
       "max_age_days": null,
-      "promotion_threshold": 0.98
+      "promotion_threshold": 0.95,
+      "min_usage_count": 5
     },
     "LONGTERM": {
-      "min_confidence": 0.75,
-      "types": ["architecture", "coding_standard", "best_practice"],
+      "min_confidence": 0.7,
+      "types": ["architecture", "coding_standard", "best_practice", "workflow", "test_coverage", "orchestration_workflow"],
       "max_age_days": 365,
-      "promotion_threshold": 0.85
+      "promotion_threshold": 0.85,
+      "min_usage_count": 3
     },
     "EPISODIC": {
       "min_confidence": 0.5,
-      "types": ["session_learning", "workflow", "debugging"],
+      "types": ["session_learning", "session_summary", "workflow", "debugging", "command_workflow", "recent_fix"],
       "max_age_days": 30,
-      "promotion_threshold": 0.7
+      "promotion_threshold": 0.7,
+      "min_usage_count": 1
     },
     "WORKING": {
       "min_confidence": 0.0,
-      "types": ["temporary", "experiment", "draft"],
+      "types": ["temporary", "experiment", "draft", "*"],
       "max_age_days": 7,
-      "promotion_threshold": 0.5
+      "promotion_threshold": 0.5,
+      "min_usage_count": 0
     }
   },
   "caching": {
     "redis_ttl_by_type": {
       "session_learning": 7200,
+      "session_summary": 86400,
       "command_workflow": 3600,
+      "command_error": 1800,
       "file_coupling": 86400,
       "architecture": 604800,
       "coding_standard": 2592000,
+      "test_coverage": 7200,
+      "validation_error": 3600,
+      "orchestration_workflow": 10800,
       "temporary": 600,
       "default": 3600
     },
     "pattern_cache_max_size": 10000,
     "session_duration": 86400,
     "cleanup_interval": 3600
+  },
+  "promotion": {
+    "usage_thresholds": {
+      "working_to_episodic": 1,
+      "episodic_to_longterm": 3,
+      "longterm_to_anchors": 5
+    },
+    "confidence_boost_per_use": 0.1,
+    "max_confidence": 0.95,
+    "fast_track_types": ["security", "critical", "no_fallback"],
+    "fast_track_usage": 2
+  },
+  "cleanup": {
+    "stale_pattern_age_days": 7,
+    "stale_pattern_max_usage": 0,
+    "low_confidence_age_days": 3,
+    "low_confidence_threshold": 0.3,
+    "low_confidence_max_usage": 2
   },
   "performance": {
     "operation_timeout": 5,
@@ -97,6 +131,16 @@
       "search_recall",
       "pattern_usage_rate",
       "false_positive_rate"
+    ]
+  },
+  "graph": {
+    "max_traversal_depth": 3,
+    "relationship_confidence_threshold": 0.5,
+    "auto_create_relationships": [
+      {"type": "file_coupling", "rel": "COUPLED_WITH"},
+      {"type": "command_workflow", "rel": "FOLLOWED_BY"},
+      {"type": "command_error", "rel": "FIXED_BY"},
+      {"type": "test_coverage", "rel": "TESTED_BY"}
     ]
   }
 }

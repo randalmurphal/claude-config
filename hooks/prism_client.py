@@ -1,4 +1,4 @@
-#!/opt/envs/py3.13/bin/python
+#!/usr/bin/env python3
 """
 PRISM Client for Claude Code Hooks
 Simple wrapper around HTTP client.

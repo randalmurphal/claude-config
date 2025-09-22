@@ -1,4 +1,4 @@
-#!/opt/envs/py3.13/bin/python
+#!/usr/bin/env python3
 """
 PRISM HTTP Server Auto-Start Hook
 Ensures PRISM HTTP server is running when Claude Code starts.
@@ -26,7 +26,7 @@ def is_http_server_running(port=8090):
 
 def start_http_server():
     """Start the PRISM HTTP server in background."""
-    server_script = Path.home() / "repos" / "claude_mcp" / "prism_mcp" / "bin" / "prism-http-server"
+    server_script = Path("/home/rmurphy/repos/claude_mcp/prism_mcp/bin/prism-http-server")
 
     if not server_script.exists():
         print(f"Warning: PRISM HTTP server script not found at {server_script}", file=sys.stderr)

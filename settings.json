@@ -1,6 +1,16 @@
 {
   "model": "opus",
   "hooks": {
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/universal_learner_session_end.py"
+          }
+        ]
+      }
+    ],
     "SessionStart": [
       {
         "hooks": [
@@ -127,6 +137,6 @@
   },
   "statusLine": {
     "type": "command",
-    "command": "/home/randy/.claude/statusline-command.sh"
+    "command": "/home/rmurphy/.claude/statusline-command.sh"
   }
 }

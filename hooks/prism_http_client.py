@@ -1,4 +1,4 @@
-#!/opt/envs/py3.13/bin/python
+#!/usr/bin/env python3
 """
 PRISM HTTP Client for Claude Code Hooks
 Uses HTTP API to communicate with PRISM server.

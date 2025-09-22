@@ -1,4 +1,4 @@
-#!/opt/envs/py3.13/bin/python
+#!/usr/bin/env python3
 """
 Edit Tracker Hook
 Tracks file edit patterns and relationships to learn which files are commonly edited together.

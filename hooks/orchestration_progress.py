@@ -1,4 +1,4 @@
-#!/opt/envs/py3.13/bin/python
+#!/usr/bin/env python3
 """
 Orchestration Progress Hook
 Displays real-time orchestration progress and status updates.

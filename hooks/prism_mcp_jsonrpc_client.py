@@ -1,4 +1,4 @@
-#!/opt/envs/py3.13/bin/python
+#!/usr/bin/env python3
 """
 PRISM MCP JSON-RPC Client
 Simple, clean interface to PRISM MCP server via JSON-RPC over stdio.

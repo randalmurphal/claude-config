@@ -1,4 +1,4 @@
-#!/opt/envs/py3.13/bin/python
+#!/usr/bin/env python3
 """
 Auto-Orchestration Detection Hook
 Suggests /conduct for complex tasks based on patterns and complexity analysis.

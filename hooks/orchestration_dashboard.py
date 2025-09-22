@@ -1,4 +1,4 @@
-#!/opt/envs/py3.13/bin/python
+#!/usr/bin/env python3
 """
 Unified Orchestration Dashboard
 Aggregates and displays all orchestration intelligence in one view.

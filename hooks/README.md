@@ -1,6 +1,23 @@
 # Claude Code Hooks
 
-Custom hooks that enhance Claude Code's development workflow.
+Custom hooks that enhance Claude Code's development workflow with architecture enforcement, fallback prevention, and intelligent learning.
+
+## 🚀 Major Features
+
+### Architecture Enforcement
+- Automatic layer detection (presentation/business/data/infrastructure)
+- Import validation to prevent boundary violations
+- Bug prevention using Neo4j FIXED_BY relationships
+
+### NO FALLBACK Prevention
+- **BLOCKS** fallback logic and degraded error handling
+- Forces proper solutions or clear failures
+- Detects and prevents workarounds
+
+### Universal Learning System
+- Semantic content storage with proper embeddings
+- Sprint review for pattern validation
+- Developer preference learning and application
 
 ## Available Hooks
 
@@ -51,6 +68,70 @@ Suggestions:
 
 ## Integration with Claude Code
 
+### no_fallback_enforcer.py
+**Purpose**: Prevents fallback logic and degraded error handling.
+
+**Features**:
+- Stores forbidden patterns in ANCHORS tier
+- Detects silent fallbacks, feature detection, error masking
+- Provides specific fix suggestions
+- Blocks workarounds and temporary fixes
+
+### sprint_review_command.py
+**Purpose**: Reviews and validates patterns from development sprints.
+
+**Command**: `/sprint-review [days]`
+
+**Features**:
+- Auto-detects main git branch
+- Categorizes patterns by survival rate
+- Bulk promote/demote/archive operations
+
+### universal_learner.py
+**Purpose**: Core learning system with semantic storage.
+
+**Features**:
+- Proper semantic content storage
+- Neo4j relationship management
+- Multi-tier memory system (ANCHORS, LONGTERM, EPISODIC, WORKING)
+
+### unified_context_provider.py
+**Purpose**: Provides architecture and bug prevention context.
+
+**Features**:
+- Architecture layer detection
+- Bug prevention via FIXED_BY relationships
+- Import validation
+- Context injection before writes
+
+### edit_tracker.py
+**Purpose**: Tracks edit patterns and detects degradation.
+
+**Features**:
+- File coupling detection
+- Architecture pattern tracking
+- Degradation detection across edits
+- Violation tracking
+
+### unified_code_validator.py
+**Purpose**: Comprehensive code validation with fallback prevention.
+
+**Features**:
+- Fallback pattern blocking (highest priority)
+- Security scanning
+- Complexity analysis
+- Hallucination detection
+
+### auto_formatter.py
+**Purpose**: Applies formatting with developer preferences.
+
+**Features**:
+- Learns from developer's actual code
+- Applies preferences after project standards
+- Supports Python, JavaScript, TypeScript, Go, Rust
+
+## Integration
+
 These hooks can be integrated into your workflow by:
 
 1. **Manual execution**: Run hooks before committing changes
@@ -63,6 +144,11 @@ These hooks can be integrated into your workflow by:
 Hooks store their cache and configuration in:
 - `.claude/interface_cache.json` - Interface definitions cache
 - `.claude/hook_config.json` - Hook-specific configuration (if needed)
+- `.claude/universal_learner_config.json` - Learning system configuration
+- `.claude/edit_session.json` - Edit tracking session data
+- `.claude/project_knowledge.json` - Accumulated project knowledge
+- `.claude/FORBIDDEN_PATTERNS.md` - Documentation of blocked patterns
+- `.claude/SYSTEM_IMPROVEMENTS_2025.md` - System enhancement documentation
 
 ## Adding New Hooks
 

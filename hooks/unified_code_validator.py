@@ -26,10 +26,11 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 import subprocess
 
-# Import PRISM client and universal learner
+# Import PRISM client, universal learner, and no_fallback enforcer
 sys.path.append(str(Path(__file__).parent))
 from prism_client import get_prism_client
 from universal_learner import get_learner
+from no_fallback_enforcer import NoFallbackEnforcer
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -47,6 +48,8 @@ class UnifiedCodeValidator:
 
     def __init__(self):
         self.client = get_prism_client()
+        self.no_fallback = NoFallbackEnforcer()
+        self.learner = get_learner()
         self.validated_patterns = self.load_validated_patterns()
         self.context_cache = {}
 
@@ -407,7 +410,23 @@ class UnifiedCodeValidator:
         """Main validation function."""
         issues = {}
 
-        # 1. Detect hallucination
+        # 1. Detect fallback patterns (CRITICAL - check first)
+        fallback_violations = self.no_fallback.check_for_fallback_patterns(code)
+        if fallback_violations:
+            issues['fallback_violations'] = fallback_violations
+            # Store as bad pattern for future reference
+            for violation in fallback_violations:
+                pattern = {
+                    "type": "bad_pattern",
+                    "subtype": "fallback_detected",
+                    "content": f"Fallback pattern detected: {violation['description']}",
+                    "pattern": violation['pattern'],
+                    "file": file_path,
+                    "confidence": 0.95
+                }
+                self.learner.learn_pattern(pattern)
+
+        # 2. Detect hallucination
         is_hallucination, confidence, reason = self.detect_hallucination(code, file_path)
         issues['hallucination'] = {
             'detected': is_hallucination,
@@ -415,25 +434,30 @@ class UnifiedCodeValidator:
             'reason': reason
         }
 
-        # 2. Security scanning
+        # 3. Security scanning
         security_issues = self.scan_security_issues(code)
         if security_issues:
             issues['security'] = security_issues
 
-        # 3. Complexity analysis
+        # 4. Complexity analysis
         complexity_metrics = self.calculate_complexity(code)
         if (complexity_metrics['cyclomatic_complexity'] > COMPLEXITY_THRESHOLD or
             complexity_metrics['cognitive_complexity'] > COGNITIVE_COMPLEXITY_THRESHOLD or
             complexity_metrics['maintainability_index'] < 50):
             issues['complexity'] = complexity_metrics
 
-        # 4. Check against known patterns
+        # 5. Check against known patterns
         good_patterns, bad_patterns = self.retrieve_similar_patterns(code)
         if good_patterns or bad_patterns:
             issues['similar_patterns'] = (good_patterns, bad_patterns)
 
         # Store validation result for learning
-        is_valid = not (is_hallucination or any(i['severity'] == 'CRITICAL' for i in security_issues))
+        has_critical_issues = (
+            is_hallucination or
+            any(i['severity'] == 'CRITICAL' for i in security_issues) or
+            bool(fallback_violations)
+        )
+        is_valid = not has_critical_issues
         self.store_validation_result(code, file_path, is_valid, issues)
 
         return issues
@@ -490,9 +514,18 @@ def main():
     all_errors = []
     error_type = None
 
+    # Check for fallback violations FIRST (highest priority)
+    if issues.get('fallback_violations'):
+        for violation in issues['fallback_violations']:
+            all_errors.append(f"❌ FORBIDDEN PATTERN: {violation['description']}")
+            suggestion = validator.no_fallback.suggest_proper_solution(violation)
+            all_errors.append(f"   FIX: {suggestion}")
+        error_type = "fallback_violation"
+
     if issues.get('hallucination', {}).get('detected'):
         all_errors.append(f"Hallucination: {issues['hallucination']['reason']}")
-        error_type = "hallucination"
+        if not error_type:
+            error_type = "hallucination"
 
     if issues.get('security'):
         for sec_issue in issues['security']:
@@ -521,7 +554,18 @@ def main():
     # Determine intervention level
     intervention = None
 
-    if issues.get('hallucination', {}).get('detected'):
+    # BLOCK fallback patterns (highest priority)
+    if issues.get('fallback_violations'):
+        intervention = {
+            "type": "block_execution",
+            "severity": "CRITICAL",
+            "message": "❌ FORBIDDEN: Fallback/degraded logic detected\n\n" +
+                      "\n".join(all_errors) +
+                      "\n\nYou MUST:\n1. Fix the root cause, not add fallbacks\n" +
+                      "2. Raise clear errors if something is broken\n" +
+                      "3. Require dependencies instead of checking availability"
+        }
+    elif issues.get('hallucination', {}).get('detected'):
         # Block hallucinated code
         intervention = {
             "type": "block_execution",

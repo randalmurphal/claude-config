@@ -26,6 +26,7 @@ class EditTracker:
         self.session = self.load_session()
         self.learner = get_learner()
         self.architecture_cache = {}  # Cache for layer detection
+        self.previous_edits = {}  # Track previous versions to detect degradation
 
     def load_session(self) -> Dict:
         """Load current edit session."""
@@ -362,6 +363,71 @@ class EditTracker:
 
         return violations
 
+    def detect_degradation_attempt(self, file_path: str, new_content: str) -> Dict:
+        """Detect if new code is a degraded version of previous code."""
+        degradation_indicators = {}
+
+        # Get previous version if exists
+        if file_path in self.previous_edits:
+            old_content = self.previous_edits[file_path]
+
+            # Count complexity indicators
+            old_try_count = len(re.findall(r'\btry\s*:', old_content))
+            new_try_count = len(re.findall(r'\btry\s*:', new_content))
+
+            old_except_count = len(re.findall(r'\bexcept\s*.*:', old_content))
+            new_except_count = len(re.findall(r'\bexcept\s*.*:', new_content))
+
+            # Check for degradation patterns
+            if new_try_count > old_try_count:
+                degradation_indicators['increased_try_blocks'] = {
+                    'old': old_try_count,
+                    'new': new_try_count,
+                    'message': 'Adding more try blocks instead of fixing root cause'
+                }
+
+            if new_except_count > old_except_count:
+                degradation_indicators['increased_except_blocks'] = {
+                    'old': old_except_count,
+                    'new': new_except_count,
+                    'message': 'Adding more exception handlers instead of preventing errors'
+                }
+
+            # Check for fallback keywords
+            fallback_keywords = ['fallback', 'workaround', 'hack', 'temporary', 'TODO', 'FIXME']
+            old_fallback_count = sum(1 for kw in fallback_keywords if kw.lower() in old_content.lower())
+            new_fallback_count = sum(1 for kw in fallback_keywords if kw.lower() in new_content.lower())
+
+            if new_fallback_count > old_fallback_count:
+                degradation_indicators['increased_fallback_keywords'] = {
+                    'old': old_fallback_count,
+                    'new': new_fallback_count,
+                    'message': 'Adding workarounds instead of proper fixes'
+                }
+
+            # Check for simplified logic (degradation)
+            if 'advanced' in old_content and 'simple' in new_content and 'simple' not in old_content:
+                degradation_indicators['logic_simplification'] = {
+                    'message': 'Replacing advanced logic with simpler version'
+                }
+
+            # If degradation detected, store as pattern
+            if degradation_indicators:
+                pattern = {
+                    'type': 'degradation_attempt',
+                    'content': f"Code degradation detected in {file_path}",
+                    'file': file_path,
+                    'indicators': degradation_indicators,
+                    'confidence': 0.9,
+                    'relationships': [(file_path, 'DEGRADED_TO', 'simpler_version')]
+                }
+                self.learner.learn_pattern(pattern)
+
+        # Store current version for future comparison
+        self.previous_edits[file_path] = new_content
+
+        return degradation_indicators
+
 def main():
     """Main hook handler."""
     try:
@@ -427,6 +493,15 @@ def main():
             # Track architectural patterns from the content
             if content:
                 tracker.track_architectural_patterns(file_path, content)
+
+                # Check for degradation attempts
+                degradation = tracker.detect_degradation_attempt(file_path, content)
+                if degradation:
+                    print(json.dumps({
+                        "action": "continue",
+                        "warning": f"⚠️ CODE DEGRADATION DETECTED in {Path(file_path).name}:\n" +
+                                  "\n".join([f"  - {ind['message']}" for ind in degradation.values()])
+                    }), file=sys.stderr)
 
     print(json.dumps({"action": "continue"}))
 

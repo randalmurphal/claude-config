@@ -62,6 +62,8 @@ node_modules/
 ACTIVE_WORK.json
 PARALLEL_STATUS.json
 RESOURCE_LOCKS.json
+
+statusline.sh
 vibe_state.json
 
 # Session tracking files
@@ -80,3 +82,4 @@ confidence_calibration.json
 *.swo
 *~
 
+>>>>>>> a24ca076bb2e8b7ea17ba7eefdd04d2aed87940d

@@ -31,16 +31,21 @@ These hooks integrate with Claude Code to provide:
 - **unified_bash_guardian.py** (Bash): Analyzes command safety, learns error fixes
 - **unified_code_validator.py** (Write/Edit): Validates patterns, enforces user preferences, prevents fallbacks
 - **file_protection.py** (Write/Edit): Protects critical files
-- **edit_tracker.py** (Write/Edit): Tracks file edit patterns
+- **edit_tracker.py** (Write/Edit): Tracks file edit patterns, extracts semantic changes
+- **unified_context_provider.py** (Task): Injects relevant memories into agent prompts
 - **assumption_detector.py** (Task): Catches unstated assumptions
 
 ### PostToolUse
+- **post_read_injector.py** (Read): Injects file-specific memories from PRISM
+- **post_error_injector.py** (Bash): Injects error fixes after command failures
 - **auto_formatter.py** (Write/Edit): Auto-formats code with language-specific tools
-- **edit_tracker.py** (Write/Edit): Records file relationships, detects user corrections
+- **edit_tracker.py** (Write/Edit): Stores semantic memories in PRISM, detects user corrections
+- **test_coverage_enforcer.py** (Bash): Enforces test coverage requirements
 - **orchestration_learner.py** (Task): Learns from agent outcomes
 - **orchestration_progress.py** (Task): Updates orchestration status
-- **unified_context_provider.py** (Read/Bash): Updates context after operations
-- **test_coverage_enforcer.py** (Bash): Enforces test coverage requirements
+
+### SubagentStop
+- **agent_learner.py**: Captures agent discoveries, patterns, and decisions from agent outputs
 
 ## 📚 Core Hooks
 
@@ -99,15 +104,15 @@ These hooks integrate with Claude Code to provide:
 ### Context & Learning
 
 #### unified_context_provider.py
-- **Trigger**: UserPromptSubmit, PostToolUse (Read/Bash)
-- **Purpose**: Intelligent context retrieval and preference detection
+- **Trigger**: UserPromptSubmit, PreToolUse (Task), PostToolUse (Write/Edit/MultiEdit)
+- **Purpose**: Intelligent context retrieval, preference detection, and memory injection
 - **Features**:
   - Detects user preferences from messages (always/never/prefer statements)
-  - Searches PRISM for relevant patterns
-  - Provides error fixes
-  - Suggests related files
-  - Updates operation history
-  - Stores preferences in PRISM memory tiers
+  - Injects relevant memories into agent prompts (PreToolUse Task)
+  - Searches all PRISM tiers with weighted relevance (ANCHORS > LONGTERM > WORKING > EPISODIC)
+  - Extracts semantic diffs from code changes
+  - Filters ephemeral files (/tmp/*, node_modules/*, etc.)
+  - Stores rich semantic memories (not just file metadata)
 
 #### orchestration_learner.py
 - **Trigger**: PostToolUse (Task)
@@ -189,13 +194,15 @@ These hooks integrate with Claude Code to provide:
 ### File Tracking
 
 #### edit_tracker.py
-- **Trigger**: Pre/PostToolUse (Write/Edit)
-- **Purpose**: Tracks file relationships
+- **Trigger**: Pre/PostToolUse (Write/Edit/MultiEdit)
+- **Purpose**: Extracts and stores semantic changes in PRISM
 - **Features**:
-  - Detects file coupling
-  - Identifies architecture layers
-  - Records edit sequences
-  - Creates Neo4j relationships
+  - Extracts semantic patterns (added_error_handling, bug_fix, refactoring, etc.)
+  - Detects architectural layers (presentation, business, data, infrastructure, test)
+  - Builds file relationships (TESTS, TESTED_BY, RELATED_TO)
+  - Stores rich memories with entities and confidence scores
+  - Filters ephemeral files (/tmp/*, node_modules/*, .git/*, etc.)
+  - Tracks user corrections for preference learning
 
 #### file_protection.py
 - **Trigger**: PreToolUse (Write/Edit)
@@ -231,16 +238,51 @@ These hooks integrate with Claude Code to provide:
 - Service endpoints
 - Memory tier configurations
 
-## 🧠 Memory Tiers
+## 🧠 PRISM Memory System
 
-Patterns are stored in PRISM memory tiers:
+### Storage Infrastructure
+- **Qdrant**: Vector database for semantic search (2,802+ vectors)
+- **Neo4j**: Graph database for relationship tracking
+- **Redis**: Temporal cache for session patterns
 
-1. **WORKING**: Active session patterns (0+ uses)
-2. **EPISODIC**: Recent patterns (1+ uses, 30-day retention)
-3. **LONGTERM**: Established patterns (3+ uses, 1-year retention)
-4. **ANCHORS**: Critical patterns (5+ uses, permanent)
+### Memory Tiers
 
-Security and critical patterns get fast-track promotion.
+Patterns are stored in PRISM memory tiers with automatic promotion:
+
+1. **ANCHORS**: Critical knowledge, user preferences (high frustration items)
+   - Bug fixes after 3+ occurrences
+   - Security patterns after 2+ uses
+   - User preferences with frustration level 3+ or after 2+ corrections
+2. **LONGTERM**: Stable patterns and architectural decisions
+   - Patterns with 3+ uses or 85%+ confidence (promoted by background task)
+   - Successful bug fixes
+   - Design decisions
+3. **WORKING**: Current session context
+   - Active edits and changes
+   - Session-specific patterns
+4. **EPISODIC**: Recent activities and metrics
+   - Agent performance data
+   - Recent file edits
+
+**Note**: Deduplication happens client-side in `preference_manager.py` before storing.
+Background promotion task runs every 5 minutes in the HTTP server.
+
+### Semantic Memory Format
+```json
+{
+  "type": "bug_fix|refactor|feature|pattern",
+  "content": "Human-readable description",
+  "semantic": ["added_error_handling", "fixed_import"],
+  "entities": ["function_name", "module_name"],
+  "relationships": [["file_a", "TESTS", "file_b"]],
+  "context": {
+    "file": "/path/to/file.py",
+    "operation": "Edit",
+    "session_id": "session_123"
+  },
+  "confidence": 0.9
+}
+```
 
 ## 📊 Pattern Types
 

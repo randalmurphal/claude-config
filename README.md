@@ -5,10 +5,13 @@ Advanced configuration for Claude Code with PRISM integration, intelligent hooks
 ## 🎯 Overview
 
 This configuration enhances Claude Code with:
-- **PRISM MCP Integration**: Semantic reasoning, memory persistence, and hallucination detection
+- **PRISM MCP Integration**: Semantic memory with Neo4j graphs and Qdrant vectors
 - **Universal Learning**: Cross-session pattern recognition and promotion
 - **Smart Hooks**: Event-driven automation for code quality and safety
-- **Orchestration Support**: Tools for complex multi-agent workflows
+- **Agent Memory Injection**: Agents receive relevant context from past sessions
+- **Semantic Code Understanding**: Extracts what changed, not just metadata
+- **User Preference Detection**: Learns from corrections and explicit preferences
+- **Orchestration Support**: MCP-based coordination for complex tasks
 - **Vibe System**: Personality modes for different work styles
 
 ## 🚀 Quick Start
@@ -51,7 +54,10 @@ claude
 │   ├── prism_http_client.py      # HTTP client implementation
 │   ├── universal_learner.py      # Cross-session learning
 │   ├── universal_learner_session_end.py  # Pattern promotion
-│   ├── unified_context_provider.py       # Context retrieval
+│   ├── unified_context_provider.py       # Context retrieval & agent injection
+│   ├── edit_tracker.py                   # Semantic change extraction
+│   ├── agent_learner.py                  # Agent discovery capture
+│   ├── preference_manager.py             # User preference detection
 │   ├── unified_bash_guardian.py          # Command safety
 │   ├── unified_code_validator.py         # Code validation
 │   ├── orchestration_learner.py          # Agent learning
@@ -80,43 +86,62 @@ claude
 - `orchestration_dashboard.py` - Shows task status
 
 **SessionEnd**:
-- `universal_learner_session_end.py` - Promotes learned patterns
+- `universal_learner_session_end.py` - Promotes patterns, consolidates session learnings
 
 **UserPromptSubmit**:
-- `unified_context_provider.py` - Provides relevant context
+- `unified_context_provider.py` - Injects relevant memories, detects preferences
 - `auto_orchestration_detector.py` - Detects complex tasks
 - `orchestration_dashboard.py` - Updates status
+
+**SubagentStop**:
+- `agent_learner.py` - Captures agent discoveries and patterns
 
 ### Tool Hooks
 
 **PreToolUse**:
 - Bash: `unified_bash_guardian.py` - Command safety analysis
-- Write/Edit: `unified_code_validator.py` - Pattern validation
+- Write/Edit: `unified_code_validator.py` - Pattern validation, preference enforcement
 - Write/Edit: `file_protection.py` - Protects critical files
+- Write/Edit: `edit_tracker.py` - Extracts semantic changes
+- Task: `unified_context_provider.py` - Injects memories into agent prompts
 - Task: `assumption_detector.py` - Catches assumptions
 
 **PostToolUse**:
+- Read: `post_read_injector.py` - Injects file-specific memories
 - Write/Edit: `auto_formatter.py` - Formats code
-- Write/Edit: `edit_tracker.py` - Tracks file relationships
+- Write/Edit: `edit_tracker.py` - Stores semantic memories in PRISM
+- Bash: `post_error_injector.py` - Injects error fixes after failures
+- Bash: `test_coverage_enforcer.py` - Enforces test coverage
 - Task: `orchestration_learner.py` - Learns from agents
 - Task: `orchestration_progress.py` - Updates progress
-- Read/Bash: `unified_context_provider.py` - Updates context
 - Bash: `test_coverage_enforcer.py` - Enforces coverage
 
 ## 🧠 PRISM Integration
 
 PRISM (Persistent Reasoning & Intelligent Semantic Memory) provides:
-- **Semantic Analysis**: Mathematical reasoning with confidence zones
-- **Memory Tiers**: ANCHORS, LONGTERM, EPISODIC, WORKING
-- **Hallucination Detection**: Risk assessment and mitigation
-- **Pattern Learning**: Cross-session knowledge accumulation
+- **Semantic Memory Storage**: Rich JSON with changes, entities, relationships
+- **Vector Search**: Qdrant database with 2,802+ semantic vectors
+- **Graph Relationships**: Neo4j for file coupling and dependencies
+- **Memory Tiers**: ANCHORS (critical), LONGTERM (stable), WORKING (session), EPISODIC (recent)
+- **Automatic Context Injection**: Relevant memories injected into prompts and agent launches
+
+### What Gets Stored
+- **Semantic code changes**: added_error_handling, bug_fix, refactoring
+- **File relationships**: TESTS, TESTED_BY, RELATED_TO
+- **Agent discoveries**: Patterns, decisions, and fixes from agent outputs
+- **User preferences**: Explicit rules and repeated corrections
+- **Bug fixes**: Error→solution mappings
 
 ### Memory Tier Promotion
 Patterns are automatically promoted based on usage:
-- WORKING → EPISODIC: 1 use
-- EPISODIC → LONGTERM: 3 uses
-- LONGTERM → ANCHORS: 5 uses
-- Security/critical patterns: Fast-track with 2 uses
+- WORKING → LONGTERM: 3+ uses or 85%+ confidence (via background task every 5 minutes)
+- Bug fixes → LONGTERM: Immediately
+- User preferences → ANCHORS: With frustration level 3+ or after 2+ corrections
+- Security patterns → Fast-track with 2+ uses
+- Client-side deduplication prevents storing duplicates (handled in preference_manager.py)
+
+### Ephemeral File Filtering
+Automatically skips: `/tmp/*`, `node_modules/*`, `.git/*`, `venv/*`, `build/*`, `dist/*`
 
 ## 🎭 Vibe System
 
@@ -132,25 +157,43 @@ Set your personality mode with `/vibe`:
 /vibe solo         # Set to solo mode
 ```
 
-## 📊 Universal Learning
+## 📊 Universal Learning & Memory System
 
-The universal learner:
-- Extracts semantic content from technical patterns
-- Stores in PRISM with proper metadata
-- Creates Neo4j relationships (file coupling, error fixes)
-- Promotes patterns based on usage and confidence
-- Cleans up stale patterns after 7 days
+### How It Works
+1. **Extraction**: Hooks extract semantic meaning from your actions
+   - `edit_tracker.py`: What changed in code (not just file metadata)
+   - `agent_learner.py`: What agents discovered
+   - `preference_manager.py`: Your coding preferences
 
-Configuration in `universal_learner_config.json`:
-- Memory tier thresholds
-- Promotion rules
-- Cleanup settings
-- Graph relationships
+2. **Storage**: Rich memories stored in PRISM
+   ```json
+   {
+     "type": "bug_fix",
+     "content": "Fixed race condition in async test",
+     "semantic": ["added_error_handling", "async_fix"],
+     "entities": ["test_async", "race_condition"],
+     "relationships": [["test.py", "TESTS", "async.py"]],
+     "confidence": 0.9
+   }
+   ```
+
+3. **Retrieval**: Context injected automatically
+   - On user prompts: Relevant patterns shown
+   - On agent launch: Past discoveries injected
+   - Weighted by tier: ANCHORS > LONGTERM > WORKING
+
+4. **Promotion**: Patterns promoted by usage
+   - 3+ uses → Higher tier
+   - Bug fixes → Immediate promotion
+   - User corrections → Preference storage
 
 ## 🔒 Quality Gates
 
-### Code Validation
-- Prevents fallback patterns
+### Code Validation & Memory Enforcement
+- **Blocks ANCHORS violations** - Critical preferences stop execution
+- **Deduplicates preferences** - Prevents storing same rule multiple times
+- **Auto-promotes after corrections** - 2+ fixes → ANCHORS tier
+- Prevents fallback patterns (NO .get() with defaults)
 - Blocks linter suppressions
 - Enforces error message quality
 - Checks cyclomatic complexity
@@ -166,7 +209,7 @@ Language-specific formatters (post-edit):
 
 Available MCP servers (when configured):
 - **PRISM MCP**: Semantic reasoning and memory
-- **Orchestration MCP**: Multi-agent coordination
+- **Orchestration MCP**: Redis-based task coordination (YOU orchestrate directly)
 - **Filesystem**: File operations
 - **Playwright**: Browser automation
 - **Postgres**: Database operations (project-specific)
@@ -176,10 +219,12 @@ Check status: `/mcp`
 ## 💡 Tips
 
 1. **Let hooks work**: They automatically learn and improve
-2. **Check session summaries**: Review promoted patterns at session end
-3. **Use appropriate vibes**: Solo for coding, concert for production
-4. **Trust the validators**: They prevent common issues
-5. **Review learned patterns**: Check PRISM memory periodically
+2. **Corrections matter**: 2+ corrections auto-promote to critical rules
+3. **ANCHORS violations block**: Critical preferences cannot be ignored
+4. **Real-time injection**: Memories appear after Read/Error operations
+5. **No fallbacks**: Never use .get() with defaults - handle missing data explicitly
+6. **Check session summaries**: Review promoted patterns at session end
+7. **Trust the validators**: They prevent common issues
 
 ## 🚧 Troubleshooting
 

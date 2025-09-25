@@ -253,9 +253,9 @@ Create decomposition plan in `.claude/TASK_DECOMPOSITION.json`:
 }
 ```
 
-## Integration with Master Orchestrator
+## Integration with Main Orchestration
 
-After decomposition, the master-orchestrator will:
+After decomposition, the main Claude agent will:
 1. Read this decomposition plan
 2. Execute each sub-task with full `/conduct` orchestration
 3. Validate checkpoint after each sub-task

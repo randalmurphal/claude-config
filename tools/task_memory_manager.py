@@ -594,7 +594,7 @@ def test_memory_manager():
 
     # Store various memories
     memories_to_store = [
-        ("Fixed bug in /home/randy/project/auth/login.py line 47", "EPISODIC"),
+        ("Fixed bug in ~/project/auth/login.py line 47", "EPISODIC"),
         ("Password hashing pattern using bcrypt", "LONGTERM"),
         ("validate_user_email function for input validation", "WORKING"),
         ("JWT token validation pattern", "LONGTERM"),

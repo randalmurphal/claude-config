@@ -3,88 +3,65 @@
 ## Tool Location
 `{working_directory}/.claude/tools/orchestration.py`
 
-## Key Commands for Conductor
+## Key Commands for Main Orchestrator (YOU)
 
-### 1. Initialize Task
-```bash
-python .claude/tools/orchestration.py create-mission \
-  "User's original request here" \
-  --criteria "What success looks like"
+### 1. Initialize Task (via MCP)
+```python
+# YOU call this directly via MCP, not through a script:
+task_id = mcp__orchestration__start_task({
+    "description": "User's original request",
+    "complexity": "auto-detect"
+})
 ```
 
-### 2. Set Up Parallel Work (Phase 4 or 5)
-```bash
-# Define workers in JSON format
-python .claude/tools/orchestration.py setup-workspaces \
-  --workers '[
-    {"id": "auth-impl", "module": "auth", "scope": "src/auth/**"},
-    {"id": "db-impl", "module": "database", "scope": "src/db/**"}
-  ]'
+### 2. Set Up Parallel Work (via MCP)
+```python
+# YOU create git worktrees for parallel agents:
+mcp__orchestration__create_chambers_batch({
+    "task_id": task_id,
+    "chamber_names": ["auth", "database", "api"]
+})
+
+# Then launch agents in parallel (one message, multiple Tasks)
 ```
 
-### 3. Share Discovery (For Agents)
-```bash
-# Critical (interrupts others)
-python .claude/tools/orchestration.py share-discovery \
-  --agent "worker-id" \
-  --discovery "What was found" \
-  --severity critical \
-  --impact "Why it matters" \
-  --affects module1 module2
-
-# Non-critical (just logged)
-python .claude/tools/orchestration.py share-discovery \
-  --agent "worker-id" \
-  --discovery "Minor finding" \
-  --severity info
+### 3. Record Agent Actions (via MCP)
+```python
+# YOU record agent discoveries to Redis:
+mcp__orchestration__record_agent_action({
+    "task_id": task_id,
+    "agent_id": "implementation-executor-auth",
+    "action": "Completed auth module",
+    "result": "Implementation successful",
+    "patterns": ["JWT auth", "rate limiting"]
+})
 ```
 
-### 4. Phase Transitions
-```bash
-# Transition without cleanup
-python .claude/tools/orchestration.py transition 4 5
-
-# Transition with workspace cleanup
-python .claude/tools/orchestration.py transition 4 5 --cleanup
+### 4. Task Completion
+```python
+# YOU complete the task when all work is done:
+mcp__orchestration__complete_task({
+    "task_id": task_id,
+    "commit_changes": True,
+    "summary": "Built complete system as requested"
+})
 ```
 
-### 5. Clean Up Workspaces
-```bash
-python .claude/tools/orchestration.py cleanup
-```
+## Important Note: MCP-Based Orchestration
 
-## What Each Command Does
+**The orchestration is now handled through the MCP server, not Python scripts.**
 
-### `create-mission`
-- Creates MISSION_CONTEXT.json with original request
-- Sets up .claude/ directory structure
-- Records timestamp and working directory
-- All paths are absolute
+All state is managed in Redis through MCP tools:
+- Task tracking
+- Agent coordination
+- Context sharing
+- Progress monitoring
 
-### `setup-workspaces`
-- Creates git worktrees for each worker
-- Copies relevant skeleton files
-- Installs interrupt hooks
-- Creates WORKER_CONTEXT.json in each workspace
-- Updates PARALLEL_STATUS.json
-
-### `share-discovery`
-- For critical: Writes .INTERRUPT files to other workspaces
-- For non-critical: Logs to DISCOVERIES.json
-- Automatically determines who to interrupt
-- Archives all discoveries
-
-### `transition`
-- Updates WORKFLOW_STATE.json
-- Updates PHASE_PROGRESS.json
-- Optionally cleans up workspaces
-- Records transition timestamps
-
-### `cleanup`
-- Removes all git worktrees
-- Deletes workspace directories
-- Clears PARALLEL_STATUS.json
-- Reports cleanup status
+### Key Differences:
+1. **No file-based coordination** - Everything in Redis
+2. **YOU orchestrate directly** - No delegation to sub-agents
+3. **MCP tools only** - No Python scripts for orchestration
+4. **Git worktrees via MCP** - Created through `mcp__orchestration__create_chambers_batch`
 
 ## Path Handling
 
@@ -139,9 +116,9 @@ python .claude/tools/orchestration.py cleanup
 
 ## For Agents
 
-Agents receive workspace paths and can:
-1. Read WORKER_CONTEXT.json to understand their scope
-2. Explore main_directory for interfaces
-3. Work in workspace_directory for implementation
-4. Share discoveries using the tool
-5. Automatically see interrupts via hook
+Agents receive context from YOU (the main orchestrator):
+1. Context passed in their prompt (they can't call MCP)
+2. Work in git worktrees if available
+3. Create files/code as their output
+4. YOU read their output and update Redis
+5. No direct agent-to-agent communication

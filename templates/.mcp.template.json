@@ -1,0 +1,92 @@
+{
+  "_comment": "MCP (Model Context Protocol) server configuration",
+  "servers": {
+    "filesystem": {
+      "enabled": false,
+      "command": "npx",
+      "args": ["-y", "@mcp/filesystem-server"],
+      "description": "Enhanced file operations beyond basic Read/Write"
+    },
+    "playwright": {
+      "enabled": false,
+      "command": "npx",
+      "args": ["-y", "@mcp/playwright-server"],
+      "description": "Browser automation, web scraping, UI testing"
+    },
+    "postgres": {
+      "enabled": false,
+      "command": "npx",
+      "args": ["-y", "@mcp/postgres-server"],
+      "env": {
+        "POSTGRES_CONNECTION_STRING": "{{POSTGRES_CONNECTION_STRING}}"
+      },
+      "description": "PostgreSQL database operations"
+    },
+    "sqlite": {
+      "enabled": false,
+      "command": "npx",
+      "args": ["-y", "@mcp/sqlite-server"],
+      "description": "SQLite database operations"
+    },
+    "mongodb": {
+      "enabled": false,
+      "command": "npx",
+      "args": ["-y", "@mcp/mongodb-server"],
+      "env": {
+        "MONGODB_CONNECTION_STRING": "{{MONGODB_CONNECTION_STRING}}"
+      },
+      "description": "MongoDB operations"
+    },
+    "github": {
+      "enabled": false,
+      "command": "npx",
+      "args": ["-y", "@mcp/github-server"],
+      "env": {
+        "GITHUB_TOKEN": "{{GITHUB_TOKEN}}"
+      },
+      "description": "GitHub API for repos, issues, PRs"
+    },
+    "docker": {
+      "enabled": false,
+      "command": "npx",
+      "args": ["-y", "@mcp/docker-server"],
+      "description": "Container management"
+    },
+    "git": {
+      "enabled": false,
+      "command": "npx",
+      "args": ["-y", "@mcp/git-server"],
+      "description": "Advanced git operations"
+    },
+    "aws": {
+      "enabled": false,
+      "command": "npx",
+      "args": ["-y", "@mcp/aws-server"],
+      "env": {
+        "AWS_ACCESS_KEY_ID": "{{AWS_ACCESS_KEY_ID}}",
+        "AWS_SECRET_ACCESS_KEY": "{{AWS_SECRET_ACCESS_KEY}}",
+        "AWS_REGION": "{{AWS_REGION}}"
+      },
+      "description": "Amazon Web Services integration"
+    },
+    "gcp": {
+      "enabled": false,
+      "command": "npx",
+      "args": ["-y", "@mcp/gcp-server"],
+      "env": {
+        "GOOGLE_APPLICATION_CREDENTIALS": "{{GCP_CREDENTIALS_PATH}}"
+      },
+      "description": "Google Cloud Platform integration"
+    },
+    "azure": {
+      "enabled": false,
+      "command": "npx",
+      "args": ["-y", "@mcp/azure-server"],
+      "env": {
+        "AZURE_SUBSCRIPTION_ID": "{{AZURE_SUBSCRIPTION_ID}}",
+        "AZURE_TENANT_ID": "{{AZURE_TENANT_ID}}"
+      },
+      "description": "Microsoft Azure integration"
+    }
+  }
+}

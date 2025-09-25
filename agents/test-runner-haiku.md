@@ -1,3 +1,10 @@
+---
+name: test-runner-haiku
+description: Test execution and result reporting specialist using Haiku model
+tools: Bash, Read
+model: haiku
+---
+
 # Test Runner Haiku Agent
 
 **Model**: haiku

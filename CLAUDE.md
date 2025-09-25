@@ -33,10 +33,7 @@ Exception: Preserve unclear TODOs that lack context (notify user about them)
 ## Quality Gates (Run Before Claiming Completion)
 After implementing ANY code changes:
 1. Run all existing tests - they must pass
-2. Run linters/formatters for the language:
-   - JS/TS: `npm run lint` or `eslint` + `prettier`
-   - Python: `ruff check` or `pylint` + `black`
-   - Go: `go fmt` + `go vet` + `golangci-lint`
+2. Run linters/formatters for the language (see Language Tools Configuration below)
 3. **FIX all linter errors properly - NEVER use ignore comments:**
    - Unused variables/functions: Remove them entirely
    - Unused parameters: Remove or prefix with `_` if required by interface
@@ -46,6 +43,61 @@ After implementing ANY code changes:
    - Console.log: Use proper logging or remove
 4. If you can't fix a linter error, STOP and explain why
 5. If you can't determine the project's lint command, ASK
+
+## Language Tools Configuration
+
+### Container Management
+Use `nerdctl` for all container operations (Docker is not available):
+```bash
+nerdctl ps       # List containers
+nerdctl logs     # View logs
+nerdctl exec     # Execute commands
+```
+
+### Configuration Files Location
+All language-specific linting and formatting configs are in `~/.claude/configs/`:
+- **Python**: `~/.claude/configs/python/`
+  - `ruff.toml` - Primary formatter and linter
+  - `pylintrc.toml` - Additional linting rules
+  - `mypy.ini` - Type checking
+- **JavaScript/TypeScript**: `~/.claude/configs/javascript/`
+  - `prettier.json` - Code formatting
+  - `.eslintrc.json` - Linting and complexity rules
+- **Go**: `~/.claude/configs/go/`
+  - `golangci.yml` - Comprehensive linting
+
+### Python Tools
+Always use configs from `~/.claude/configs/python/`:
+```bash
+# Format code (ALWAYS run first)
+ruff format <file/dir> --config ~/.claude/configs/python/ruff.toml
+
+# Check linting
+ruff check <file/dir> --config ~/.claude/configs/python/ruff.toml
+
+# Additional linting
+pylint --rcfile=~/.claude/configs/python/pylintrc.toml <file/dir>
+
+# Type checking
+mypy --config-file=~/.claude/configs/python/mypy.ini <file/dir>
+```
+
+### JavaScript/TypeScript Tools
+```bash
+# Format code
+prettier --config ~/.claude/configs/javascript/prettier.json --write <files>
+
+# Lint code
+eslint --config ~/.claude/configs/javascript/.eslintrc.json <files>
+```
+
+### Go Tools
+```bash
+# Format and lint
+golangci-lint run --config ~/.claude/configs/go/golangci.yml
+```
+
+**Important**: These configs ensure consistent code quality across all projects. Always use them unless a project has its own configs (check for `ruff.toml`, `.eslintrc`, etc. in project root first).
 
 ## Communication Style (All Modes)
 - Always be brutally honest and direct
@@ -138,10 +190,34 @@ Before considering ANY task complete:
   - Even "obvious" numbers: Use names (MONTHS_PER_YEAR = 12)
   - Include units in name when relevant (TIMEOUT_SECONDS = 30)
 
+## Decision Memory & Context Preservation
+
+### Decision Memory System
+Track WHY decisions were made across the project lifecycle:
+- Store in `.symphony/DECISION_MEMORY.json`
+- Record architectural choices with reasoning
+- Document deviations with justification
+- Preserve anti-patterns discovered with context
+
+### Invariants Documentation
+Document rules that must NEVER be violated:
+- Store in `INVARIANTS.md` in project root
+- Include WHY each invariant exists
+- Reference specific incidents/requirements
+- Update when new invariants discovered
+
+Example invariant:
+```
+Auth checks ALWAYS before data access
+WHY: Security audit requirement from breach incident
+CONSEQUENCE: Unauthorized data exposure, compliance violation
+```
+
 ## Integration with Hooks
 - PreCompact hook tracks context - focus on the current task
 - Failed attempts are preserved - don't explain past failures unless asked
 - Working solutions are tracked - build on what works
+- code_quality_gate enforces documentation standards
 
 ## Test Standards
 1. **Unit Tests**: One test class per function, mock ALL dependencies
@@ -162,13 +238,81 @@ Before considering ANY task complete:
 
 **Core Philosophy**: Beautiful code makes the solution look obvious in hindsight. The complexity should be in the thinking, not the code.
 
+### Fundamental Rules
 1. **Clarity Over Cleverness**: Write boring, obvious code. If it needs explaining, it's too clever
-2. **Hide Complexity Behind Simple Interfaces**: Complex internals are fine if the API is simple
-3. **Avoid Over-Abstraction**: No single-line wrapper functions, no interfaces with one implementation, inline simple operations
-4. **Consolidate at 2+ Instances**: Duplication is fine for first instance, consolidate when pattern repeats (2+ uses)
-5. **Optimize for Change, Not Perfection**: Make the next change easy, not the current code "perfect"
-6. **Combine When Possible**: Batch operations, merge similar handlers, consolidate related configs
-7. **Clear Data Flow**: Prefer returns over mutations, avoid hidden side effects, don't modify inputs
+2. **Self-Documenting Code First**: Good names > comments. Only comment WHY, not WHAT
+3. **Hide Complexity Behind Simple Interfaces**: Complex internals are fine if the API is simple
+4. **Avoid Over-Abstraction**: No single-line wrapper functions, no interfaces with one implementation, inline simple operations
+5. **Clear Data Flow**: Prefer returns over mutations, avoid hidden side effects, don't modify inputs
+
+### DRY Principles (Don't Repeat Yourself)
+1. **2+ Rule for Logic**: If logic appears 2+ times, extract it
+2. **3+ Rule for Constants**: If a value appears 3+ times, name it
+3. **Multi-line Duplication**: Any multi-line logic repeated = immediate extraction
+4. **Pattern Recognition**: Similar structure with different values = parameterize
+
+### Self-Documenting Code Requirements
+1. **Function Names**: Verb + noun (e.g., `calculateTotalPrice`, `validateUserInput`)
+2. **Boolean Names**: Questions (e.g., `isValid`, `hasPermission`, `canExecute`)
+3. **Variable Names**: Describe content, not type (e.g., `userEmails` not `emailArray`)
+4. **Function Length**: Max 20 lines for logic, 40 for orchestration
+5. **Single Responsibility**: If name has "and" in it, split the function
+
+### Documentation Standards (Ousterhout-Inspired)
+1. **Docstrings Required For**:
+   - All public APIs (explain interface contract)
+   - Complex algorithms (explain WHY this approach)
+   - Non-obvious business logic (explain domain context)
+   - Functions with 3+ parameters (explain each parameter's purpose)
+   - Deep modules (simple interface, complex internals)
+
+2. **WHY Comments - Add Only When Needed**:
+   
+   **WHO adds WHY comments**:
+   - **Skeleton builder**: Architectural decisions, module separation reasons
+   - **Implementer**: Workarounds discovered, performance choices, security decisions
+   - **Beautifier**: ONLY if extraction makes reasoning less obvious AND they understand why
+   
+   **WHEN to add WHY**:
+   - Design decisions that aren't self-evident
+   - Workarounds (always need WHY and when to remove)
+   - Performance optimizations (why this specific approach)
+   - Security validations (what specific attack prevented)
+   - Magic numbers that aren't self-documenting constants
+   - Deviations from established patterns
+   - Non-obvious coupling decisions
+   
+   **DON'T add WHY for obvious code**:
+   ```python
+   # BAD - Obvious, don't comment
+   def get_user_by_id(user_id):
+       """Gets user by ID"""  # Redundant
+       # WHY: Need to fetch user  # Obvious
+       return db.query(User).filter_by(id=user_id).first()
+   
+   # GOOD - Non-obvious, needs WHY
+   def get_user_by_id(user_id):
+       # WHY: Using first() not one() because missing users are common
+       # during migration period (ends 2024-06)
+       return db.query(User).filter_by(id=user_id).first()
+   ```
+
+3. **Module Shape Documentation**:
+   ```python
+   """
+   MODULE SHAPE:
+   - Entry: main API functions
+   - Core: deep modules providing functionality
+   - Pattern: how data flows through module
+   - Complexity: where it's hidden and why
+   - Invariants: rules that must never be broken
+   """
+   ```
+
+4. **Never Comment**:
+   - What code does (should be obvious from names)
+   - Unused code (delete it)
+   - TODOs without ticket numbers and date
 
 ## Modification Boundaries
 1. **Stay in Scope**: Only modify files directly related to the task
@@ -187,15 +331,168 @@ Before considering ANY task complete:
 
 ## Hook Enforcement
 
-The following hooks enforce code standards automatically:
-- **scope_boundary**: Prevents modifications outside task scope (conduct-only)
-- **complexity_detector**: Prevents over-abstraction and premature patterns
-- **clarity_enforcer**: Blocks overly clever code  
-- **error_message_checker**: Ensures human-friendly errors
-- **linter_enforcement**: Blocks ignore comments and requires proper fixes
-- **duplication_checker**: Suggests consolidation at 2+ instances
+The following hook enforces code standards automatically:
+- **code_quality_gate**: Unified quality enforcement combining all critical checks
+  - Blocks critical anti-patterns (nested ternaries, double negation, bitwise tricks)
+  - Prevents linter suppression (noqa, pylint:disable, eslint-disable, @ts-ignore)
+  - Ensures helpful error messages with actionable advice
+  - Catches poor error handling (empty except, catching base Exception)
+  - Runs comprehensive Python analysis with auto-installed tools:
+    * **Radon**: Cyclomatic complexity analysis with A-F grades
+      - 🔴 Blocks: Grade F (complexity >40) - MUST refactor
+      - 🟠 Warns: Grade D-E (complexity 21-40) - should refactor
+      - 🟡 Notes: Grade C (complexity 11-20) - consider simplifying
+    * **Cognitive Complexity**: Understandability metrics
+      - 🔴 Blocks: Cognitive complexity >30 - extremely hard to understand
+      - 🟠 Warns: Cognitive complexity >15 - difficult to understand
+      - 🟡 Notes: Cognitive complexity >7 - getting complex
+    * **Vulture**: Dead code detection
+      - 💀 Reports: Unused imports, variables, functions with 80%+ confidence
+      - Helps identify code that can be safely removed
+  - JavaScript/TypeScript: Uses ESLint complexity rules when available
+  - Go: Uses gocyclo for complexity metrics when available
+  - Falls back to pattern-based analysis when tools unavailable
+  - Caches results for performance
 
-These run automatically via settings.json and provide real-time feedback.
+### Complexity Analysis Tools (Auto-installed by preflight_validator)
+These Python quality tools are automatically installed in your virtual environment:
+- **radon**: Cyclomatic complexity (control flow complexity)
+- **flake8-cognitive-complexity**: Cognitive complexity (understandability)
+- **vulture**: Dead code detection (unused code finder)
+- **ruff**: Fast Python linter and formatter (PRIMARY - used first)
+- **black**: Code formatter (FALLBACK - only if ruff unavailable)
+- **mypy**: Type checker
+
+### Formatting Tool Hierarchy and Configuration
+
+#### Python Formatting Priority:
+1. **ruff format** (preferred) - Fast, comprehensive formatter
+   - Automatically detects quote style from existing file
+   - Config search order:
+     - Project: `ruff.toml`, `pyproject.toml`, `.ruff.toml`
+     - Global: `~/.claude/configs/python/ruff.toml`
+   - Falls back to detected quote style if no config found
+   
+2. **black** (fallback only) - Used only when ruff is unavailable
+   - Config search order:
+     - Project: `pyproject.toml`, `.black`
+     - Global: `~/.claude/configs/python/black.toml`
+   - Line length: 80 characters (unless overridden by config)
+
+#### Configuration File Detection:
+The auto_formatter hook automatically searches for config files:
+
+**Python** - Project configs (searched up from current directory):
+  - ruff: `ruff.toml`, `pyproject.toml`, `.ruff.toml`
+  - black: `pyproject.toml`, `.black`
+  - pylint: `pylintrc.toml`, `.pylintrc`, `pyproject.toml`
+  - mypy: `mypy.ini`, `setup.cfg`, `pyproject.toml`
+
+**JavaScript/TypeScript** - Project configs:
+  - prettier: `.prettierrc`, `.prettierrc.json`, `.prettierrc.js`, `prettier.config.js`
+  - eslint: `.eslintrc`, `.eslintrc.json`, `.eslintrc.js`, `eslint.config.js`
+
+**Global Claude configs** (fallback if no project config):
+  - **Python** (`~/.claude/configs/python/`):
+    - `ruff.toml` - Formatter and linter config
+    - `pylintrc.toml` - Additional linting rules
+    - `mypy.ini` - Type checking config
+  - **JavaScript** (`~/.claude/configs/javascript/`):
+    - `prettier.json` - Code formatting rules
+    - `.eslintrc.json` - Linting and complexity rules
+  - **Go** (`~/.claude/configs/go/`):
+    - `golangci.yml` - Comprehensive linting config
+  
+These configs ensure consistent code quality across all projects when no project-specific config exists.
+
+#### How It Works:
+1. After any Write/Edit/MultiEdit operation on Python files
+2. auto_formatter hook runs automatically
+3. Tries ruff format first with proper config
+4. Falls back to black only if ruff unavailable
+5. Preserves existing quote style in files
+6. Reports formatting status (non-blocking)
+
+The hook will automatically use these tools when available and provide detailed feedback to guide refactoring.
+
+## Sequential-Thinking MCP Usage Rules
+
+**ALWAYS use sequential-thinking MCP for:**
+- Any task with 3+ discrete steps
+- Implementation tasks touching 3+ files
+- Refactoring with multiple dependencies
+- Performance optimization tasks
+- Debugging that requires hypothesis testing
+- Tasks where you'd normally use TodoWrite for planning
+- Architecture/design decisions
+- Problems where the solution approach isn't immediately obvious
+- Tasks requiring analysis before implementation
+
+**Skip sequential-thinking for:**
+- Single file edits with clear requirements
+- Simple Q&A or explanations
+- Straightforward file operations (read/write/search)
+- Tasks with explicit step-by-step instructions already provided
+
+## User Preference Detection & Enforcement
+
+The system automatically detects and enforces your coding preferences through hooks:
+
+### Automatic Preference Detection
+- **Explicit preferences**: "Always use X", "Never do Y", "Prefer A over B"
+- **Correction tracking**: Repeated edits to fix same issue = stored preference
+- **Frustration detection**: Multiple corrections increase enforcement priority
+
+### How It Works
+1. **Detection**: Hooks detect preferences in your messages
+2. **Storage**: Preferences stored in PRISM memory (ANCHORS tier for high-frustration items)
+3. **Enforcement**: Code validator blocks violations, shows ALL issues at once
+4. **Learning**: System tracks correction patterns to prevent repeated mistakes
+
+### Examples
+- Say "always use .format() instead of f-strings" → Enforced automatically
+- Fix same issue twice → System learns and prevents it
+- "Stop adding docstrings" → Blocks docstring additions
+
+The validator now reports ALL violations together (preferences, security, complexity) to avoid multiple fix cycles.
+
+## Memory Management Protocol
+
+The memory MCP server enables persistent knowledge across sessions. Follow these guidelines:
+
+### Memory Behavior
+**Always start sessions by searching memory** for relevant context about:
+- Previous findings in this codebase
+- Established patterns and decisions
+- Component-specific issues and solutions
+- User preferences and project standards
+
+### Memory Creation Rules
+**Prompt user before storing memories for:**
+- Important recurring patterns (3+ occurrences)
+- Significant architectural decisions
+- Component-specific issues or vulnerabilities
+- Successful solutions and strategies
+
+**Ask user:** "Should I remember [specific finding] for future sessions? This would help me [specific benefit]."
+
+**Auto-store memories when user explicitly says:**
+- "remember this"
+- "save this finding"
+- "track this pattern"
+- "add to knowledge base"
+- "keep this for later"
+
+### Memory Format Standards
+- **Entities:** [Component]_[Type]_[Issue] (e.g., "AuthService_security_JWT_weakness")
+- **Observations:** Specific details, context, solutions applied, outcomes
+- **Relations:** Connect to related components, frameworks, patterns, decisions
+
+### Memory Categories
+- **Code Patterns:** DRY violations, performance bottlenecks, security issues
+- **Architecture:** Design decisions, framework choices, module boundaries
+- **Project Context:** Coding standards, team preferences, business requirements
+- **Solutions:** Successful fixes, refactoring strategies, optimization results
 
 ## Non-Negotiable Standards
 1. Security: Never log/commit secrets, always validate input
@@ -203,4 +500,5 @@ These run automatically via settings.json and provide real-time feedback.
 3. Quality: Code must pass all automated checks
 4. Testing: Meet coverage requirements with proper test structure
 5. Documentation: Keep project_notes current with two-document approach
-6. Honesty: If unsure, say so. If it's bad, say why.
+6. Memory: Respect user consent for memory storage, always explain benefit
+7. Honesty: If unsure, say so. If it's bad, say why.

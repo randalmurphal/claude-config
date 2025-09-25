@@ -1,69 +1,80 @@
 {
   "model": "opus",
   "hooks": {
-    "PreCompact": [
+    "SessionEnd": [
       {
-        "matcher": "auto",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ~/.claude/hooks/preserve-context.py"
+            "command": "$HOME/.claude/hooks/universal_learner_session_end.py"
           }
         ]
-      },
+      }
+    ],
+    "SessionStart": [
       {
-        "matcher": "manual",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ~/.claude/hooks/preserve-context.py"
+            "command": "$HOME/.claude/hooks/prism_http_startup.py"
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/vibe_tracker.py setVibe solo"
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/chamber_cleanup.py"
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/orchestration_dashboard.py"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/unified_context_provider.py"
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/auto_orchestration_detector.py"
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/orchestration_dashboard.py"
           }
         ]
       }
     ],
     "PreToolUse": [
       {
-        "matcher": "Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.claude/hooks/file_protection.py"
-          }
-        ]
-      },
-      {
-        "matcher": "Edit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.claude/hooks/file_protection.py"
-          }
-        ]
-      },
-      {
-        "matcher": "MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.claude/hooks/file_protection.py"
-          }
-        ]
-      },
-      {
         "matcher": "Bash",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ~/.claude/hooks/file_protection.py"
+            "command": "$HOME/.claude/hooks/unified_bash_guardian.py"
           }
         ]
       },
       {
-        "matcher": "Read",
+        "matcher": "Write|Edit|MultiEdit",
         "hooks": [
           {
             "type": "command",
-            "command": "~/.claude-code-docs/claude-docs-helper.sh hook-check"
+            "command": "$HOME/.claude/hooks/unified_code_validator.py"
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/file_protection.py"
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/edit_tracker.py"
           }
         ]
       },
@@ -72,48 +83,67 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ~/.claude/hooks/assumption_detector.py"
+            "command": "$HOME/.claude/hooks/unified_context_provider.py"
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/assumption_detector.py"
           }
         ]
       }
     ],
     "PostToolUse": [
       {
-        "matcher": "Write",
+        "matcher": "Write|Edit|MultiEdit",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ~/.claude/hooks/auto_formatter.py"
+            "command": "$HOME/.claude/hooks/auto_formatter.py"
           },
           {
             "type": "command",
-            "command": "python3 ~/.claude/hooks/doc_prompter.py"
+            "command": "$HOME/.claude/hooks/edit_tracker.py"
           }
         ]
       },
       {
-        "matcher": "Edit",
+        "matcher": "Task",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ~/.claude/hooks/auto_formatter.py"
+            "command": "$HOME/.claude/hooks/orchestration_learner.py"
           },
           {
             "type": "command",
-            "command": "python3 ~/.claude/hooks/doc_prompter.py"
+            "command": "$HOME/.claude/hooks/orchestration_progress.py"
           }
         ]
       },
       {
-        "matcher": "MultiEdit",
+        "matcher": "Read|Bash",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ~/.claude/hooks/auto_formatter.py"
-          },
+            "command": "$HOME/.claude/hooks/unified_context_provider.py"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
           {
             "type": "command",
-            "command": "python3 ~/.claude/hooks/doc_prompter.py"
+            "command": "$HOME/.claude/hooks/test_coverage_enforcer.py"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/agent_learner.py"
           }
         ]
       }
@@ -121,6 +151,6 @@
   },
   "statusLine": {
     "type": "command",
-    "command": "input=$(cat); venv_info=\"\"; if [[ -n \"$VIRTUAL_ENV\" ]]; then venv_info=\"($(basename \"$VIRTUAL_ENV\")) \"; fi; git_branch=\"\"; if git rev-parse --git-dir >/dev/null 2>&1; then git_branch=\"$(git branch 2>/dev/null | grep '^*' | cut -d' ' -f2-)\"; fi; cwd=\"$(echo \"$input\" | jq -r '.workspace.current_dir')\"; cwd_base=\"$(basename \"$cwd\")\"; printf \"\\033[38;5;214m%s\\033[0m[\\033[32m%s\\033[0m:\\033[34m%s\\033[0m]:\\033[90m%s\\033[0m:\\033[35m%s\\033[0m\" \"$venv_info\" \"$(whoami)\" \"$(hostname -s)\" \"$git_branch\" \"$cwd_base\""
+    "command": "/home/rmurphy/.claude/statusline-command.sh"
   }
 }

@@ -1,0 +1,45 @@
+{
+  "global": {
+    "vibe": "{{USER_VIBE}}",
+    "default_language": "{{PRIMARY_LANGUAGE}}",
+    "complexity_limits": {
+      "warn": 10,
+      "block": 15
+    },
+    "test_coverage": {
+      "lines": 95,
+      "functions": 100
+    },
+    "auto_format": true,
+    "enforce_virtual_env": true
+  },
+  "languages": {
+    "python": {
+      "venv_location": "./venv",
+      "formatter": "black",
+      "linter": "ruff",
+      "test_framework": "pytest"
+    },
+    "javascript": {
+      "package_manager": "npm",
+      "formatter": "prettier",
+      "linter": "eslint",
+      "test_framework": "jest"
+    },
+    "go": {
+      "formatter": "gofmt",
+      "linter": "golangci-lint",
+      "test_framework": "go test"
+    }
+  },
+  "mcp_servers": {
+    "enabled": [],
+    "configurations": {}
+  },
+  "project_defaults": {
+    "create_readme": true,
+    "create_tests": true,
+    "git_init": true,
+    "create_virtual_env": true
+  }
+}

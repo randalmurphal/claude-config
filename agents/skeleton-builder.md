@@ -59,18 +59,64 @@ export class AuthService {
 }
 ```
 
-### 2. Mark Patterns for Later Use
+### 2. Beauty Standards in Skeleton
+
+**Function Size Guidelines:**
 ```javascript
-// PATTERN: Validation - will be used in multiple places
+// GOOD: 20-30 line function skeleton with clear purpose
+async function processUserRegistration(userData) {
+  // Validation block
+  validateUserData(userData);
+  checkEmailUniqueness(userData.email);
+
+  // Business logic block
+  const hashedPassword = await hashPassword(userData.password);
+  const user = createUserEntity(userData, hashedPassword);
+
+  // Persistence block
+  const savedUser = await saveUser(user);
+  await createUserProfile(savedUser);
+
+  // Post-processing block
+  await sendWelcomeEmail(savedUser);
+  await logRegistrationEvent(savedUser);
+
+  return savedUser;
+}
+
+// BAD: Over-abstracted micro-functions
+function processUserRegistration(userData) {
+  validateStep(userData);
+  transformStep(userData);
+  saveStep(userData);
+  notifyStep(userData);
+}
+```
+
+**Add WHY Comments for Non-Obvious Decisions:**
+```javascript
+// WHY: Separate validation for reuse across controllers
+// Will be called from UserController, AuthController, AdminController
 function validateEmail(email) {
   throw new Error('Not implemented');
 }
 
-// PATTERN: Error handling - consistent across module
+// WHY: Centralized DB error handling for consistent user messages
+// Maps technical errors to user-friendly responses
 function handleDatabaseError(error) {
   throw new Error('Not implemented');
 }
 ```
+
+Remember: Add WHY comments for:
+- Module separation decisions
+- Interface design choices
+- Pattern selections
+- Anticipated coupling points
+- Performance considerations
+- Security boundaries
+
+DON'T add WHY for obvious structure like "function adds two numbers"
 
 ### 3. Complete Type Definitions
 ```python
@@ -164,6 +210,16 @@ After creating skeleton, update phase context:
 }
 ```
 
+## Beauty Standards Checklist
+
+Ensure skeleton promotes beautiful code:
+- [ ] Functions sized 20-50 lines (no micro-functions)
+- [ ] Clear abstraction boundaries (no wrapper functions)
+- [ ] Self-documenting names (no abbreviations)
+- [ ] Logical grouping of related functionality
+- [ ] Obvious data flow through function signatures
+- [ ] No over-engineering or premature abstraction
+
 ## Quality Checklist
 
 Before marking complete:
@@ -176,6 +232,7 @@ Before marking complete:
 - [ ] Test hooks identified
 - [ ] Code is syntactically valid
 - [ ] Imports/dependencies correct
+- [ ] Beauty standards enforced in structure
 
 ## Common Mistakes to Avoid
 

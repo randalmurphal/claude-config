@@ -30,7 +30,12 @@ User: /prelude [optional: initial description]
 ├── ARCHITECTURE.md     # Design (evolves, 50-100 lines)
 ├── SPIKE_RESULTS/      # Immutable spike results
 ├── ASSUMPTIONS.md      # Explicit assumptions to validate
-└── READY.md           # Final spec for /conduct
+└── READY.md           # Final spec for /conduct (13 sections: 10 required, 3 optional)
+                       # REQUIRED: Problem Statement, User Impact, Mission, Success Criteria,
+                       #           Requirements (IMMUTABLE), Proposed Approach (EVOLVABLE),
+                       #           Implementation Phases, Known Gotchas, Quality Requirements,
+                       #           Files to Create/Modify
+                       # OPTIONAL: Custom Roles, Auto-Detected Context, Evolution Log
 ```
 
 ---
@@ -258,101 +263,224 @@ Your call?"
 ```markdown
 # Execution Specification
 
-## Mission (IMMUTABLE)
-[From MISSION.md - the unchanging goal]
+## Problem Statement
+[What problem are we solving? What's broken or missing?]
+[Be specific about the current pain point or gap]
 
-## Success Criteria (IMMUTABLE)
+Example: "Users cannot reset passwords without contacting support, causing 200+ tickets per month and poor user experience."
+
+## User Impact
+[Who is affected and how? What happens when this is fixed?]
+[Focus on measurable outcomes]
+
+Example: "Users can self-service password resets in <2 minutes, reducing support tickets by 80% and improving user satisfaction."
+
+## Mission
+[From MISSION.md - the unchanging goal, 1-2 sentences]
+
+Example: "Implement self-service password reset flow with email verification and rate limiting."
+
+## Success Criteria
 [Measurable outcomes - these define done]
+- [Criterion 1: Testable outcome]
+- [Criterion 2: Measurable improvement]
+- [Criterion 3: Acceptance condition]
+
+Example:
+- User can request password reset via email
+- Reset link expires after 1 hour
+- System rate-limits to 3 requests per hour per email
+- All existing tests still pass
 
 ## Requirements (IMMUTABLE)
 [Hard requirements that cannot change during execution]
+
+These constraints CANNOT change:
 - [Requirement 1]
 - [Requirement 2]
 - [Requirement 3]
+
+Example:
+- Must use existing email service (SendGrid)
+- Reset tokens must be cryptographically secure
+- Must support PostgreSQL and MySQL databases
+- Zero downtime deployment
 
 ## Proposed Approach (EVOLVABLE)
 [High-level strategy from ARCHITECTURE.md]
 [Can adapt during execution if better approach discovered]
 
-## Components & Dependencies (for medium/large projects)
-[List components and their relationships - /conduct extracts this]
+Example:
+"Generate secure reset tokens with crypto.randomBytes(), store in database with 1-hour TTL, send via SendGrid email template. Add /reset-password endpoint to validate token and update password with bcrypt hashing."
+
+**Components & Dependencies:**
+(List components for architecture phase to extract)
 
 Components:
-- user_auth: Authentication service (auth.py)
-- session_manager: Session handling (session.py)
-- database_service: Database abstraction (db.py)
+- password_reset_service: Generate and validate reset tokens
+- email_service: Send reset emails via SendGrid
+- user_repository: Update user passwords securely
 
 Dependencies:
-- user_auth depends on: database_service, crypto_service
-- session_manager depends on: user_auth
-- payment_processor depends on: user_auth, cart_service
+- password_reset_service depends on: email_service, user_repository
+- email_service depends on: (no internal dependencies)
+- user_repository depends on: (no internal dependencies)
 
 **CRITICAL**: Check for circular dependencies! They will block execution.
 
-## Architectural Decisions (stored as ADRs by /conduct)
-[Document key decisions - these become Architectural Decision Records]
+**Architectural Decisions:**
+(Document key decisions - these become ADRs stored in PRISM)
 
-Decision 1: JWT Authentication
-  Context: Need stateless authentication for API
-  Alternatives: Sessions (stateful), OAuth (external), API keys (limited)
-  Chosen: JWT tokens with Redis blacklist
+Decision: Reset token storage strategy
+  Context: Need to validate tokens and prevent replay attacks
+  Alternatives:
+    - JWT tokens (stateless but can't revoke)
+    - Database tokens (stateful but revokable)
+    - Redis tokens (fast but requires Redis)
+  Chosen: Database tokens with TTL column
   Consequences:
-    + Stateless scaling
-    + Simple client integration
-    - Token revocation requires Redis
-    - Larger payload than sessions
-
-Decision 2: [Additional decisions...]
+    + Can revoke tokens immediately
+    + Works with existing database
+    + No new infrastructure needed
+    - Requires database query on validation
+    - Need cleanup job for expired tokens
 
 ## Implementation Phases
 [Phase descriptions with time estimates]
 
-Phase 1: Foundation (2-4h)
-  - Database models and migrations
-  - Core abstractions
-  - Error types
+### Phase 1: Foundation (2-4h)
+Core token generation and storage
 
-Phase 2: Authentication (4-6h)
-  - User registration
-  - Login with JWT
-  - Token validation middleware
+Time: 2-4 hours
 
-Phase 3: [Additional phases...]
+Tasks:
+- Database migration for password_reset_tokens table
+- Token generation with crypto.randomBytes()
+- Token validation and expiration logic
+
+### Phase 2: Email Integration (1-2h)
+Send reset emails via SendGrid
+
+Time: 1-2 hours
+
+Tasks:
+- SendGrid template for reset emails
+- Email service wrapper
+- Error handling for email failures
+
+### Phase 3: API Endpoints (2-3h)
+Request and validate reset tokens
+
+Time: 2-3 hours
+
+Tasks:
+- POST /api/request-reset endpoint
+- POST /api/reset-password endpoint
+- Rate limiting middleware
+- Integration tests
 
 ## Known Gotchas
 [From discoveries + spikes - prevents surprises during implementation]
-- [Gotcha from spike: JWT refresh requires extra endpoint]
-- [Discovery: Existing middleware conflicts with new auth]
+- SendGrid API key must be in environment variables (not in code)
+- Token validation must be constant-time to prevent timing attacks
+- Email service has 100/hour rate limit on free tier
+- Existing auth middleware must not block reset endpoints
 
 ## Quality Requirements
+[Format: "- Category: Requirement"]
+
 - Tests: 95% coverage minimum (unit + integration)
-- Security: Input validation, rate limiting, SQL injection prevention
-- Performance: <200ms API response time
-- Documentation: API docs (OpenAPI), setup guide
+- Security: Constant-time token comparison, rate limiting, secure token generation
+- Performance: <200ms API response time, <5s email delivery
+- Documentation: API docs (OpenAPI), user guide for reset flow
+- Monitoring: Log all reset attempts (success and failure)
 
 ## Files to Create/Modify
-[Concrete list - /conduct uses this to extract components]
+[Exact format required by /conduct parser]
 
-**New Files:**
-- src/auth/user_auth.py - User authentication service
-- src/auth/session_manager.py - Session management
-- src/database/database_service.py - Database abstraction
-- tests/auth/test_user_auth.py - Authentication tests
-- tests/auth/test_session_manager.py - Session tests
+### New Files
+- src/services/password_reset_service.py
+  - Purpose: Generate and validate password reset tokens
+  - Depends on: database, crypto
+  - Complexity: Medium
+  - Confidence: 0.95
 
-**Modified Files:**
-- src/main.py - Wire up authentication middleware
-- src/config.py - Add JWT secret configuration
-- requirements.txt - Add PyJWT, cryptography
+- src/api/reset_password.py
+  - Purpose: API endpoints for password reset flow
+  - Depends on: password_reset_service, email_service
+  - Complexity: Medium
+  - Confidence: 0.9
+
+- tests/services/test_password_reset_service.py
+  - Purpose: Unit tests for token generation and validation
+  - Depends on: pytest, password_reset_service
+  - Complexity: Low
+  - Confidence: 1.0
+
+- tests/api/test_reset_password.py
+  - Purpose: Integration tests for reset flow
+  - Depends on: pytest, test_client
+  - Complexity: Medium
+  - Confidence: 0.9
+
+### Modified Files
+- src/database/migrations/001_add_reset_tokens.sql
+  - Changes: Add password_reset_tokens table with token, email, expires_at columns
+  - Risk: Low
+
+- src/config.py
+  - Changes: Add SENDGRID_API_KEY configuration
+  - Risk: Low
+
+- requirements.txt
+  - Changes: Add sendgrid==6.9.7
+  - Risk: Low
 
 ---
 Ready for /conduct execution
 
-NOTE:
-- Small tasks (1-3 files): /conduct skips architecture phase for speed
-- Medium tasks (4-10 files): /conduct uses architecture-first workflow
-- Large tasks (10-30 files): Full architecture + parallel execution
-- Massive tasks (30+ files): Automatic decomposition into subtasks
+## CRITICAL FORMAT NOTES
+
+**Section names must match EXACTLY** (case-sensitive):
+✅ "Problem Statement" (not "Problem")
+✅ "User Impact" (not "Impact" or "User Benefit")
+✅ "Requirements (IMMUTABLE)" (must include the tag)
+✅ "Proposed Approach (EVOLVABLE)" (must include the tag)
+✅ "Files to Create/Modify" (not "Files" or "File Changes")
+
+**Files section format is STRICT**:
+- Must have "### New Files" subsection
+- Must have "### Modified Files" subsection
+- Each file has optional sub-bullets with specific keys:
+  - Purpose, Depends on, Complexity, Confidence (for new files)
+  - Changes, Risk (for modified files)
+
+**Phase format is STRICT**:
+- Must use "### Phase N: Name" header (not "Phase N:" or "**Phase N**")
+- Can include time estimate in name: "### Phase 1: Foundation (2-4h)"
+- Can include "Time: X hours" on separate line
+- Description is plain text after header
+
+**Quality Requirements format**:
+- Each line: "- Category: Requirement"
+- Parser extracts into dict: {category: requirement}
+
+## PARSER BEHAVIOR
+
+**If missing REQUIRED section** → /conduct FAILS with clear error listing what's missing
+
+**If wrong section name** → /conduct won't find it, treats as missing
+
+**If wrong file format** → Parser may skip files or miss metadata
+
+**If circular dependencies** → /conduct detects in architecture phase and FAILS LOUD
+
+## Workflow Integration
+
+**Small tasks (1-3 files)**: /conduct skips architecture phase → direct to skeleton
+**Medium tasks (4-10 files)**: /conduct runs architecture phase → extracts components from files → builds dependency graph → defines interfaces
+**Large tasks (10-30 files)**: Full architecture phase → parallel execution → integration validation
+**Massive tasks (30+ files)**: Automatic decomposition → each subtask gets architecture phase
 ```
 
 ---
@@ -430,40 +558,47 @@ NOTE:
 **Architecture-First Integration (NEW):**
 
 For medium/large/massive projects, /conduct now runs an architecture phase that:
-1. Parses READY.md to extract components (from "Files to Create/Modify")
+1. Parses READY.md to extract components (from "Files to Create/Modify" section)
 2. Defines interfaces/contracts for each component
-3. Extracts dependency graph (from "Components & Dependencies")
+3. Extracts dependency graph (from "Components & Dependencies" in Proposed Approach)
 4. Detects circular dependencies (FAILS LOUD if found)
-5. Stores ADRs to PRISM (from "Architectural Decisions")
+5. Stores ADRs to PRISM (from "Architectural Decisions" in Proposed Approach)
 
 **How Prelude Should Help:**
 
 ✅ **DO in Prelude:**
 - Think about component responsibilities and boundaries
-- Document component dependencies clearly
+- Document component dependencies clearly in Proposed Approach section
 - Watch for circular dependencies (catch them early!)
-- Document architectural decisions with alternatives + consequences
-- List files clearly in "Files to Create/Modify" section
+- Document architectural decisions with Context/Alternatives/Consequences format
+- List files clearly in "Files to Create/Modify" section with proper subsections
+- Use EXACT section names: "Problem Statement", "User Impact", "Requirements (IMMUTABLE)", etc.
 
 ❌ **DON'T in Prelude:**
 - Define exact function signatures (architecture phase does this)
 - Write implementation details (that's /conduct's job)
 - Plan execution order (dependency graph handles this)
 - Over-specify interfaces (architecture phase infers from component names)
+- Use wrong section names ("Problem" instead of "Problem Statement", etc.)
+- Forget "### New Files" and "### Modified Files" subsections
 
 **Example Flow:**
 
-1. Prelude discovers: "Need user_auth, session_manager, database_service"
-2. Prelude documents: "user_auth depends on database_service, session_manager depends on user_auth"
+1. Prelude discovers: "Need password_reset_service, email_service, user_repository"
+2. Prelude documents in Proposed Approach: "password_reset_service depends on email_service, user_repository"
 3. Prelude checks: No circular dependencies ✓
-4. Prelude writes READY.md with components + dependencies
-5. /conduct architecture phase:
-   - Extracts: user_auth, session_manager, database_service
-   - Infers: authenticate() method for user_auth, etc.
-   - Builds graph: database_service → user_auth → session_manager
+4. Prelude writes READY.md with all REQUIRED sections (Problem Statement, User Impact, Mission, etc.)
+5. /conduct parse_ready_specification:
+   - Validates all 10 required sections present ✓
+   - Extracts components from "Files to Create/Modify" section
+   - Parses dependencies from Proposed Approach
+6. /conduct architecture phase:
+   - Extracts: password_reset_service, email_service, user_repository
+   - Infers: generate_token() method for password_reset_service, etc.
+   - Builds graph: email_service, user_repository (no deps) → password_reset_service (depends on both)
    - Validates: No cycles ✓
-   - Stores: ADRs to PRISM for "JWT authentication" decision
-6. /conduct execution: Implements in dependency order
+   - Stores: ADRs to PRISM for "reset token storage strategy" decision
+7. /conduct execution: Implements in dependency order (email_service & user_repository first, then password_reset_service)
 
 ---
 

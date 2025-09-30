@@ -1,880 +1,659 @@
 ---
 name: conduct
-description: Orchestrate complex development tasks using MCP server - BUILD what the user requests
+description: Orchestrate complex development tasks using orchestration MCP - BUILD what the user requests with REAL validation
 ---
 
-# 🎯 CRITICAL: You ARE the Conductor
+# /conduct - Orchestrated Development with MCP
 
-**YOU (the main Claude agent) directly orchestrate ALL work. You do NOT delegate orchestration to sub-agents.**
+**USE THIS FOR:** Complex multi-module tasks that need intelligent coordination with bulletproof validation.
 
-## Your Mission
-BUILD exactly what the user requested. Not pass tests. Not create documentation. BUILD THE ACTUAL WORKING SYSTEM.
+## What Changed from Previous Version
 
-You MUST:
-1. Use the Orchestration MCP Server for ALL state management (mandatory)
-2. Execute the COMPLETE orchestration flow until the user's request is FULLY built
-3. Complete ALL sub-tasks if decomposition occurs
-4. NEVER stop until the system is built and working
+**Previous Issues:**
+- Self-validation (finalize_phase asked "did tests pass?")
+- No real checkpoints (couldn't recover from failures)
+- No parallel work support
+- Same workflow for 1-file and 100-file tasks
+- 15 phantom tools documented but not implemented
 
-## 🚀 CRITICAL: How to Execute Agents in Parallel
+**Current Version:**
+- **REAL validation** - Actually runs pytest/ruff/imports
+- **Git checkpoints** - Rollback on failures
+- **Parallel work** - Git worktrees with smart merging
+- **Complexity scaling** - Adapts workflow to task size
+- **Task decomposition** - Breaks massive tasks into subtasks
+- **Architecture-first workflow** - Define interfaces before implementation (NEW)
+- **Dependency-aware execution** - Parallel execution respecting dependencies (NEW)
+- **ADR storage** - Architectural decisions stored to PRISM (NEW)
+- **21 working tools** - All implemented and tested
 
-**THE GOLDEN RULE**: To run agents in parallel, send ALL Task tool calls in a SINGLE message!
+## When to Use /conduct
 
-### ❌ WRONG - Sequential Execution (Slow)
+✅ **DO use /conduct for:**
+- Multi-module features (3+ files across different modules)
+- System refactors (touching 10+ files)
+- Architecture changes (affects multiple layers)
+- Massive tasks (30+ files, 20+ hours)
+
+❌ **DON'T use /conduct for:**
+- Single file changes (just edit directly)
+- Quick fixes (faster without orchestration overhead)
+- Exploratory work (use spikes first)
+
+## Architecture-First Workflow (NEW)
+
+For medium/large/massive tasks, /conduct now uses an architecture-first approach that defines interfaces BEFORE writing any implementation code.
+
+### What Happens During Architecture Phase
+
+**1. Parse READY.md (if present):**
 ```
-Message 1: Launch auth agent
-[wait for completion]
-Message 2: Launch cart agent
-[wait for completion]
-Message 3: Launch orders agent
-[wait for completion]
-```
-
-### ✅ CORRECT - Parallel Execution (Fast)
-```
-Message 1:
-  - Launch auth agent
-  - Launch cart agent
-  - Launch orders agent
-  [All run simultaneously!]
-```
-
-**In practice, your message should look like:**
-```
-I'll launch all three agents in parallel now:
-
-[Task tool call for auth module]
-[Task tool call for cart module]
-[Task tool call for orders module]
-```
-
-## 🚨 NON-NEGOTIABLE: MCP Orchestration is MANDATORY
-
-**You CANNOT proceed without MCP. This is not optional.**
-
-If MCP tools fail, STOP and tell user:
-```
-Orchestration MCP not available. Cannot proceed.
-Fix:
-1. Ensure Redis running: docker ps | grep redis
-2. Check MCP connected: claude mcp list | grep orchestration
-3. Restart: claude mcp refresh
+Extracts:
+- Components to build (from "Files to Create/Modify" section)
+- Requirements (IMMUTABLE section)
+- Proposed approach (EVOLVABLE section)
+- Implementation phases
+- Quality requirements
 ```
 
-**DO NOT attempt file-based orchestration. DO NOT try alternatives. MCP or nothing.**
+**2. Define Interfaces:**
+```
+For each component, generates:
+- Public methods with signatures
+- Data structures with fields
+- Error types
+- Dependencies on other components
 
-## 🔄 MANDATORY ORCHESTRATION FLOW
-
-**You MUST follow this exact sequence. No shortcuts. No alternatives.**
-
-### Step 0: Verify MCP Connection
-```python
-# MUST succeed or STOP:
-task_id = mcp__orchestration__start_task({
-    "description": user_request,
-    "complexity": "auto-detect"
-})
-# If this fails, STOP immediately with error message
+Example architecture.yaml:
+components:
+  user_auth:
+    public_methods:
+      - name: authenticate
+        parameters: [{name: credentials, type: Dict}]
+        return_type: AuthToken
+    data_structures:
+      - name: AuthToken
+        fields: [{name: token, type: str}, {name: expires_at, type: datetime}]
+    error_types: [AuthenticationError, InvalidCredentialsError]
+    dependencies: [database_service]
 ```
 
-### Step 1: Understand What to BUILD
-```python
-# Clarify the user's BUILD goal:
-BUILD_GOAL = """
-What system/feature/component will exist after this orchestration?
-Not tests. Not docs. The actual WORKING thing.
-"""
+**3. Extract Dependencies:**
+```
+Builds dependency graph:
+user_auth → depends on → database_service
+payment_processor → depends on → user_auth, transaction_log
+transaction_log → depends on → database_service
 
-# Confirm understanding:
-"I will BUILD: {specific_working_system}
-This will allow users to: {actual_functionality}
-Proceed? (y/n)"
+Parallel execution plan:
+Wave 1: database_service (no dependencies)
+Wave 2: user_auth, transaction_log (database ready)
+Wave 3: payment_processor (auth + log ready)
 ```
 
-### Step 2: Decompose if Large
-```python
-# If task has multiple major components or > 20 files:
-if is_large_task(user_request):
-    result = mcp__orchestration__decompose_task({
-        "task_id": task_id,
-        "description": user_request,
-        "strategy": "vertical_slices"  # Each slice = working functionality
-    })
-    # You MUST complete ALL sub-tasks in sequence
-    execute_all_subtasks_loop(task_id)  # See Step 3A
-else:
-    execute_single_orchestration(task_id)  # See Step 3B
+**4. Detect Circular Dependencies:**
+```
+FAIL LOUD if found:
+ERROR: Circular dependency detected:
+  user_auth → session_manager → user_auth
+
+System stops and asks user to resolve before continuing.
 ```
 
-### Step 3A: Execute ALL Sub-tasks (Decomposed Path)
-**You MUST complete ALL sub-tasks. No stopping early.**
+**5. Store Architectural Decisions:**
+```
+ADRs stored to PRISM (ANCHORS tier, never expires):
+- "Why we chose JWT for authentication" (alternatives: sessions, OAuth)
+- "Payment processor abstraction" (alternatives: direct Stripe integration)
+- "Database connection pooling strategy" (alternatives: connection per request)
 
-```python
-while True:
-    # Get next sub-task from Redis queue
-    next_result = mcp__orchestration__get_next_subtask({"master_task_id": task_id})
-
-    if not next_result["has_next"]:
-        break  # All sub-tasks complete
-
-    subtask = next_result["subtask"]
-    print(f"Building subtask {subtask['order']}/{next_result['total']}: {subtask['description']}")
-
-    # YOU orchestrate this subtask FULLY:
-    execute_single_orchestration(subtask["id"])  # Full skeleton→implementation→test cycle
-
-    # Validate checkpoint
-    checkpoint_result = validate_subtask_checkpoint(subtask)
-
-    if checkpoint_result["passed"]:
-        mcp__orchestration__complete_subtask({
-            "master_task_id": task_id,
-            "subtask_id": subtask["id"],
-            "checkpoint_result": checkpoint_result
-        })
-    else:
-        # Fix and retry until it works
-        fix_until_checkpoint_passes(subtask)
-
-# Only exit loop when ALL subtasks complete
-print(f"✅ ALL {next_result['total']} subtasks complete. System built.")
+Queryable in future sessions for consistent decisions.
 ```
 
-### Step 3B: Execute Single Orchestration
-**For both regular tasks AND each subtask. This is your core BUILD loop.**
-
-```python
-def execute_single_orchestration(task_id):
-    """
-    YOU directly orchestrate ALL phases. No delegation to conductor sub-agent.
-    """
-
-    # Phase 1: Architecture (identify what to build)
-    modules = identify_modules_to_build(task_id)
-
-    # Phase 2: Skeleton (create structure)
-    if is_git_repo and len(modules) > 1:
-        # Create worktrees for parallel work
-        mcp__orchestration__create_chambers_batch({
-            "task_id": task_id,
-            "chamber_names": modules
-        })
-
-        # Launch skeleton builders IN PARALLEL (one message, multiple Tasks)
-        for module in modules:
-            Task(subagent_type="skeleton-builder-haiku",
-                 prompt=f"Create skeleton for {module} in worktree/{module}")
-    else:
-        # Single module or non-git
-        Task(subagent_type="skeleton-builder-haiku",
-             prompt="Create complete skeleton structure")
-
-    # Phase 3: Implementation (BUILD the actual functionality)
-    for module in modules:
-        context = mcp__orchestration__get_agent_context({
-            "task_id": task_id,
-            "agent_type": "implementation-executor",
-            "module": module
-        })
-        Task(subagent_type="implementation-executor",
-             prompt=f"IMPLEMENT working {module}. Context: {context}")
-
-    # Phase 4: Testing (verify it works)
-    Task(subagent_type="test-implementer",
-         prompt="Write tests that verify the BUILT system works")
-
-    # Phase 5: Integration (ensure components work together)
-    if len(modules) > 1:
-        Task(subagent_type="integration-tester",
-             prompt="Verify all modules work together as a system")
-
-    # Phase 6: Validation (confirm we built what was requested)
-    validation = Task(subagent_type="validator-master",
-                     prompt="Verify the system is BUILT and WORKING")
-
-    if not validation["all_working"]:
-        # Fix until everything works
-        fix_all_issues(validation["issues"])
-
-    return "BUILT"
+**6. Validate Architecture:**
+```
+Checks:
+- All dependencies reference defined components
+- No circular dependencies
+- All components have public interfaces
+- Interface signatures are valid Python types
 ```
 
-## 📋 Your Direct Orchestration Responsibilities
+### Benefits
 
-1. **YOU get context from MCP** (agents cannot call MCP)
-2. **YOU launch agents with context** (agents work in isolation)
-3. **YOU record results to MCP** (maintaining Redis state)
-4. **YOU coordinate all phases** (no delegation)
-5. **YOU ensure everything is BUILT** (not just tested)
+✅ **Prevents integration issues** - Interfaces defined upfront, no surprises during implementation
+✅ **Enables intelligent parallelization** - Dependency graph ensures correct execution order
+✅ **Blocks on circular dependencies** - Catches architectural problems before code is written
+✅ **Documents decisions** - ADRs stored to PRISM for future reference
+✅ **Supports user queries** - When unknowns block progress, asks clear questions
 
-### Remember: Agents Cannot:
-- Call other agents
-- Access MCP tools directly
-- Coordinate with each other
-- Access Redis
+### When Architecture Phase Runs
 
-### Only YOU Can:
-- Orchestrate the entire flow
-- Call MCP tools
-- Launch agents
-- Track progress in Redis
-- Ensure the system is BUILT
+- **Small tasks** (1-3 files): SKIPPED - Goes straight to skeleton for fast iteration
+- **Medium tasks** (4-10 files): RUNS - Defines interfaces for modules
+- **Large tasks** (10-30 files): RUNS - Full interface definition + dependency graph
+- **Massive tasks** (30+ files): RUNS - Architecture for each subtask
 
-## 📊 Progress Reporting
+## Real Workflow
 
-After EACH phase, report to user:
+### Small Task (1-3 files, <3h)
+```
+You: "/conduct Add logging to user service"
 
-```markdown
-## 🚀 Orchestration Progress
-
-**Phase:** {current_phase}
-**Status:** {status}
-**Elapsed:** {time}
-
-### Completed:
-✅ {completed_item_1}
-✅ {completed_item_2}
-
-### In Progress:
-🔄 {current_work}
-
-### Next:
-📋 {next_phase}
-
-**Goal Alignment:** {percentage}% on track
+1. start_task → complexity="small"
+2. skeleton phase → validate imports
+3. implementation phase → VALIDATE (pytest/ruff/imports) → CHECKPOINT
+4. complete_task
 ```
 
-## 🚨 CRITICAL: Agent Self-Testing Requirements
+### Medium Task (4-10 files, 3-8h)
+```
+You: "/conduct Implement user authentication with JWT tokens"
 
-### ALL Implementation Agents MUST:
-After implementing EACH method:
-1. **Write a test script** that exercises the method
-2. **Run it with Bash** to verify it works
-3. **Fix any errors immediately** before moving to next method
-4. **Report validation results** to MCP for tracking
-
-Example self-test pattern:
-```python
-# After implementing register_user method:
-
-# 1. Write test script
-test_code = '''
-from src.modules.auth.services import auth_service
-from src.common.types import UserCreate
-
-try:
-    user = UserCreate(email="test@test.com", password="Test123!", full_name="Test User")
-    result = auth_service.register_user(user)
-    print(f"✅ Registration works: {result.email}")
-    validation_passed = True
-except Exception as e:
-    print(f"❌ Registration failed: {e}")
-    validation_passed = False
-    # MUST fix this error before continuing!
-'''
-Write('test_register.py', test_code)
-
-# 2. Run the test
-result = Bash('python test_register.py')
-
-# 3. Report to MCP
-mcp__orchestration__record_validation_result({
-    "task_id": task_id,
-    "module": "auth",
-    "test_type": "implementation",
-    "passed": validation_passed,
-    "details": {"method": "register_user", "output": result}
-})
-
-# 4. If failed, fix immediately
-if not validation_passed:
-    # Analyze error and fix
-    # Re-test until it works
+1. start_task → complexity="medium"
+2. architecture phase →
+   - Parse READY.md (if present)
+   - Define interfaces: authenticate(), generate_token(), validate_token()
+   - Extract dependencies: user_auth → database_service, crypto_service
+   - Detect no circular dependencies ✓
+   - Store architecture.yaml with interface contracts
+   - Store ADR: "JWT chosen over sessions for stateless auth"
+3. skeleton phase →
+   - Build stubs following architecture.yaml interfaces EXACTLY
+   - VALIDATE (imports) → CHECKPOINT
+4. implementation phase →
+   - Implement methods following interface contracts
+   - Dependency-aware: database_service ready first, then user_auth
+   - VALIDATE (pytest/ruff/imports) → CHECKPOINT
+5. testing phase → VALIDATE
+6. complete_task
 ```
 
-### Skeleton Builder Requirements:
-Include validation hints in TODOs:
-```python
-def register_user(self, user_data: UserCreate) -> UserResponse:
-    '''Register a new user.
+### Large Task (10-30 files, 8-20h, parallel work)
+```
+You: "/conduct Refactor API layer across auth, cart, and payment modules"
 
-    TODO: Implement user registration
-    VALIDATION: Must hash password, save to DB, return UserResponse
-    TEST: python -c "from auth.services import register_user; test_user_creation()"
-    CRITICAL: Ensure updated_at has server_default=func.now()
-    '''
-    raise NotImplementedError()
+1. start_task → complexity="large" → recommends parallel
+2. architecture phase →
+   - Parse READY.md or discover components
+   - Define interfaces for auth, cart, payment modules
+   - Extract dependencies:
+     * cart → depends on → auth (needs user session)
+     * payment → depends on → cart, auth (needs cart items + user)
+   - Build dependency graph: auth (wave 1) → cart (wave 2) → payment (wave 3)
+   - Store architecture.yaml + ADRs
+   - VALIDATE architecture (no circular deps) ✓
+3. create_worktree("auth"), create_worktree("cart"), create_worktree("payment")
+4. skeleton phase →
+   - Wave 1: auth (no dependencies, starts immediately)
+   - Wave 2: cart (waits for auth skeleton complete)
+   - Wave 3: payment (waits for cart + auth complete)
+   - merge → VALIDATE (interface contracts satisfied) → CHECKPOINT
+5. implementation phase (dependency-aware parallel) →
+   - Wave 1: auth implementation
+   - Wave 2: cart implementation (auth ready)
+   - Wave 3: payment implementation (cart + auth ready)
+   - merge → VALIDATE → CHECKPOINT
+6. integration phase →
+   - Validate imports resolve
+   - Validate interface contracts
+   - Check for circular dependencies
+   - Run integration tests
+   - Detect code duplication
+   - VALIDATE → CHECKPOINT
+7. complete_task → cleanup worktrees
 ```
 
-### Database Model Rules (PREVENT THE #1 FAILURE):
-```python
-# ❌ WRONG - Will fail at runtime:
-updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+### Massive Task (30+ files, 20-100h, decomposed)
+```
+You: "/conduct Build complete e-commerce platform"
 
-# ✅ CORRECT - Works properly:
-updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-#                                            ^^^^^^^^^^^^^^^^^^^^^^^^^ REQUIRED!
+1. start_task → complexity="massive"
+2. decompose_task → 5 subtasks:
+   - Foundation (data models)
+   - Authentication
+   - Shopping cart
+   - Payment processing
+   - Admin dashboard
+3. For each subtask:
+   a. get_next_subtask
+   b. Run LARGE workflow
+   c. mark_subtask_complete → CHECKPOINT
+4. Integration testing
+5. complete_task
 ```
 
-## 🎭 Enhanced Agent Suite
+### With Validation Failure (blocks progression)
+```
+You: "/conduct Implement user registration"
 
-### Decomposition Agents
+1. start_task
+2. skeleton phase → imports pass → CHECKPOINT
+3. implementation phase
+4. finalize_phase("implementation") → TESTS FAIL
 
-1. **task-decomposer** - Breaks large tasks into sequential sub-tasks
+System: "Cannot proceed to next phase. Validation failed:
+- test_registration.py::test_email_validation FAILED
+- Coverage: 87% (need 90%+)
 
-### Goal Tracking Agents
+Suggestion: Fix failing test and add tests for edge cases."
 
-3. **goal-decomposer** - Breaks down user intent into measurable objectives
-4. **drift-detector** - Monitors if implementation deviates from goals
-5. **success-validator** - Confirms outcomes match success criteria
-
-### Core Implementation Agents
-
-6. **architecture-planner** - Defines module boundaries and interfaces
-7. **dependency-analyzer** - Maps inter-module dependencies
-8. **skeleton-builder-haiku** - Fast skeleton generation
-9. **test-skeleton-builder-haiku** - Test structure creation
-10. **implementation-executor** - Fills in skeleton TODOs with beauty validation
-11. **test-implementer** - Implements comprehensive tests
-
-### Quality Agents
-
-12. **validator-master** - Never fixes, only identifies issues (includes beauty checks)
-13. **performance-optimizer** - Identifies bottlenecks
-14. **security-auditor** - Security vulnerability scanning
-15. **code-beautifier** - Makes code self-documenting and obvious
-
-### Specialized Agents
-
-16. **dry-violation-detector** - Finds code duplication
-17. **error-designer** - Comprehensive error handling
-18. **api-contract-designer** - OpenAPI schemas
-19. **doc-maintainer** - Keeps documentation current
-20. **fix-executor** - Quick targeted fixes with validation
-21. **smoke-tester** - Runtime validation after implementation
-22. **integration-tester** - Cross-module flow testing
-
-## 🆕 Simplified Orchestration with Batch Operations
-
-The MCP server now provides powerful batch operations that handle all the complexity:
-
-### Available Batch Operations
-1. **mcp__orchestration__launch_parallel_phase** - Launch all agents for a phase
-   - Creates all chambers
-   - Registers all agents
-   - Generates all contexts
-   - Returns ready-to-use agent configurations
-
-2. **mcp__orchestration__create_chambers_batch** - Create multiple git worktrees at once
-
-3. **mcp__orchestration__get_parallel_status** - Check all parallel work status
-
-### Example: Complete Parallel Phase in 2 Steps
-
-```python
-# Step 1: MCP prepares everything
-result = await mcp__orchestration__launch_parallel_phase({
-    "task_id": task_id,
-    "phase": "implementation",
-    "modules": ["auth", "cart", "orders", "products"],
-    "agent_type": "implementation-executor"
-})
-
-# Step 2: You launch agents (ALL IN ONE MESSAGE!)
-# The MCP already created chambers and contexts
-for agent in result["agents"]:
-    Task({
-        "subagent_type": agent["agent_type"],
-        "prompt": f"Work in {agent['chamber_path']} on {agent['module']}"
-    })
-# ↑ Remember: ALL Task calls in ONE message!
+5. You fix tests
+6. finalize_phase("implementation") → TESTS PASS → CHECKPOINT
+7. Continue...
 ```
 
-## 🛡️ Validation Gates (NEW)
+### With Rollback
+```
+You: "/conduct Refactor authentication system"
 
-The MCP now enforces quality gates at each phase:
-
-```python
-# After each phase, check the gate
-gate_result = await mcp__orchestration__check_gate({
-    "task_id": task_id,
-    "gate_name": "post_skeleton",  # or "post_implementation", "post_testing"
-    "agent_report": {
-        "files_created": True,
-        "imports_verified": True,
-        "types_exported": True
-    }
-})
-
-if not gate_result["passed"]:
-    # Must fix before proceeding
-    print(f"Gate failed: {gate_result['failed_checks']}")
-    # Coordinate fixes...
+1. start_task
+2. skeleton phase → CHECKPOINT (checkpoint_a)
+3. implementation phase → CHECKPOINT (checkpoint_b)
+4. testing phase → something breaks badly
+5. list_checkpoints → see checkpoint_a and checkpoint_b
+6. rollback_to_checkpoint(checkpoint_b) → restore to implementation
+7. Fix implementation
+8. Continue from implementation phase
 ```
 
-## 🔧 Detailed Phase Instructions
+### With Circular Dependency Detection (NEW)
+```
+You: "/conduct Implement session management system"
 
-**These are the detailed steps YOU must follow in execute_single_orchestration:**
+1. start_task → complexity="medium"
+2. architecture phase →
+   - Define interfaces for session_manager, user_auth
+   - Extract dependencies:
+     * user_auth → depends on → session_manager (needs session context)
+     * session_manager → depends on → user_auth (needs user validation)
+   - ERROR: Circular dependency detected!
 
-### Phase Details
-```python
-# 1. Start task with MCP
-result = await mcp__orchestration__start_task({
-    "description": user_request,
-    "working_directory": os.getcwd(),
-    "complexity": "complex"  # auto-detect based on description
-})
-task_id = result["task_id"]
+System: "Architecture validation failed. Circular dependency found:
+  user_auth → session_manager → user_auth
 
-# 2. Check for similar tasks and surface warnings
-init_context = await mcp__orchestration__get_agent_context({
-    "task_id": task_id,
-    "agent_type": "architecture-planner"
-})
+Suggestion: Break the cycle by:
+1. Introduce session_storage as independent component
+2. Have both user_auth and session_manager depend on session_storage
+3. Remove direct dependency between user_auth and session_manager"
 
-if init_context.get('similar_tasks'):
-    print("⚠️ Similar tasks found these gotchas:")
-    for task in init_context['similar_tasks'][:3]:
-        print(f"  - {task.get('gotcha', task.get('description', 'Similar pattern found'))}")
-
-# 3. Decompose goals
-goal_context = await Task({
-    "subagent_type": "goal-decomposer",
-    "prompt": f"Decompose this request into measurable goals: {user_request}"
-})
-
-# 4. Confirm with user
-# [Show decomposed goals and get confirmation]
-
-# 5. Register goal tracking
-await mcp__orchestration__record_agent_action({
-    "task_id": task_id,
-    "action": "goals_defined",
-    "result": goal_context
-})
+3. You fix architecture (update READY.md or provide new approach)
+4. Re-run architecture phase → no cycles detected ✓
+5. Continue with skeleton phase
 ```
 
-### Phase 1: Architecture - Identify What to Build
-- Get context from MCP: `mcp__orchestration__get_agent_context`
-- Launch `architecture-planner` agent to define modules and boundaries
-- Agent outputs what components need to be built
-- YOU read the output and identify the modules for subsequent phases
+### With User Query Generation (NEW)
+```
+You: "/conduct Implement payment processing"
 
-### Phase 2: Skeleton - Create Structure
-- If git repo with multiple modules: Create worktrees via `mcp__orchestration__create_chambers_batch`
-- Launch `skeleton-builder-haiku` agents (parallel if multiple modules)
-- Agents create the file structure with TODO placeholders
-- No implementation yet, just structure
+1. start_task → complexity="medium"
+2. architecture phase →
+   - Define interfaces for payment_processor
+   - Unknown detected: "How should payment provider credentials be stored?"
+   - Unknown detected: "Which payment providers to support (Stripe, PayPal, both)?"
+   - Generate queries, store as pending in Redis
 
-**CRITICAL for Parallel Work:**
-When launching multiple agents, send ALL Task tool calls in ONE message:
+System: "Architecture phase blocked on 2 unknowns. Generated queries:
 
-# ❌ WRONG - Sequential (agents wait for each other):
-await Task({...})  # First agent
-await Task({...})  # Second agent waits
-await Task({...})  # Third agent waits
+Query 1 [PENDING]: How should payment provider credentials be stored?
+Options: environment variables, encrypted config file, secret manager
+Impact: Affects initialization and security model
 
-# ✅ CORRECT - Parallel (all agents run simultaneously):
-# Send ALL these Task calls in ONE message:
-Task({  # Auth skeleton agent
-    "subagent_type": "skeleton-builder-haiku",
-    "prompt": f"Create skeleton for auth module..."
-})
-Task({  # Cart skeleton agent
-    "subagent_type": "skeleton-builder-haiku",
-    "prompt": f"Create skeleton for cart module..."
-})
-Task({  # Orders skeleton agent
-    "subagent_type": "skeleton-builder-haiku",
-    "prompt": f"Create skeleton for orders module..."
-})
-# ↑ ALL in the SAME message = true parallel execution!
+Query 2 [PENDING]: Which payment providers to support?
+Options: Stripe only, PayPal only, both with abstraction layer
+Impact: Affects interface design and testing complexity
+
+Continuing with independent components while waiting for answers..."
+
+3. System continues working on unblocked components (logging, database models)
+4. You answer queries: "Use environment variables" + "Stripe only for MVP"
+5. System marks queries as answered, resumes payment_processor implementation
 ```
 
-### Phase 3: Implementation - BUILD the Functionality
-- For each module, get context from MCP
-- Launch `implementation-executor` agents with full context
-- Agents fill in all TODOs with working code
-- They must BUILD the actual functionality, not just stubs
-- If multiple modules and git repo, use parallel execution
+## Available Tools (21 total, all working)
 
-### Phase 4: Testing - Verify It Works
-- Get test context from MCP (includes test oracle)
-- Launch `test-implementer` agents
-- Tests must verify the BUILT system actually works
-- Not just unit tests - functional verification
+**Core Workflow (7):**
+- start_task (with complexity detection)
+- prepare_phase
+- finalize_phase (with REAL validation)
+- record_phase_result
+- complete_task
+- get_task_status
+- parse_ready_specification
 
-### Phase 5: Integration - Ensure Components Work Together
-- If multiple modules, launch `integration-tester`
-- Verify modules interact correctly
-- Test end-to-end flows
-- Ensure the complete system works as intended
+**Validation (1):**
+- validate_phase (runs pytest/ruff/imports)
 
-### Phase 6: Validation - Confirm We Built What Was Requested
-- Launch `validator-master` to check everything
-- Validator identifies any issues but does NOT fix
-- If issues found, YOU coordinate fixes via `fix-executor`
-- Record validation results to MCP
-- Continue until everything works
+**Checkpoints (3):**
+- create_checkpoint
+- rollback_to_checkpoint
+- list_checkpoints
 
-### Phase 7: Completion - Mark Task Done
-```python
-# Complete the task and evolve patterns
-result = await mcp__orchestration__complete_task({
-    "task_id": task_id,
-    "commit_changes": True,
-    "summary": final_summary
-})
+**Worktrees (2):**
+- create_worktree
+- merge_worktrees
 
-# Record final pattern evolution
-await mcp__orchestration__record_agent_action({
-    "task_id": task_id,
-    "action": "task_completed",
-    "result": {
-        "patterns_promoted": result.get('patterns_promoted', []),
-        "lessons_learned": [/* extracted insights */],
-        "success_metrics": {
-            "goal_achievement": goal_percentage,
-            "test_coverage": test_coverage,
-            "validation_score": validation_score
-        }
-    }
-})
+**Complexity (1):**
+- analyze_task_complexity
 
-# Report to user
-"✅ Orchestration Complete!
-Duration: {result['duration']}
-Patterns learned: {result['patterns_promoted']}
-Goal achievement: {goal_percentage}%
-"
+**Decomposition (3):**
+- decompose_task
+- get_next_subtask
+- mark_subtask_complete
+
+**Intelligence (4):**
+- analyze_project
+- augment_ready_spec
+- validate_ready_spec
+- synthesize_learnings
+
+## Success Criteria (How to know it's working)
+
+✅ **Validation blocks progression** - Can't move forward with failing tests
+✅ **Checkpoints auto-created** - After each validated phase
+✅ **Rollback works** - Can recover from failures without losing all work
+✅ **Parallel work isolated** - Modules don't conflict in worktrees
+✅ **Complexity detected accurately** - Right workflow for task size
+✅ **Progress preserved** - Redis state + git commits = full recovery
+
+## Key Features in Action
+
+### 1. Real Validation (Biggest Change)
+
+**Previous (broken):**
+```
+finalize_phase → "Did tests pass?" → you say "yes" → chaos
 ```
 
-## 🔁 Recovery Patterns
-
-### When Agents Fail
-```python
-if agent_failed:
-    # 1. Try with stronger model
-    retry_context = await mcp__orchestration__get_agent_context({...})
-    await Task({
-        "model": "claude-3-opus",  # Upgrade model
-        "prompt": f"Previous attempt failed. Context: {retry_context}"
-    })
-
-    # 2. If still fails, decompose task
-    if still_failed:
-        # Break into smaller subtasks
-        # Try sequential instead of parallel
+**Current (bulletproof):**
+```
+finalize_phase → runs pytest → tests fail → progression BLOCKED
+→ "Fix test_auth.py::test_login before proceeding"
+→ you fix tests
+→ finalize_phase → tests pass → CHECKPOINT created → proceed
 ```
 
-### When Validation Fails
-```python
-if validation_failed:
-    # 1. Identify specific failures
-    # 2. Create targeted fix agents
-    # 3. Re-run only failed components
-    # 4. Merge fixes carefully
+### 2. Git Checkpoints (Automatic Snapshots)
+
+**Automatic:**
+```
+skeleton phase complete → VALIDATE → CHECKPOINT (checkpoint_a)
+implementation phase complete → VALIDATE → CHECKPOINT (checkpoint_b)
+testing phase fails badly → rollback_to_checkpoint(checkpoint_b)
+→ git reset --hard to checkpoint_b
+→ Redis state cleared to checkpoint_b
+→ continue from implementation
 ```
 
-## 📈 Adaptive Complexity
+**Manual:**
+```
+# Create checkpoint manually
+create_checkpoint(task_id, phase="custom", validation_passed=True)
 
-Automatically adjust orchestration based on task:
+# List all checkpoints
+list_checkpoints(task_id) → shows all snapshots
 
-```python
-complexity_indicators = {
-    "simple": "< 3 files, no new features",
-    "medium": "3-10 files, single feature",
-    "complex": "10+ files, multiple features",
-    "massive": "architectural changes, 20+ files"
-}
-
-# Adjust based on complexity:
-if complexity == "simple":
-    skip_phases = ["parallel_chambers", "goal_alignment_check"]
-elif complexity == "massive":
-    add_phases = ["risk_assessment", "rollback_planning"]
+# Rollback to any checkpoint
+rollback_to_checkpoint(task_id, checkpoint_id)
 ```
 
-## 🧠 PRISM-Enhanced Intelligence (NEW)
+### 3. Parallel Work with Worktrees
 
-### Task Similarity Matching
-- **Finds similar past tasks** to provide context and gotchas
-- **Time estimation** based on actual duration of similar tasks
-- **Pattern reuse** from highly similar successful tasks
+**For multi-module tasks:**
+```
+# Architecture identifies 3 modules
+architecture_phase → ["auth", "cart", "payment"]
 
-### Confidence-Based Model Selection
-Models are automatically selected based on task confidence:
-- **Confidence < 0.5**: Claude-3-Opus (complex reasoning)
-- **Confidence 0.5-0.7**: Claude-3.5-Sonnet (balanced)
-- **Confidence 0.7-0.85**: Claude-3.5-Sonnet (erring on safe side)
-- **Confidence > 0.85**: Claude-3-Haiku (fast execution)
+# Create isolated worktrees
+create_worktree(task_id, module="auth") → worktree_auth/
+create_worktree(task_id, module="cart") → worktree_cart/
+create_worktree(task_id, module="payment") → worktree_payment/
 
-### Pattern Evolution
-- **Patterns evolve** based on success/failure
-- **Confidence grows** with successful uses
-- **Automatic promotion/demotion** between memory tiers
-- **Living knowledge base** that improves over time
+# Agents work in parallel (no conflicts!)
+skeleton_phase → all 3 agents work simultaneously
 
-### Test Oracle Generation
-For test agents, PRISM automatically:
-- **Generates test scenarios** from requirements
-- **Identifies edge cases** from similar implementations
-- **Suggests security tests** based on patterns
-- **Sets coverage targets** appropriate to complexity
-
-## 🎯 Success Metrics
-
-Track and report:
-- **Goal Achievement**: % of success criteria met
-- **Drift Score**: How much we deviated from original intent
-- **Quality Score**: Tests, linting, code quality metrics
-- **Performance**: Execution time vs. estimate
-- **Learning**: Patterns discovered and promoted
-- **Pattern Evolution**: How patterns improved with use
-
-## 💡 Improvements & Recommendations
-
-Consider adding:
-
-1. **Incremental Delivery**: Break massive tasks into deployable increments
-2. **Risk Assessment Agent**: Evaluate high-risk changes before implementation
-3. **Rollback Planning**: Automatic rollback strategy for risky changes
-4. **Performance Budgets**: Set and track performance targets
-5. **User Feedback Loops**: Checkpoint with user at key decision points
-6. **Learning Memory**: Track what approaches work best for specific task types
-7. **Dependency Caching**: Remember common patterns to speed up future tasks
-8. **Smart Batching**: Group related changes for atomic commits
-
-## 🔄 Task Decomposition for Large Tasks
-
-### When to Decompose
-
-Tasks are automatically analyzed for decomposition when they contain:
-- "complete", "entire", "full", "platform", "system"
-- Multiple major components (e.g., "auth, products, checkout")
-- Estimated >30 minutes of orchestration time
-
-### Decomposition Flow
-
-```mermaid
-graph TD
-    A[Large Task Request] --> B[task-decomposer Analyzes]
-    B --> C{Needs Decomposition?}
-    C -->|No| D[Regular /conduct]
-    C -->|Yes| E[Create Sub-task Queue]
-    E --> F[YOU Execute Each Sub-task]
-    F --> G[Execute Sub-task 1 - Full Orchestration]
-    G --> H[Validate Checkpoint]
-    H -->|Pass| I[Execute Sub-task 2 - Full Orchestration]
-    H -->|Fail| J[Fix and Retry Sub-task 1]
-    I --> K[Validate Checkpoint]
-    K --> L[Continue Until All Complete]
+# Merge when done
+merge_worktrees(task_id, modules=["auth", "cart", "payment"])
+→ smart conflict resolution
+→ validates after merge
+→ CHECKPOINT created
 ```
 
-### Sequential Sub-task Execution
+### 4. Complexity Scaling (Right Workflow for Size)
 
-**IMPORTANT**: Sub-tasks run SEQUENTIALLY, not in parallel:
-
-1. **Sub-task 1 completes FULLY** (skeleton → implementation → test → beauty)
-2. **Checkpoint validated** (e.g., "Models work")
-3. **Only then Sub-task 2 begins**
-4. **Each sub-task can use parallel agents internally**
-5. **But sub-tasks themselves are sequential**
-
-### Example Decomposition
-
-```python
-# User request: "Build complete e-commerce platform"
-
-# Step 1: Decompose into sub-tasks
-decomposition = mcp__orchestration__decompose_task({
-    "task_id": "master_123",
-    "description": "Build complete e-commerce platform with user management, products, cart, and checkout",
-    "strategy": "vertical_slices"  # Each slice is valuable
-})
-
-# Returns 5 sequential sub-tasks:
-# 1. Foundation (models, structure)
-# 2. Authentication (register, login, JWT)
-# 3. Product catalog (CRUD, search)
-# 4. Shopping cart (persistence)
-# 5. Checkout (payment, orders)
-
-# Step 2: YOU execute each subtask sequentially
-while has_next_subtask:
-    subtask = mcp__orchestration__get_next_subtask({"master_task_id": "master_123"})
-
-    # YOU run FULL orchestration for this sub-task
-    # This means YOU directly execute Phase 1-6 for this subtask:
-    execute_single_orchestration(subtask["id"])  # YOU orchestrate, not a sub-agent
-
-    # Validate checkpoint
-    checkpoint = mcp__orchestration__validate_checkpoint({
-        "checkpoint_description": subtask["checkpoint"],
-        "subtask_id": subtask["id"],
-        "test_commands": ["pytest tests/", "python validate.py"]
-    })
-
-    if checkpoint["passed"]:
-        mcp__orchestration__complete_subtask({
-            "master_task_id": "master_123",
-            "subtask_id": subtask["id"],
-            "checkpoint_result": checkpoint
-        })
-    else:
-        # Fix and retry - don't proceed until fixed
-        fix_subtask(subtask, checkpoint["error"])
+**Auto-detection:**
+```
+"Add logging" → small → skeleton → implement → validate
+"Implement auth" → medium → arch → skeleton → implement → test → validate
+"Refactor API" → large → arch → skeleton → validate → implement → test → integrate
+"Build platform" → massive → decompose into 5 subtasks
 ```
 
-### Progress Tracking
-
-```python
-# Check overall progress
-status = mcp__orchestration__get_decomposition_status({
-    "master_task_id": "master_123"
-})
-
-# Shows:
-# - Total sub-tasks: 5
-# - Completed: 2
-# - Current: "product_catalog"
-# - Progress: 40%
-# - Estimated remaining: 40-60 minutes
+**Manual override:**
+```
+start_task(description="...", complexity="large")  # Force large workflow
 ```
 
-### Benefits of Decomposition
+### 5. Task Decomposition (Massive Tasks)
 
-1. **Failure Recovery** - Only retry failed sub-task, not everything
-2. **Clear Progress** - User sees steady advancement
-3. **Memory Efficient** - Smaller context per sub-task
-4. **Checkpoint Validation** - Each piece verified before proceeding
-5. **No Cascade Failures** - Issues caught early and fixed
+**Automatic breakdown:**
+```
+"Build e-commerce platform"
+→ decompose_task
+→ Returns 5 subtasks:
+   1. Foundation (models, DB schema)
+   2. Authentication (register, login, JWT)
+   3. Product catalog (CRUD, search)
+   4. Shopping cart (persistence, checkout)
+   5. Admin dashboard (orders, users)
 
-### Decomposition Strategies
+→ For each subtask:
+   get_next_subtask → run full workflow → mark_subtask_complete
 
-1. **Vertical Slices** (Default)
-   - Each sub-task delivers end-to-end value
-   - Example: "Users can register/login" → "Users can browse" → "Users can buy"
+→ Integration testing
+→ complete_task
+```
 
-2. **Horizontal Layers**
-   - Each sub-task completes a technical layer
-   - Example: "All models" → "All APIs" → "All UI"
+## Migration from V1
 
-3. **Progressive Enhancement**
-   - Each sub-task adds sophistication
-   - Example: "Basic CRUD" → "Add validation" → "Add caching"
+If you have old V1 tasks:
+- Remove references to phantom tools (many were documented but not implemented)
+- Add complexity hints to description ("small change" vs "major refactor")
+- Expect validation to actually run (tests must pass!)
+- Use checkpoints for recovery (no more manual git operations)
 
-## 🚀 Quick Start Examples
+## Tips for Best Results
+
+1. **Write good descriptions** - "small change" vs "complete refactor" affects complexity detection
+2. **Trust the validation** - If tests fail, fix them (don't bypass)
+3. **Use checkpoints** - Don't be afraid to rollback and try again
+4. **Let it decompose massive tasks** - Easier than doing all at once
+5. **Review merge conflicts** - Smart strategy isn't perfect, check its work
+6. **Check complexity recommendations** - Helps select right workflow
+
+## Example Usage
 
 ```bash
-# Simple refactor
-/conduct "refactor the auth module to use JWT"
+# In your project directory (optionally with .prelude/READY.md)
+/conduct "implement user authentication with JWT tokens"
 
-# Complex feature
-/conduct "implement real-time collaboration with WebSockets"
-
-# Massive architectural change
-/conduct "migrate from monolith to microservices"
+# System analyzes complexity → "medium"
+# Selects workflow: architecture → skeleton → implementation → testing
+# Runs REAL validation at each checkpoint
+# Blocks progression if tests fail
+# Creates git checkpoints after validated phases
+# Result: Bulletproof autonomous development
 ```
 
-## 📝 Command Summary
+## Common Patterns
 
-- `/conduct "description"` - Start orchestrating a complex task
-- `/conduct status` - Check current orchestration progress
-- `/conduct abort` - Cancel current orchestration (cleanup chambers)
-- `/conduct complete` - Force completion with current state
-- `/conduct retry [phase]` - Retry a specific phase
-
-## 🎨 Beauty Standards Integration
-
-### When Beauty Pass Occurs:
-1. **After Implementation** - Code works but may be ugly
-2. **After Fix Loops** - Fixes may introduce complexity
-3. **Before Final Validation** - Ensure production quality
-
-### Beauty Workflow:
-```python
-# 1. Analyze current beauty
-beauty_analysis = mcp__orchestration__analyze_code_beauty({
-    "file_path": "src/services/user_service.py",
-    "code_content": file_content
-})
-
-# 2. If beauty score < 8.0, beautify (max 2 passes)
-if beauty_analysis["beauty_score"] < 8.0:
-    Task(
-        prompt=f"Beautify code to be obvious and self-documenting. Issues: {beauty_analysis['issues']}",
-        subagent_type="code-beautifier"
-    )
-
-# 3. Record beauty improvements
-mcp__orchestration__record_validation_result({
-    "task_id": task_id,
-    "module": "services",
-    "test_type": "beauty",
-    "passed": True,
-    "details": {
-        "before_score": 6.5,
-        "after_score": 8.7,
-        "improvements": ["Extracted complex conditionals", "Removed micro-functions", "Applied guard clauses"]
-    }
-})
+### Pattern: Fix Until It Works
+```
+finalize_phase("implementation") → tests fail
+→ fix tests
+→ finalize_phase("implementation") → tests fail again
+→ fix more tests
+→ finalize_phase("implementation") → tests pass → CHECKPOINT
+→ proceed to next phase
 ```
 
-### Beauty Gates to Check:
-- **post_skeleton**: Functions sized appropriately (20-50 lines)
-- **post_implementation**: Code is self-documenting
-- **post_beauty**: DRY compliance, no wrappers, beauty score ≥ 8.0
-- **post_testing**: Beauty maintained after all changes
-
-### Beauty Principles Enforced:
-1. **No Micro-Functions** - Functions < 10 lines are combined
-2. **No Giant Functions** - Functions > 50 lines are split (unless cohesive)
-3. **DRY Compliance** - Patterns repeated 3+ times are extracted
-4. **Self-Documenting** - Names make comments unnecessary
-5. **Guard Clauses** - Early returns over nested ifs
-6. **No Pointless Wrappers** - Every function adds value
-
-## 🎆 FINAL SUMMARY: Your Orchestration Responsibilities
-
-### YOU Are The Conductor
-- **YOU** orchestrate everything directly (no conductor sub-agent)
-- **YOU** call MCP tools to manage state in Redis
-- **YOU** launch agents and read their outputs
-- **YOU** ensure the system is BUILT, not just tested
-
-### Non-Negotiable Rules
-1. **MCP is MANDATORY** - No file-based orchestration allowed
-2. **Complete ALL subtasks** - Never stop until fully built
-3. **BUILD what was requested** - Not tests, not docs, the actual system
-4. **Follow the flow EXACTLY** - No shortcuts or alternatives
-
-### The Flow You MUST Follow
+### Pattern: Rollback and Retry
 ```
-Start Task → Decompose (if needed) → For Each Subtask:
-  → Architecture → Skeleton → Implementation → Testing → Validation
-  → Fix Until Working → Next Subtask
-→ Complete Task (only when EVERYTHING works)
+implementation complete → CHECKPOINT
+testing complete → CHECKPOINT
+integration breaks everything
+→ list_checkpoints → see all checkpoints
+→ rollback_to_checkpoint(testing_checkpoint)
+→ fix implementation
+→ finalize_phase("implementation") → CHECKPOINT
+→ continue to testing
 ```
 
-### What Success Looks Like
-- User requested a system/feature
-- You orchestrated its complete construction
-- The system is BUILT and WORKING
-- All functionality verified through testing
-- State tracked in Redis via MCP throughout
+### Pattern: Parallel Module Work
+```
+architecture identifies N modules
+→ create_worktree for each module
+→ agents work in parallel (no conflicts)
+→ merge_worktrees(all modules)
+→ VALIDATE → CHECKPOINT
+→ if merge validation fails:
+   → fix conflicts
+   → merge_worktrees again
+   → VALIDATE → CHECKPOINT
+```
 
-### What Failure Looks Like
-- Stopped before completion
-- Used file-based coordination
-- Tried to delegate orchestration to sub-agents
-- Built tests but not the actual system
-- Skipped MCP and used alternatives
+### Pattern: Massive Task Decomposition
+```
+"Build complete system"
+→ decompose_task → 5 subtasks
+→ while get_next_subtask has work:
+   → run full workflow for subtask
+   → VALIDATE → CHECKPOINT
+   → mark_subtask_complete
+   → get_next_subtask
+→ all subtasks complete
+→ integration testing
+→ complete_task
+```
 
-## 🚫 Never Forget
+## Workflow Visualization
 
-**The user wants a WORKING SYSTEM, not passing tests.**
-**You MUST complete the ENTIRE orchestration until it's BUILT.**
-**MCP orchestration is the ONLY way. No alternatives.**
+### Small Task Flow
+```
+start → skeleton → [validate] → implement → [validate+checkpoint] → done
+```
 
-When the user says `/conduct "build X"`, you don't stop until X exists and works.
+### Medium Task Flow
+```
+start → arch → skeleton → [validate+checkpoint]
+→ implement → [validate+checkpoint]
+→ test → [validate] → done
+```
+
+### Large Task Flow (with parallel)
+```
+start → arch → [identify modules]
+→ create_worktrees
+→ skeleton (parallel) → merge → [validate+checkpoint]
+→ implement (parallel) → merge → [validate+checkpoint]
+→ integrate → [validate] → cleanup → done
+```
+
+### Massive Task Flow (with decomposition)
+```
+start → decompose → [5 subtasks]
+→ subtask 1: [full large workflow] → [checkpoint]
+→ subtask 2: [full large workflow] → [checkpoint]
+→ subtask 3: [full large workflow] → [checkpoint]
+→ subtask 4: [full large workflow] → [checkpoint]
+→ subtask 5: [full large workflow] → [checkpoint]
+→ integrate all → [validate] → done
+```
+
+## Error Recovery Patterns
+
+### When Validation Fails
+```
+1. Read the validation error message
+2. Fix the specific issue (failing test, linting error, import error)
+3. Re-run finalize_phase until it passes
+4. Validation blocks progression until fixed
+```
+
+### When Implementation Breaks
+```
+1. list_checkpoints → see all snapshots
+2. rollback_to_checkpoint(last_good_checkpoint)
+3. Fix implementation with better approach
+4. finalize_phase → VALIDATE → new CHECKPOINT
+5. Continue forward
+```
+
+### When Merge Conflicts Occur
+```
+1. merge_worktrees uses "smart" strategy (prefers simpler code)
+2. Review conflicts in response
+3. If conflicts unacceptable:
+   → Fix conflicted files manually
+   → validate_phase to ensure nothing broke
+   → create_checkpoint to snapshot fix
+4. Continue workflow
+```
+
+## What Makes It Bulletproof
+
+1. **Real validation blocks bad code** - Can't proceed with failing tests
+2. **Git checkpoints preserve progress** - Never lose hours of work
+3. **Worktrees eliminate conflicts** - Parallel work without stepping on toes
+4. **Complexity detection** - Right workflow for task size
+5. **Decomposition handles massive tasks** - Break 100-file tasks into chunks
+6. **Architecture-first prevents integration issues** (NEW) - Interfaces defined before code, no surprises
+7. **Circular dependency detection** (NEW) - Catches architectural problems before implementation
+8. **Dependency-aware parallelization** (NEW) - Smart execution order respects dependencies
+9. **User query generation** (NEW) - Continues work on unblocked tasks while waiting for answers
+10. **ADR storage to PRISM** (NEW) - Architectural decisions persist across sessions
+11. **All tools implemented** - No phantom features, everything works
+
+## Quick Reference
+
+**Start orchestration:**
+```
+/conduct "your task description"
+```
+
+**If validation fails:**
+- Fix the issue
+- Re-run finalize_phase
+- System blocks until tests pass
+
+**If things go wrong:**
+- list_checkpoints
+- rollback_to_checkpoint(checkpoint_id)
+- Continue from checkpoint
+
+**For massive tasks:**
+- System decomposes automatically
+- Work through subtasks sequentially
+- Each subtask checkpointed
+
+**For parallel work:**
+- System creates worktrees automatically
+- Merges with smart conflict resolution
+- Validates after merge
+
+---
+
+**Bottom Line:**
+- REAL validation (no more self-validation lies)
+- Git checkpoints (rollback on failures)
+- Parallel worktrees (isolated module work)
+- Complexity scaling (right workflow for size)
+- Task decomposition (handle massive tasks)
+- Architecture-first workflow (interfaces before implementation) ✨ NEW
+- Dependency-aware execution (smart parallel ordering) ✨ NEW
+- Circular dependency detection (fail loud before code) ✨ NEW
+- User query generation (continue on unblocked tasks) ✨ NEW
+- ADR storage to PRISM (decisions persist forever) ✨ NEW
+- 21 working tools (all implemented, all tested)
+
+**When you run /conduct, you get bulletproof autonomous development with architecture-first planning, dependency-aware parallelization, and validation that actually works.**

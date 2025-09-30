@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "orchestration": {
+      "command": "orchestration-mcp",
+      "env": {}
+    },
+    "prism": {
+      "command": "prism-mcp",
+      "env": {}
+    }
+  }
+}

@@ -252,6 +252,11 @@ golangci-lint run --config ~/.claude/configs/go/golangci.yml
 3. **Quality**: Pass all checks before claiming done
 4. **Validation**: Test claims, especially in prelude mode
 5. **Honesty**: Uncertain = say so explicitly
+6. **Portability**: NEVER hardcode system-specific paths (e.g., `/home/randy`, `/opt/envs/py3.12`)
+   - Use relative paths from script directory: `SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"`
+   - Use environment's active Python: `python3` or `#!/usr/bin/env python3`
+   - Rely on PATH for commands: `orchestration-mcp` not `/opt/envs/py3.12/bin/orchestration-mcp`
+   - Code must work on any system where dependencies are installed
 
 ## Rule Override Principle
 

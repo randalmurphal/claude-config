@@ -9,6 +9,11 @@
       "command": "python3",
       "args": ["-m", "orchestration_mcp.mcp_server"],
       "cwd": "/home/randy/repos/claude_mcp/orchestration_mcp"
+    },
+    "tech-scanner": {
+      "command": "python3",
+      "args": ["mcp_server.py"],
+      "cwd": "/home/randy/repos/claude_mcp/tech_scanner_mcp"
     }
   }
 }

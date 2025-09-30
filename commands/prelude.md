@@ -178,16 +178,38 @@ DO NOT wait for spike 1 before launching spike 2.
 [High-level strategy]
 
 ## Components
-[Name, purpose, implementation, justification]
+[Name, purpose, responsibilities, justification]
+
+**Think about interfaces for medium/large projects:**
+- What public methods does each component expose?
+- What data structures are passed between components?
+- What error types should each component raise?
+- How do components depend on each other?
+
+## Dependency Relationships (NEW - for medium/large projects)
+[Component dependencies - /conduct will extract these]
+
+Example:
+- user_auth depends on database_service, crypto_service
+- session_manager depends on user_auth
+- payment_processor depends on user_auth, cart_service
+
+**Watch for circular dependencies** - these will block /conduct execution!
 
 ## Data Flow
 [Text diagram]
 
-## Decisions Log
+## Architectural Decisions (NEW - stored as ADRs)
 Decision: [choice made]
-Reason: [from spike/discovery]
-Alternative: [rejected option]
-Tradeoff: [what we gave up]
+Context: [why this decision was needed]
+Alternatives Considered:
+  - [Option A]: [why rejected]
+  - [Option B]: [why rejected]
+Chosen Approach: [selected option]
+Consequences:
+  - [Positive impact]
+  - [Negative tradeoff]
+  - [Long-term maintenance consideration]
 
 ## Known Gotchas
 [From spikes/discoveries]
@@ -236,29 +258,101 @@ Your call?"
 ```markdown
 # Execution Specification
 
-## Mission
-[From MISSION.md]
+## Mission (IMMUTABLE)
+[From MISSION.md - the unchanging goal]
 
-## Success Criteria
-[Measurable outcomes]
+## Success Criteria (IMMUTABLE)
+[Measurable outcomes - these define done]
 
-## Architecture
-[From ARCHITECTURE.md - the design]
+## Requirements (IMMUTABLE)
+[Hard requirements that cannot change during execution]
+- [Requirement 1]
+- [Requirement 2]
+- [Requirement 3]
+
+## Proposed Approach (EVOLVABLE)
+[High-level strategy from ARCHITECTURE.md]
+[Can adapt during execution if better approach discovered]
+
+## Components & Dependencies (for medium/large projects)
+[List components and their relationships - /conduct extracts this]
+
+Components:
+- user_auth: Authentication service (auth.py)
+- session_manager: Session handling (session.py)
+- database_service: Database abstraction (db.py)
+
+Dependencies:
+- user_auth depends on: database_service, crypto_service
+- session_manager depends on: user_auth
+- payment_processor depends on: user_auth, cart_service
+
+**CRITICAL**: Check for circular dependencies! They will block execution.
+
+## Architectural Decisions (stored as ADRs by /conduct)
+[Document key decisions - these become Architectural Decision Records]
+
+Decision 1: JWT Authentication
+  Context: Need stateless authentication for API
+  Alternatives: Sessions (stateful), OAuth (external), API keys (limited)
+  Chosen: JWT tokens with Redis blacklist
+  Consequences:
+    + Stateless scaling
+    + Simple client integration
+    - Token revocation requires Redis
+    - Larger payload than sessions
+
+Decision 2: [Additional decisions...]
 
 ## Implementation Phases
 [Phase descriptions with time estimates]
 
+Phase 1: Foundation (2-4h)
+  - Database models and migrations
+  - Core abstractions
+  - Error types
+
+Phase 2: Authentication (4-6h)
+  - User registration
+  - Login with JWT
+  - Token validation middleware
+
+Phase 3: [Additional phases...]
+
 ## Known Gotchas
-[From discoveries + spikes]
+[From discoveries + spikes - prevents surprises during implementation]
+- [Gotcha from spike: JWT refresh requires extra endpoint]
+- [Discovery: Existing middleware conflicts with new auth]
 
 ## Quality Requirements
-[Tests, security, performance, docs]
+- Tests: 95% coverage minimum (unit + integration)
+- Security: Input validation, rate limiting, SQL injection prevention
+- Performance: <200ms API response time
+- Documentation: API docs (OpenAPI), setup guide
 
 ## Files to Create/Modify
-[Concrete list]
+[Concrete list - /conduct uses this to extract components]
+
+**New Files:**
+- src/auth/user_auth.py - User authentication service
+- src/auth/session_manager.py - Session management
+- src/database/database_service.py - Database abstraction
+- tests/auth/test_user_auth.py - Authentication tests
+- tests/auth/test_session_manager.py - Session tests
+
+**Modified Files:**
+- src/main.py - Wire up authentication middleware
+- src/config.py - Add JWT secret configuration
+- requirements.txt - Add PyJWT, cryptography
 
 ---
 Ready for /conduct execution
+
+NOTE:
+- Small tasks (1-3 files): /conduct skips architecture phase for speed
+- Medium tasks (4-10 files): /conduct uses architecture-first workflow
+- Large tasks (10-30 files): Full architecture + parallel execution
+- Massive tasks (30+ files): Automatic decomposition into subtasks
 ```
 
 ---
@@ -332,6 +426,44 @@ Ready for /conduct execution
 - /conduct uses orchestration MCP for execution
 - Prelude doesn't plan execution details
 - /conduct fails validation if no READY.md → redirect to /prelude
+
+**Architecture-First Integration (NEW):**
+
+For medium/large/massive projects, /conduct now runs an architecture phase that:
+1. Parses READY.md to extract components (from "Files to Create/Modify")
+2. Defines interfaces/contracts for each component
+3. Extracts dependency graph (from "Components & Dependencies")
+4. Detects circular dependencies (FAILS LOUD if found)
+5. Stores ADRs to PRISM (from "Architectural Decisions")
+
+**How Prelude Should Help:**
+
+✅ **DO in Prelude:**
+- Think about component responsibilities and boundaries
+- Document component dependencies clearly
+- Watch for circular dependencies (catch them early!)
+- Document architectural decisions with alternatives + consequences
+- List files clearly in "Files to Create/Modify" section
+
+❌ **DON'T in Prelude:**
+- Define exact function signatures (architecture phase does this)
+- Write implementation details (that's /conduct's job)
+- Plan execution order (dependency graph handles this)
+- Over-specify interfaces (architecture phase infers from component names)
+
+**Example Flow:**
+
+1. Prelude discovers: "Need user_auth, session_manager, database_service"
+2. Prelude documents: "user_auth depends on database_service, session_manager depends on user_auth"
+3. Prelude checks: No circular dependencies ✓
+4. Prelude writes READY.md with components + dependencies
+5. /conduct architecture phase:
+   - Extracts: user_auth, session_manager, database_service
+   - Infers: authenticate() method for user_auth, etc.
+   - Builds graph: database_service → user_auth → session_manager
+   - Validates: No cycles ✓
+   - Stores: ADRs to PRISM for "JWT authentication" decision
+6. /conduct execution: Implements in dependency order
 
 ---
 

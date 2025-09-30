@@ -533,6 +533,36 @@ architecture identifies N modules
 → complete_task
 ```
 
+### Pattern: Parallel Exploration (Advanced)
+```
+"Complex refactor with multiple valid approaches"
+→ analyze_task_complexity → score > 80
+→ create_worktree(task_id, "approach_a")
+→ create_worktree(task_id, "approach_b")
+→ create_worktree(task_id, "approach_c")
+→ Launch 3 agents with differentiated prompts:
+  Agent A: "Optimize for code clarity and maintainability"
+  Agent B: "Optimize for performance and efficiency"
+  Agent C: "Optimize for robustness and error handling"
+→ All agents implement SAME task independently
+→ Launch synthesis-architect agent:
+  - Analyzes all 3 solutions
+  - Scores on dimensions (clarity, performance, error handling, tests, maintainability)
+  - Synthesizes best-of-breed solution (combines best pieces)
+  - Stores learnings to PRISM
+→ VALIDATE → CHECKPOINT
+→ cleanup worktrees
+```
+
+**When to use:**
+- Complexity > 80 OR major architectural decisions
+- Multiple valid approaches exist
+- Cost of getting it wrong > 3x cost of parallel exploration
+
+**Key difference from parallel module work:**
+- Parallel modules: Different agents work on different modules
+- Parallel exploration: Different agents work on SAME problem with different optimization goals
+
 ## Workflow Visualization
 
 ### Small Task Flow

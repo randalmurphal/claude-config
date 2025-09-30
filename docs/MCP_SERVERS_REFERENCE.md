@@ -27,9 +27,9 @@
 
 ---
 
-## Recommended External MCPs
+## External MCPs
 
-### Tier 1: Essential (Global - High Priority)
+### Installed (Active)
 
 #### 1. GitHub MCP (51 tools) - CRITICAL
 **Value**: 🔥🔥🔥
@@ -59,7 +59,7 @@ npm install -g @modelcontextprotocol/server-github
 ```
 
 **Token Impact**: ~15k tokens
-**Status**: ⏳ PENDING INSTALL
+**Status**: ✅ INSTALLED (2025-09-30)
 
 ---
 
@@ -87,68 +87,41 @@ npm install -g @artmann/package-registry-mcp
 ```
 
 **Token Impact**: ~1.5k tokens
-**Status**: ⏳ PENDING INSTALL
+**Status**: ✅ INSTALLED (2025-09-30)
 
 ---
 
-#### 3. Filesystem MCP (~10 tools) - SECURITY & SEARCH
-**Value**: 🔥🔥
-**Purpose**: Sandboxed file operations with advanced search and metadata
+### Considered But Not Installing
 
-**Capabilities**:
-- File Operations: read_file, write_file, edit_file (with pattern matching)
-- Directory Management: create_directory, list_directory, move_file
-- Search & Metadata: search_files, get_file_info (size, permissions, timestamps)
-- Security: Sandboxed operations, read-only mounts, directory restrictions
-- Advanced Editing: Diff previews, pattern matching
+#### Filesystem MCP - SKIPPED
+**Why Skipped**: Built-in Read/Write/Edit tools sufficient
+- Already have file operations via Read, Write, Edit
+- Already have search via Grep tool
+- Already have bash for advanced operations
+- Unclear value vs existing tooling
+- Would cost ~3k tokens
 
-**Why Useful** (vs built-in Read/Write/Edit):
-- Security sandboxing (restrict to specific directories)
-- Advanced search across files (better than grep for complex queries)
-- Metadata inspection (file sizes, permissions, timestamps)
-- Pattern matching in edits
-- Batch operations
-
-**Installation**:
-```bash
-npm install -g @modelcontextprotocol/server-filesystem
-```
-
-**Configuration** (with allowed directories):
-```json
-"filesystem": {
-  "command": "npx",
-  "args": [
-    "-y",
-    "@modelcontextprotocol/server-filesystem",
-    "/home/randy/repos",
-    "/tmp"
-  ]
-}
-```
-
-**Token Impact**: ~3k tokens
-**Status**: ⏳ PENDING INSTALL
+**Verdict**: Not worth the tokens for marginal benefit
 
 ---
 
-#### 4. Containerd MCP (~15 tools) - INFRASTRUCTURE
-**Value**: 🔥🔥
-**Purpose**: Container operations via containerd (works with nerdctl infrastructure)
+#### Containerd MCP - REFERENCE ONLY
+**Status**: 📚 DOCUMENTED FOR REFERENCE (not installing)
 
-**Capabilities**:
-- Container Management: list, create, stop, delete containers
-- Pod Operations: create, stop, delete pods
-- Image Management: list, pull, manage container images
-- Execution: Execute commands inside running containers
-- Version & Status: Check containerd version and status
+**Why Not Installing**:
+- nerdctl bash commands work fine
+- Simple operations (start, stop, logs, ps)
+- ~5k tokens for infrequent use not justified
+- Text output from nerdctl is easy to parse
 
-**Why This Instead of Docker MCP**:
-- Works with containerd socket (what nerdctl uses)
-- Native integration with existing nerdctl infrastructure
-- No Docker daemon required
+**When it WOULD be useful**:
+- Complex container orchestration
+- Managing dozens of containers programmatically
+- Parsing complex container configs frequently
 
-**Installation**:
+**Our use case**: Few stable containers (PRISM databases), nerdctl is sufficient
+
+**Installation** (for reference if needed later):
 ```bash
 # Requires Rust
 git clone https://github.com/jokemanfire/mcp-containerd
@@ -156,7 +129,7 @@ cd mcp-containerd
 cargo build --release
 ```
 
-**Configuration**:
+**Configuration** (if ever needed):
 ```json
 "containerd": {
   "command": "/path/to/mcp-containerd/target/release/mcp-containerd",
@@ -165,98 +138,29 @@ cargo build --release
 ```
 
 **Default Socket**: `unix:///run/containerd/containerd.sock`
-**Token Impact**: ~5k tokens
-**Status**: ⏳ PENDING INSTALL
-
 **GitHub**: https://github.com/jokemanfire/mcp-containerd
 
 ---
 
-### Tier 2: High Value (Global - Recommended)
+### Other MCPs Evaluated and Rejected
 
-#### 5. Brave Search MCP - RESEARCH
-**Value**: 🔥
-**Purpose**: Real-time web research for AI agents
+#### Brave Search MCP - REDUNDANT
+**Why Skipped**: Already have WebSearch tool built-in
+- WebSearch already provides real-time web research
+- No clear benefit over existing tool
+- Would cost ~1k tokens for duplicate functionality
 
-**Capabilities**:
-- Real-time web search
-- Up-to-date information beyond training data
-- Research technical questions with current answers
+#### Exa MCP - MARKETING HYPE
+**Why Skipped**: WebSearch already works fine
+- "AI-optimized search" sounds like marketing
+- No evidence of better quality than WebSearch
+- Would cost ~1.5k tokens for unproven benefit
 
-**Installation**:
-```bash
-npm install -g @modelcontextprotocol/server-brave-search
-```
-
-**Configuration**:
-```json
-"brave-search": {
-  "command": "mcp-server-brave-search",
-  "env": {
-    "BRAVE_API_KEY": "your-brave-api-key"
-  }
-}
-```
-
-**Token Impact**: ~1k tokens
-**Status**: ⏳ PENDING INSTALL
-
----
-
-#### 6. Exa MCP - AI-OPTIMIZED SEARCH
-**Value**: 🔥
-**Purpose**: Search engine built specifically for AI agents
-
-**Capabilities**:
-- AI-optimized search results
-- Better context extraction than generic search
-- Technical query optimization
-
-**Installation**:
-```bash
-npm install -g @agentic/exa
-```
-
-**Configuration**:
-```json
-"exa": {
-  "command": "npx",
-  "args": ["-y", "@agentic/exa"],
-  "env": {
-    "EXA_API_KEY": "your-exa-api-key"
-  }
-}
-```
-
-**Token Impact**: ~1.5k tokens
-**Status**: ⏳ PENDING INSTALL
-
----
-
-#### 7. Semgrep MCP - SECURITY ANALYSIS
-**Value**: 🔥
-**Purpose**: Static analysis and vulnerability detection
-
-**Capabilities**:
-- Static code analysis
-- Security vulnerability detection
-- Pattern-based code scanning
-- Complements Tech Scanner MCP
-
-**Installation**:
-```bash
-npm install -g @modelcontextprotocol/server-semgrep
-```
-
-**Configuration**:
-```json
-"semgrep": {
-  "command": "mcp-server-semgrep"
-}
-```
-
-**Token Impact**: ~2k tokens
-**Status**: ⏳ PENDING INSTALL
+#### Semgrep MCP - REDUNDANT
+**Why Skipped**: Can run via Bash, Tech Scanner already exists
+- Can run `semgrep --config auto .` via Bash tool anytime
+- Tech Scanner MCP already provides vulnerability scanning
+- Convenience wrapper not worth ~2k tokens
 
 ---
 
@@ -529,56 +433,45 @@ npm install -g @modelcontextprotocol/server-sqlite
 
 ### Current Setup (Custom MCPs Only)
 - Custom MCPs: 52 tools = ~16k tokens (8% of context)
-- Remaining: 184k tokens (92%)
+- Built-in tools: ~32 tools = ~10k tokens (5% of context)
+- **Total**: 84 tools = ~26k tokens (13% of context)
+- **Remaining**: 174k tokens (87%)
 
-### With Tier 1 (Essential Global MCPs)
+### With External MCPs (Current - Installed)
 - Custom MCPs: 52 tools = ~16k tokens
-- GitHub: 51 tools = ~15k tokens
+- Built-in tools: ~32 tools = ~10k tokens
+- GitHub MCP: 51 tools = ~15k tokens
 - Package Registry: 5 tools = ~1.5k tokens
-- Filesystem: 10 tools = ~3k tokens
-- Containerd: 15 tools = ~5k tokens
-- **Total Tier 1**: 133 tools = **~40.5k tokens (20% of context)**
-- **Remaining**: 159.5k tokens (80%)
-
-### With Tier 1 + Tier 2 (Recommended Setup)
-- Tier 1: ~40.5k tokens
-- Brave Search: ~1k tokens
-- Exa: ~1.5k tokens
-- Semgrep: ~2k tokens
-- **Total**: 145 tools = **~45k tokens (22.5% of context)**
-- **Remaining**: 155k tokens (77.5%)
+- **Total**: 140 tools = **~42.5k tokens (21% of context)**
+- **Remaining**: 157.5k tokens (79%)
 
 ### Per-Project Database MCPs
 - Each database MCP adds: ~2-3k tokens per project
 - Only loaded when working on that specific project
 - Does NOT affect global token budget
+- Configure via `.mcp.json` in project root
 
 ---
 
-## Installation Priority
+## Installation Status
 
-### Phase 1: Core Infrastructure (Do First)
-1. **Containerd MCP** - Replace nerdctl bash commands
-2. **GitHub MCP** - Essential for repository work
-3. **Package Registry MCP** - Instant dependency intelligence
+### ✅ Completed (2025-09-30)
+1. **GitHub MCP** (51 tools, ~15k tokens) - Repository operations
+2. **Package Registry MCP** (5 tools, ~1.5k tokens) - Package intelligence
 
-**Impact**: 71 tools, ~21.5k tokens
+**Total Impact**: 56 tools, ~16.5k tokens
 
-### Phase 2: Enhanced Capabilities (Do Next)
-4. **Filesystem MCP** - Sandboxed file ops with search
-5. **Brave Search MCP** - Real-time research
+### 📚 Documented for Reference (Not Installing)
+- **Containerd MCP** - nerdctl bash commands sufficient
+- **Filesystem MCP** - Built-in Read/Write/Edit sufficient
+- **Brave Search MCP** - WebSearch tool redundant
+- **Exa MCP** - WebSearch tool redundant
+- **Semgrep MCP** - Bash + Tech Scanner redundant
 
-**Impact**: +11 tools, +4k tokens
-
-### Phase 3: Code Quality (Optional)
-6. **Semgrep MCP** - Security analysis
-7. **Exa MCP** - AI-optimized search
-
-**Impact**: +TBD tools, +3.5k tokens
-
-### Phase 4: Per-Project (As Needed)
-- Database MCPs configured per project via `.mcp.json`
-- Only installed/loaded when working on specific projects
+### 🔧 Per-Project (Configure as Needed)
+- Database MCPs (PostgreSQL, MongoDB, Redis, MySQL, Neo4j, SQLite)
+- Configure via `.mcp.json` in project root
+- Only loaded when working on specific projects
 
 ---
 
@@ -700,6 +593,40 @@ npx @modelcontextprotocol/server-github
 - PRISM: `/home/randy/repos/claude_mcp/prism_mcp/CLAUDE.md`
 - Orchestration: `/home/randy/repos/claude_mcp/orchestration_mcp/CLAUDE.md`
 - Tech Scanner: `/home/randy/repos/claude_mcp/tech_scanner_mcp/`
+
+---
+
+## Summary
+
+**Status**: Complete and production-ready ✅
+
+**Current Configuration** (as of 2025-09-30):
+- **Custom MCPs**: 52 tools (PRISM, Orchestration, Tech Scanner)
+- **External MCPs**: 56 tools (GitHub, Package Registry) - ✅ INSTALLED
+- **Built-in Tools**: ~32 tools (Read, Write, Edit, Grep, Bash, etc.)
+- **Total**: 140 tools using ~42.5k tokens (21% of context)
+
+**Token Budget**:
+- Tools: ~42.5k tokens (21%)
+- Available for work: 157.5k tokens (79%)
+- Well within limits, no performance concerns
+
+**What Was Installed**:
+- ✅ GitHub MCP - Repository operations, PRs, CI/CD monitoring
+- ✅ Package Registry MCP - npm/PyPI/Cargo/NuGet package intelligence
+
+**What Was Skipped** (and why):
+- ❌ Containerd MCP - nerdctl bash commands work fine
+- ❌ Filesystem MCP - Built-in Read/Write/Edit tools sufficient
+- ❌ Brave Search, Exa, Semgrep MCPs - Redundant with existing tools
+
+**Performance Outlook**:
+- GitHub MCP: Structured API access > bash `gh` command parsing
+- Package Registry MCP: Instant package data > web scraping
+- ~157k tokens available for actual code and conversation
+- No negative performance impact expected
+
+**Ready for Production**: YES 🚀
 
 ---
 

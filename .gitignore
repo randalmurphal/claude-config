@@ -17,7 +17,6 @@ settings.local.json
 # User-specific configuration
 # settings.json
 preferences/
-.mcp.json
 
 # Session and state files
 statsig/
@@ -82,4 +81,4 @@ confidence_calibration.json
 *.swo
 *~
 
->>>>>>> a24ca076bb2e8b7ea17ba7eefdd04d2aed87940d
+file-history/

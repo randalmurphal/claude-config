@@ -46,6 +46,12 @@ Three modes with distinct behaviors (see output-style for details):
 - **Prelude**: Discovery and spec creation (no implementation)
 - **Conduct**: Orchestrated implementation from spec
 
+**Orchestration Templates:** See `~/.claude/orchestration/` for:
+- PRELUDE_INSTRUCTIONS.md (spike testing, building agent-executable specs)
+- CONDUCT_INSTRUCTIONS.md (executing specs as orchestrator)
+- READY_TEMPLATE.md (format for agent-executable specifications)
+- ORCHESTRATOR_PATTERN.md (patterns and best practices)
+
 ### Artifact Organization
 
 **Discovery artifacts** (during /prelude):

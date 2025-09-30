@@ -3,6 +3,6 @@
     "type": "command",
     "command": "~/.claude/statusline-command.sh"
   },
-  "outputStyle": "daily-driver",
+  "outputStyle": "daily_driver",
   "alwaysThinkingEnabled": true
 }

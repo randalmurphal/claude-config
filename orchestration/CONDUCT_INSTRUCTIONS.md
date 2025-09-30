@@ -11,6 +11,91 @@ Your job:
 - Validate between phases
 - Ensure coherence of final system
 
+## Stateless Orchestration Pattern
+
+**Key Principle:** ALL critical state lives in Redis, not conversation context. This makes orchestration immune to context compaction.
+
+**Why This Matters:**
+- Long tasks hit token limits and get auto-compacted
+- User can `/clear` anytime without losing progress
+- Multi-day tasks can resume seamlessly
+- State survives crashes, restarts, network issues
+
+**Core Pattern:**
+```python
+# Every phase follows this flow:
+def execute_phase(phase):
+    # 1. Load state from Redis (ALWAYS first)
+    state = mcp.get_full_state(task_id)
+
+    # 2. Execute phase work
+    result = do_phase_work(phase)
+
+    # 3. Save result to Redis
+    mcp.save_phase_result(
+        task_id=task_id,
+        phase_num=phase.number,
+        phase_name=phase.name,
+        result_data={
+            'files_created': [...],
+            'tests_passing': True,
+            'validation_output': "...",
+            'gotchas_encountered': [...],
+            'duration_minutes': 45,
+        }
+    )
+
+    # Conversation can compact anytime - state is safe!
+```
+
+**Natural Boundaries:**
+After every 3-4 phases, suggest user clear context:
+```
+## Progress Summary
+Phases 1-3 complete (all green).
+Recommend: `/clear` and `/conduct continue {task_id}` to continue fresh.
+State is safely stored in Redis.
+```
+
+**Multi-Session Workflow:**
+```bash
+# Day 1 - Start work
+/conduct start task_xyz
+[Phases 1-3 complete, ~70k tokens used]
+Orchestrator: "Suggest /clear and continue"
+
+# Clear context
+/clear
+
+# Day 1 - Continue (loads from Redis)
+/conduct continue task_xyz
+[Picks up at Phase 4, continues to Phase 6]
+
+# Day 2 - Resume after overnight
+/conduct continue task_xyz
+[Loads from Redis, continues Phase 7-8]
+```
+
+**State Resumption:**
+```python
+# At start of /conduct continue
+state = mcp.get_full_state(task_id)
+
+print(f"Resuming task: {state['description']}")
+print(f"Phases complete: {len(state['phases_complete'])}")
+print(f"Current phase: {state['current_phase']}")
+
+# Review what's been done
+for phase_num, result in state['phase_results'].items():
+    print(f"  Phase {phase_num}: {result['phase_name']}")
+    print(f"    Files: {result['files_created']}")
+    print(f"    Tests: {'PASS' if result['tests_passing'] else 'FAIL'}")
+
+# Continue from where we left off
+next_phase_num = len(state['phases_complete']) + 1
+continue_execution(next_phase_num)
+```
+
 ## Workflow
 
 ### 1. Initialize
@@ -136,6 +221,22 @@ Fix these issues and re-run tests until they pass.
 
     print(f"✅ Phase {phase.name} complete")
 
+    # Save phase result to Redis (for stateless resumption)
+    phase_result = {
+        'files_created': collect_files_created(phase, project_root),
+        'tests_passing': validation.passed,
+        'validation_output': str(validation.checks),
+        'gotchas_encountered': collect_gotchas(results),
+        'duration_minutes': calculate_duration(phase.start_time),
+    }
+
+    mcp.save_phase_result(
+        task_id=task_id,
+        phase_num=phase.number,
+        phase_name=phase.name,
+        result_data=phase_result
+    )
+
     # If parallel work: merge worktrees
     if len(phase.modules) > 1:
         print(f"\n### Merging {len(phase.modules)} worktrees...")
@@ -180,6 +281,12 @@ Base directory: {project_root}
     )
 
     print(f"📍 Checkpoint created: {checkpoint['id']}")
+
+    # Check if time for context clear (every 3-4 phases)
+    if phase.number % 3 == 0 and phase.number < len(phases):
+        print(f"\n💡 Suggestion: Context getting large ({phase.number} phases complete)")
+        print(f"Consider: `/clear` then `/conduct continue {task_id}` to continue fresh")
+        print(f"All state is saved in Redis - safe to clear anytime")
 ```
 
 ### 3. Final Validation

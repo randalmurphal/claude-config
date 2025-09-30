@@ -1,0 +1,306 @@
+"""
+Data models for technology update tracking.
+
+Defines all data structures for Phase 3: Tech Evolution Monitor.
+"""
+
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import List, Optional
+
+
+@dataclass
+class Technology:
+    """
+    Technology in user's stack.
+
+    Tracks version, sentiment, and check schedule.
+    """
+
+    name: str  # "FastAPI", "PostgreSQL"
+    category: str  # "framework", "database", "language", "tool"
+    current_version: Optional[str] = None  # "0.104.1" (if detected)
+    sentiment: str = 'neutral'  # "prefer", "avoid", "neutral"
+    last_checked: Optional[datetime] = None
+    next_check: Optional[datetime] = None
+    priority: int = 3  # 1-5 (5 = critical, 1 = low priority)
+    source: str = 'tech_opinions'  # "tech_opinions", "project_files", "adrs"
+    user_id: Optional[str] = None
+    project_id: Optional[str] = None
+
+    def __post_init__(self):
+        """Validate fields."""
+        if not self.name:
+            raise RuntimeError('name required')
+        if not self.category:
+            raise RuntimeError('category required')
+        if self.priority < 1 or self.priority > 5:
+            raise RuntimeError('priority must be 1-5')
+        if self.sentiment not in ['prefer', 'avoid', 'neutral']:
+            raise RuntimeError('sentiment must be prefer/avoid/neutral')
+
+    def to_dict(self):
+        """Convert to dictionary."""
+        return {
+            'name': self.name,
+            'category': self.category,
+            'current_version': self.current_version,
+            'sentiment': self.sentiment,
+            'last_checked': self.last_checked.isoformat() if self.last_checked else None,
+            'next_check': self.next_check.isoformat() if self.next_check else None,
+            'priority': self.priority,
+            'source': self.source,
+            'user_id': self.user_id,
+            'project_id': self.project_id,
+        }
+
+
+@dataclass
+class TechUpdate:
+    """
+    Technology update (security, breaking change, deprecation, feature).
+
+    Discovered via web search, cached for 24hrs.
+    """
+
+    update_id: str  # UUID
+    tech_name: str
+    update_type: str  # "security", "breaking", "deprecation", "feature"
+    severity: str  # "critical", "high", "medium", "low"
+    title: str  # "Critical SQL injection vulnerability"
+    summary: str  # Brief description
+    impact: str  # What users need to do
+    release_date: datetime
+    source_url: str  # Link to release notes
+    discovered_at: datetime
+    version_from: Optional[str] = None  # Affected versions
+    version_to: Optional[str] = None  # Fixed in version
+    cve_id: Optional[str] = None  # If security advisory
+
+    def __post_init__(self):
+        """Validate fields (NO DEFAULTS)."""
+        if not self.update_id:
+            raise RuntimeError('update_id required')
+        if not self.tech_name:
+            raise RuntimeError('tech_name required')
+        if not self.update_type:
+            raise RuntimeError('update_type required')
+        if self.update_type not in ['security', 'breaking', 'deprecation', 'feature']:
+            raise RuntimeError('update_type must be security/breaking/deprecation/feature')
+        if not self.severity:
+            raise RuntimeError('severity required')
+        if self.severity not in ['critical', 'high', 'medium', 'low']:
+            raise RuntimeError('severity must be critical/high/medium/low')
+        if not self.title:
+            raise RuntimeError('title required')
+        if not self.summary:
+            raise RuntimeError('summary required')
+        if not self.impact:
+            raise RuntimeError('impact required')
+        if not self.source_url:
+            raise RuntimeError('source_url required')
+
+    def to_dict(self):
+        """Convert to dictionary."""
+        return {
+            'update_id': self.update_id,
+            'tech_name': self.tech_name,
+            'update_type': self.update_type,
+            'severity': self.severity,
+            'title': self.title,
+            'summary': self.summary,
+            'impact': self.impact,
+            'release_date': self.release_date.isoformat(),
+            'source_url': self.source_url,
+            'discovered_at': self.discovered_at.isoformat(),
+            'version_from': self.version_from,
+            'version_to': self.version_to,
+            'cve_id': self.cve_id,
+        }
+
+
+@dataclass
+class CriticalUpdate:
+    """
+    Critical update for quick startup checks (<5s).
+
+    Subset of TechUpdate with only essential fields.
+    """
+
+    tech_name: str
+    severity: str  # "critical" only
+    title: str
+    impact: str  # One-line action item
+    source_url: str
+    cve_id: Optional[str] = None
+
+    def __post_init__(self):
+        """Validate fields."""
+        if not self.tech_name:
+            raise RuntimeError('tech_name required')
+        if self.severity != 'critical':
+            raise RuntimeError('severity must be critical for CriticalUpdate')
+        if not self.title:
+            raise RuntimeError('title required')
+        if not self.impact:
+            raise RuntimeError('impact required')
+        if not self.source_url:
+            raise RuntimeError('source_url required')
+
+    def to_dict(self):
+        """Convert to dictionary."""
+        return {
+            'tech_name': self.tech_name,
+            'severity': self.severity,
+            'title': self.title,
+            'impact': self.impact,
+            'source_url': self.source_url,
+            'cve_id': self.cve_id,
+        }
+
+
+@dataclass
+class ADRLink:
+    """
+    Link between technology update and ADR.
+
+    Connects updates to architectural decisions that referenced the technology.
+    """
+
+    adr_id: str
+    tech_name: str
+    decision: str  # ADR decision summary
+    relevance: float  # 0.0-1.0 (how relevant is update to ADR)
+    impact_assessment: str  # "Decision still valid" / "Reconsider needed"
+
+    def __post_init__(self):
+        """Validate fields."""
+        if not self.adr_id:
+            raise RuntimeError('adr_id required')
+        if not self.tech_name:
+            raise RuntimeError('tech_name required')
+        if not self.decision:
+            raise RuntimeError('decision required')
+        if not self.impact_assessment:
+            raise RuntimeError('impact_assessment required')
+        if not 0.0 <= self.relevance <= 1.0:
+            raise RuntimeError('relevance must be 0.0-1.0')
+
+    def to_dict(self):
+        """Convert to dictionary."""
+        return {
+            'adr_id': self.adr_id,
+            'tech_name': self.tech_name,
+            'decision': self.decision,
+            'relevance': self.relevance,
+            'impact_assessment': self.impact_assessment,
+        }
+
+
+@dataclass
+class UpdateSuggestion:
+    """
+    Actionable suggestion generated from technology updates.
+
+    Proactive recommendations for user based on update severity and ADR context.
+    """
+
+    suggestion_id: str
+    tech_name: str
+    suggestion_type: str  # "upgrade", "security_patch", "migrate", "deprecation_plan"
+    priority: str  # "immediate", "soon", "planned"
+    action: str  # What to do
+    reasoning: str  # Why this matters
+    effort_estimate: str  # "hours", "days", "weeks"
+    related_adrs: List[str] = field(default_factory=list)  # ADR IDs
+
+    def __post_init__(self):
+        """Validate fields."""
+        if not self.suggestion_id:
+            raise RuntimeError('suggestion_id required')
+        if not self.tech_name:
+            raise RuntimeError('tech_name required')
+        if not self.suggestion_type:
+            raise RuntimeError('suggestion_type required')
+        if self.suggestion_type not in [
+            'upgrade',
+            'security_patch',
+            'migrate',
+            'deprecation_plan',
+        ]:
+            raise RuntimeError(
+                'suggestion_type must be upgrade/security_patch/migrate/deprecation_plan'
+            )
+        if not self.priority:
+            raise RuntimeError('priority required')
+        if self.priority not in ['immediate', 'soon', 'planned']:
+            raise RuntimeError('priority must be immediate/soon/planned')
+        if not self.action:
+            raise RuntimeError('action required')
+        if not self.reasoning:
+            raise RuntimeError('reasoning required')
+        if not self.effort_estimate:
+            raise RuntimeError('effort_estimate required')
+        if self.effort_estimate not in ['hours', 'days', 'weeks']:
+            raise RuntimeError('effort_estimate must be hours/days/weeks')
+
+    def to_dict(self):
+        """Convert to dictionary."""
+        return {
+            'suggestion_id': self.suggestion_id,
+            'tech_name': self.tech_name,
+            'suggestion_type': self.suggestion_type,
+            'priority': self.priority,
+            'action': self.action,
+            'reasoning': self.reasoning,
+            'effort_estimate': self.effort_estimate,
+            'related_adrs': self.related_adrs,
+        }
+
+
+@dataclass
+class ScanResult:
+    """
+    Result of background technology scan.
+
+    Summary of what was scanned and what was found.
+    """
+
+    scan_id: str
+    user_id: str
+    started_at: datetime
+    completed_at: datetime
+    technologies_scanned: int
+    updates_found: int
+    critical_count: int
+    high_count: int
+    medium_count: int
+    low_count: int
+    errors: List[str] = field(default_factory=list)
+
+    def __post_init__(self):
+        """Validate fields."""
+        if not self.scan_id:
+            raise RuntimeError('scan_id required')
+        if not self.user_id:
+            raise RuntimeError('user_id required')
+        if self.technologies_scanned < 0:
+            raise RuntimeError('technologies_scanned must be >= 0')
+        if self.updates_found < 0:
+            raise RuntimeError('updates_found must be >= 0')
+
+    def to_dict(self):
+        """Convert to dictionary."""
+        return {
+            'scan_id': self.scan_id,
+            'user_id': self.user_id,
+            'started_at': self.started_at.isoformat(),
+            'completed_at': self.completed_at.isoformat(),
+            'technologies_scanned': self.technologies_scanned,
+            'updates_found': self.updates_found,
+            'critical_count': self.critical_count,
+            'high_count': self.high_count,
+            'medium_count': self.medium_count,
+            'low_count': self.low_count,
+            'errors': self.errors,
+        }

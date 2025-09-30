@@ -1,0 +1,405 @@
+"""
+Bootstrap script: Index all documentation files into PRISM.
+
+Indexes:
+- CLAUDE.md files (project + global)
+- README.md files
+- docs/ directories
+- All .md, .rst, .txt files
+
+Stores as ANCHORS tier (never expires) for exploration queries.
+
+NO DEFAULTS - fail loud on errors.
+"""
+
+import logging
+import argparse
+from pathlib import Path
+from typing import List, Set
+import sys
+
+from prism_mcp.services.project_indexer import ProjectIndexer
+from prism_mcp.core.orchestrator import get_orchestrator
+from prism_mcp.utils.config import get_config
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+
+class DocumentationIndexer:
+    """
+    Index all documentation files in project for semantic search.
+
+    Handles:
+    - Project-specific docs (CLAUDE.md, README.md, docs/)
+    - Global docs (~/.claude/CLAUDE.md)
+    - Markdown, RST, TXT files
+    - Stores as ANCHORS tier (permanent)
+    """
+
+    def __init__(self):
+        """Initialize documentation indexer."""
+        self.config = get_config()
+        self.orchestrator = get_orchestrator()
+
+        # Get storage manager from orchestrator
+        self.storage_manager = self.orchestrator.memory_engine
+
+        self.project_indexer = ProjectIndexer(self.storage_manager)
+
+        logger.info("DocumentationIndexer initialized")
+
+    def index_project_docs(
+        self,
+        project_root: str,
+        project_id: str,
+        session_id: str = "doc_indexing"
+    ) -> dict:
+        """
+        Index all documentation in a project.
+
+        Args:
+            project_root: Root directory of project
+            project_id: Project identifier
+            session_id: Session ID for indexing
+
+        Returns:
+            {
+                "files_indexed": 42,
+                "memories_created": 156,
+                "errors": 2
+            }
+        """
+        if not project_root:
+            raise RuntimeError("project_root required")
+        if not project_id:
+            raise RuntimeError("project_id required")
+
+        project_path = Path(project_root).resolve()
+        if not project_path.exists():
+            raise RuntimeError(f"Project root does not exist: {project_root}")
+
+        logger.info(f"Indexing documentation for project {project_id} at {project_path}")
+
+        # Find all documentation files
+        doc_files = self._discover_docs(project_path)
+        logger.info(f"Found {len(doc_files)} documentation files")
+
+        if not doc_files:
+            logger.warning(f"No documentation files found in {project_path}")
+            return {
+                "files_indexed": 0,
+                "memories_created": 0,
+                "errors": 0
+            }
+
+        # Index using ProjectIndexer
+        progress = self.project_indexer.index_project(
+            root_dir=str(project_path),
+            project_id=project_id,
+            session_id=session_id,
+            include_docs=True,
+            include_tests=False,
+            max_file_size_kb=1000,  # Allow larger docs
+            batch_size=10
+        )
+
+        # Promote all documentation memories to ANCHORS tier
+        self._promote_docs_to_anchors(project_id, session_id)
+
+        logger.info(
+            f"Documentation indexing complete: {progress.indexed_memories} memories, "
+            f"{progress.errors} errors"
+        )
+
+        return {
+            "files_indexed": len(doc_files),
+            "memories_created": progress.indexed_memories,
+            "errors": progress.errors
+        }
+
+    def index_global_docs(
+        self,
+        session_id: str = "doc_indexing"
+    ) -> dict:
+        """
+        Index global documentation (~/.claude/CLAUDE.md, etc).
+
+        Args:
+            session_id: Session ID for indexing
+
+        Returns:
+            {
+                "files_indexed": 3,
+                "memories_created": 45,
+                "errors": 0
+            }
+        """
+        global_paths = [
+            Path.home() / ".claude" / "CLAUDE.md",
+            Path.home() / ".claude" / "README.md",
+            Path.home() / ".claude" / "docs"
+        ]
+
+        total_files = 0
+        total_memories = 0
+        total_errors = 0
+
+        for path in global_paths:
+            if not path.exists():
+                logger.debug(f"Skipping non-existent path: {path}")
+                continue
+
+            if path.is_file():
+                # Index single file
+                result = self._index_single_doc(path, "global_claude_config", session_id)
+                total_files += 1
+                total_memories += result["memories_created"]
+                total_errors += result["errors"]
+
+            elif path.is_dir():
+                # Index directory
+                result = self.index_project_docs(
+                    project_root=str(path),
+                    project_id="global_claude_config",
+                    session_id=session_id
+                )
+                total_files += result["files_indexed"]
+                total_memories += result["memories_created"]
+                total_errors += result["errors"]
+
+        logger.info(
+            f"Global documentation indexed: {total_files} files, "
+            f"{total_memories} memories, {total_errors} errors"
+        )
+
+        return {
+            "files_indexed": total_files,
+            "memories_created": total_memories,
+            "errors": total_errors
+        }
+
+    def _discover_docs(self, root_path: Path) -> Set[Path]:
+        """
+        Discover all documentation files in project.
+
+        Includes:
+        - CLAUDE.md anywhere in tree
+        - README.md in root and subdirs
+        - docs/ directory contents
+        - All .md, .rst, .txt files (excluding test/node_modules/etc)
+
+        Args:
+            root_path: Project root
+
+        Returns:
+            Set of documentation file paths
+        """
+        doc_files = set()
+
+        # Skip these directories
+        skip_dirs = {
+            'node_modules', '.git', '.venv', 'venv', '__pycache__',
+            'build', 'dist', '.pytest_cache', '.mypy_cache', '.tox',
+            'coverage', '.coverage', 'htmlcov', '.eggs',
+            'target', 'bin', 'obj', '.next', '.nuxt', 'out',
+            'logs', 'tmp', 'temp', 'cache', '.cache'
+        }
+
+        doc_extensions = {'.md', '.rst', '.txt', '.adoc'}
+
+        for path in root_path.rglob('*'):
+            # Skip unwanted directories
+            if any(skip in path.parts for skip in skip_dirs):
+                continue
+
+            # Skip test files
+            if 'test' in path.name.lower():
+                continue
+
+            # Check if it's a doc file
+            if path.is_file() and path.suffix.lower() in doc_extensions:
+                doc_files.add(path)
+
+        return doc_files
+
+    def _index_single_doc(
+        self,
+        file_path: Path,
+        project_id: str,
+        session_id: str
+    ) -> dict:
+        """
+        Index a single documentation file.
+
+        Args:
+            file_path: Path to doc file
+            project_id: Project identifier
+            session_id: Session ID
+
+        Returns:
+            {"memories_created": N, "errors": N}
+        """
+        try:
+            content = file_path.read_text(encoding='utf-8', errors='ignore')
+
+            # Use ProjectIndexer's doc indexing
+            memories = self.project_indexer._index_documentation(
+                content=content,
+                rel_path=Path(file_path.name),
+                project_id=project_id,
+                session_id=session_id
+            )
+
+            # Store memories
+            for memory_data in memories:
+                try:
+                    self.storage_manager.store_memory(**memory_data)
+                except Exception as e:
+                    logger.error(f"Error storing memory from {file_path}: {e}")
+
+            logger.info(f"Indexed {file_path}: {len(memories)} memories")
+
+            return {
+                "memories_created": len(memories),
+                "errors": 0
+            }
+
+        except Exception as e:
+            logger.error(f"Error indexing {file_path}: {e}")
+            return {
+                "memories_created": 0,
+                "errors": 1
+            }
+
+    def _promote_docs_to_anchors(self, project_id: str, session_id: str):
+        """
+        Promote all documentation memories to ANCHORS tier.
+
+        Documentation should never expire - always available for exploration.
+
+        Args:
+            project_id: Project identifier
+            session_id: Session ID used for indexing
+        """
+        try:
+            # Query Neo4j for all documentation memories from this session
+            query = """
+            MATCH (m:Memory)
+            WHERE m.project_id = $project_id
+              AND m.session_id = $session_id
+              AND m.memory_type IN ['research_note', 'documentation']
+              AND m.tier != 'ANCHORS'
+            RETURN m.memory_id as memory_id
+            """
+
+            results = self.orchestrator.memory_engine.neo4j.query(
+                query,
+                project_id=project_id,
+                session_id=session_id
+            )
+
+            # Promote each memory
+            promoted_count = 0
+            for record in results:
+                memory_id = record['memory_id']
+
+                # Update tier in Neo4j
+                update_query = """
+                MATCH (m:Memory {memory_id: $memory_id})
+                SET m.tier = 'ANCHORS'
+                """
+                self.orchestrator.memory_engine.neo4j.query(
+                    update_query,
+                    memory_id=memory_id
+                )
+
+                promoted_count += 1
+
+            logger.info(f"Promoted {promoted_count} documentation memories to ANCHORS tier")
+
+        except Exception as e:
+            logger.error(f"Error promoting docs to ANCHORS: {e}")
+
+
+def main():
+    """Bootstrap documentation indexing."""
+    parser = argparse.ArgumentParser(
+        description="Index all documentation files into PRISM"
+    )
+    parser.add_argument(
+        '--project-root',
+        type=str,
+        help='Project root directory (default: current directory)'
+    )
+    parser.add_argument(
+        '--project-id',
+        type=str,
+        help='Project identifier (default: directory name)'
+    )
+    parser.add_argument(
+        '--include-global',
+        action='store_true',
+        help='Also index global ~/.claude/ documentation'
+    )
+    parser.add_argument(
+        '--session-id',
+        type=str,
+        default='doc_indexing',
+        help='Session ID for indexing (default: doc_indexing)'
+    )
+
+    args = parser.parse_args()
+
+    # Determine project root
+    if args.project_root:
+        project_root = Path(args.project_root).resolve()
+    else:
+        project_root = Path.cwd()
+
+    # Determine project ID
+    if args.project_id:
+        project_id = args.project_id
+    else:
+        project_id = project_root.name
+
+    try:
+        indexer = DocumentationIndexer()
+
+        # Index project docs
+        logger.info(f"=== Indexing project: {project_id} ===")
+        project_result = indexer.index_project_docs(
+            project_root=str(project_root),
+            project_id=project_id,
+            session_id=args.session_id
+        )
+
+        print(f"\nProject Documentation Indexed:")
+        print(f"  Files: {project_result['files_indexed']}")
+        print(f"  Memories: {project_result['memories_created']}")
+        print(f"  Errors: {project_result['errors']}")
+
+        # Index global docs if requested
+        if args.include_global:
+            logger.info("=== Indexing global documentation ===")
+            global_result = indexer.index_global_docs(session_id=args.session_id)
+
+            print(f"\nGlobal Documentation Indexed:")
+            print(f"  Files: {global_result['files_indexed']}")
+            print(f"  Memories: {global_result['memories_created']}")
+            print(f"  Errors: {global_result['errors']}")
+
+        print("\n✓ Documentation indexing complete")
+        sys.exit(0)
+
+    except Exception as e:
+        logger.error(f"Fatal error during indexing: {e}", exc_info=True)
+        print(f"\n✗ Indexing failed: {e}")
+        sys.exit(1)
+
+
+if __name__ == '__main__':
+    main()

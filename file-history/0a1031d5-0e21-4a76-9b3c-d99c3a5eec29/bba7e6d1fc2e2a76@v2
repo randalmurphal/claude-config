@@ -1,0 +1,248 @@
+# PRISM + Orchestration MCP - Claude Code Enhancement System
+
+## Overview
+
+A comprehensive ecosystem that enhances Claude Code with intelligent pattern recognition, preference learning, and multi-agent workflow management. The system learns from YOUR codebases and corrections, not generic public patterns.
+
+## Core Capabilities
+
+### PRISM MCP - Pattern Recognition & Intelligent Memory
+
+- **6-Stage Intelligent Retrieval**: Semantic → Graph → Context → Temporal → Diversity → Scoring
+- **4-Tier Memory System**: ANCHORS → LONGTERM → EPISODIC → WORKING with automatic promotion
+- **Preference Learning**: Multi-signal effectiveness tracking with temporal decay
+- **Performance Modes**: Lightning (<100ms) → Fast (<500ms) → Balanced (<2s) → Comprehensive (<20s)
+- **Tier 0 (PREMIUM_API)**: Zero GPU, SOTA quality via Voyage AI + Jina AI APIs
+- **Your Patterns**: Learns from YOUR repos, YOUR corrections, YOUR preferences
+
+### Orchestration MCP - Multi-Agent Workflow Management
+
+- **Sub-Agent Discovery**: Automatic detection of `~/.claude/agents/*.md` definitions
+- **Phase-Aware Output Styles**: Automatic style switching (prepare/skeleton/implementation/validation)
+- **Context Patterns**: Research-backed patterns for agent coordination
+- **PRISM Integration**: Semantic filtering and memory sharing across workflows
+
+### Claude Code Integration
+
+- **CLAUDE.md Bidirectional Sync**: High-performing preferences ↔ documentation
+- **Hook Integration**: PreToolUse pattern injection + PostToolUse learning
+- **Real-Time Learning**: System learns from your corrections and preferences
+- **Seamless Experience**: Works with existing Claude Code workflows
+
+### Developer Experience
+
+- **Zero GPU Required**: Tier 0 uses API embeddings (Voyage + Jina)
+- **Enhanced Error Messages**: Every error includes specific solutions and fix guidance
+- **Comprehensive Health Monitoring**: Real-time system status and performance metrics
+- **Learn from YOUR Code**: Index your repos, not generic public patterns
+
+## Quick Start
+
+```bash
+# 1. Get API keys (free tiers)
+# Voyage: https://www.voyageai.com/ (200M tokens free)
+# Jina: https://jina.ai/ (10M tokens free)
+
+# 2. Start databases
+cd prism_mcp
+nerdctl run -d --name prism-neo4j --network host \
+  -e NEO4J_AUTH=neo4j/prism_neo4j_2024 \
+  -e NEO4J_PLUGINS='["graph-data-science"]' \
+  neo4j:5.13-community
+
+nerdctl run -d --name prism-qdrant --network host \
+  qdrant/qdrant:v1.7.4
+
+nerdctl run -d --name prism-redis --network host \
+  redis:8-alpine redis-server --port 6379
+
+# 3. Configure Tier 0 in config/config.yaml:
+#   models:
+#     manual_tier: 0
+#     api_providers:
+#       voyage: {enabled: true}
+#       jina: {enabled: true}
+
+# 4. Start PRISM (no model downloads needed!)
+VOYAGE_API_KEY="your-key" JINA_API_KEY="your-key" \
+  python -m prism_mcp.interfaces.http_api --port 8090
+```
+
+## System Architecture
+
+### Core Components
+
+**PRISM MCP** (`prism_mcp/`)
+- **Core Engines**: Memory, retrieval, preferences, pattern detection
+- **Storage Layer**: Qdrant (vectors), Neo4j (graph), Redis (cache)
+- **Model System**: Tier 0 (Voyage API) or Tier 1-4 (local models)
+- **Integrations**: Claude Code hooks, CLAUDE.md sync, enhanced error handling
+- **See**: `prism_mcp/CLAUDE.md` for AI agent technical guide
+
+**Orchestration MCP** (`orchestration_mcp/`)
+- **Services**: Sub-agent discovery, output style management
+- **Integration**: PRISM semantic filtering and context sharing
+- **Workflow Management**: Phase-aware agent coordination
+- **See**: `orchestration_mcp/CLAUDE.md` for orchestration guide
+
+**Database Infrastructure**
+- **Neo4j 5.13**: Graph database with GDS plugin (port 7688)
+- **Qdrant 1.7.4**: Vector database for embeddings (port 6333)
+- **Redis 8**: Session cache and query caching (port 6379)
+
+### Integration Points
+
+1. **Claude Code MCP Settings**: Standard MCP configuration in `~/.config/claude/mcp_config.json`
+2. **Hook Integration**: Optional PreToolUse/PostToolUse hooks for real-time learning
+3. **CLAUDE.md Sync**: Bidirectional preference ↔ documentation synchronization
+4. **Codebase Indexing**: Index YOUR repos to learn YOUR patterns
+
+## Management & Operations
+
+### Daily Operations
+```bash
+# Start PRISM API server
+VOYAGE_API_KEY="key" JINA_API_KEY="key" \
+  python -m prism_mcp.interfaces.http_api --port 8090
+
+# Index your codebase
+python -m prism_mcp.core.index_manager /path/to/your/project
+
+# Check health
+curl http://localhost:8090/health
+```
+
+### System Monitoring
+```bash
+# Comprehensive status
+curl -H "Authorization: Bearer prism_development_key_2024" \
+  http://localhost:8090/api/health/detailed
+
+# Database logs
+nerdctl logs prism-neo4j
+nerdctl logs prism-qdrant
+nerdctl logs prism-redis
+```
+
+## Key Capabilities
+
+### For Developers
+- **Learn from YOUR Code**: Index your repos, not generic patterns
+- **Zero GPU**: Tier 0 uses APIs, no VRAM required
+- **Correction Learning**: Fix Claude's mistakes once, PRISM remembers
+- **Preference Tracking**: Your style choices become automatic
+
+### For AI Agents
+- **Rich Memory System**: 4-tier memory with automatic promotion
+- **High-Performance Retrieval**: 4 modes optimized for latency needs
+- **Preference Learning**: Multi-signal effectiveness tracking
+- **Comprehensive APIs**: 25+ MCP tools for pattern detection and memory
+
+### For Teams
+- **Shared Learning**: Preferences shareable via CLAUDE.md files
+- **Comprehensive Error Handling**: Detailed error messages with solutions
+- **API or Local**: Choose Tier 0 (API) or Tier 1-4 (local models)
+- **Observable**: Detailed metrics and logging
+
+## Why Not Generic Patterns?
+
+**Claude already trained on millions of lines of Django, Flask, FastAPI, etc.**
+
+Loading generic public patterns = teaching Claude what it already knows.
+
+**PRISM's real value:**
+- **YOUR private codebases** (conventions Claude never saw)
+- **YOUR corrections** (stop making same mistakes)
+- **YOUR preferences** (style choices not in training data)
+
+## Tier Options
+
+**Tier 0 (PREMIUM_API)** - Recommended
+- Zero GPU memory required
+- Voyage AI + Jina AI embeddings/reranking
+- SOTA quality (+14.5% recall vs OpenAI)
+- ~200M free tokens (2+ years of use)
+
+**Tier 1 (FULL)** - Privacy-critical
+- Requires 24GB VRAM
+- E5-Mistral + StarCoder2 + BGE-Reranker
+- All processing local
+- No API calls
+
+**Tier 2-5**: Degraded local tiers for lower VRAM
+
+## Documentation
+
+### For Users
+- **[prism_mcp/README.md](prism_mcp/README.md)** - Complete setup and usage guide
+- **Configuration**: `config/config.yaml` - All system settings
+
+### For AI Agents
+- **[prism_mcp/CLAUDE.md](prism_mcp/CLAUDE.md)** - Technical architecture and API guide
+- **[orchestration_mcp/CLAUDE.md](orchestration_mcp/CLAUDE.md)** - Workflow orchestration guide
+
+### For Developers
+- **[prism_mcp/docs/IMPLEMENTATION_NOTES.md](prism_mcp/docs/IMPLEMENTATION_NOTES.md)** - Development notes
+- **API Documentation**: 25+ MCP tools with detailed parameters
+
+## Security Features
+
+- **Authentication**: API key protection for all endpoints
+- **Local Processing**: All data stays on your machine (Tier 1-5)
+- **API Mode**: Optional cloud processing (Tier 0)
+- **Secure Defaults**: Secure random password generation
+- **Input Validation**: Comprehensive validation for all inputs
+- **NO DEFAULTS Philosophy**: System fails securely
+
+## Design Principles
+
+- **NO DEFAULTS**: System crashes loudly rather than degrading silently
+- **Reliability First**: Built for operational excellence
+- **Developer Experience**: Zero-friction setup and comprehensive error guidance
+- **Performance Aware**: Automatic resource detection and optimization
+- **Learning System**: Continuously improves from user interactions
+
+## Integration with Claude Code
+
+### Add to MCP Configuration
+
+```json
+{
+  "mcpServers": {
+    "prism": {
+      "command": "python",
+      "args": ["-m", "prism_mcp.interfaces.mcp_server"],
+      "cwd": "/path/to/claude_mcp/prism_mcp",
+      "env": {
+        "VOYAGE_API_KEY": "your-voyage-key",
+        "JINA_API_KEY": "your-jina-key"
+      }
+    },
+    "orchestration": {
+      "command": "python",
+      "args": ["-m", "orchestration_mcp.mcp_server"],
+      "cwd": "/path/to/claude_mcp/orchestration_mcp"
+    }
+  }
+}
+```
+
+### Test Integration
+
+```bash
+# Verify system health
+curl http://localhost:8090/health
+
+# Test via Claude Code
+claude "Show me system status and memory tiers"
+claude "Index my project at /path/to/project"
+claude "Remember: In our codebase, we prefer explicit error handling"
+```
+
+## Current Status
+
+✅ **Production Ready**: System 100% functional, Tier 0 configured
+✅ **Databases**: Neo4j 5.13, Qdrant 1.7.4, Redis 8 running
+✅ **Tier 0 Active**: Voyage + Jina APIs configured, zero GPU usage
+✅ **Documentation**: Updated to reflect codebase indexing approach
+✅ **Generic Patterns Removed**: Focus on YOUR code, not public repos

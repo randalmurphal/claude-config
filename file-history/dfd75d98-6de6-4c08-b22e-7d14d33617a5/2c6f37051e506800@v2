@@ -1,0 +1,28 @@
+"""Unit tests for validator module."""
+
+import pytest
+from pathlib import Path
+from validator import validate_file, validate_directory, ValidationError
+
+
+class TestValidateFile:
+    """Tests for validate_file function."""
+
+    def test_valid_json(self):
+        """Test validation of valid JSON file."""
+        # TODO: Implementation
+        pass
+
+    def test_invalid_json(self):
+        """Test validation of invalid JSON file."""
+        # TODO: Implementation
+        pass
+
+
+class TestValidateDirectory:
+    """Tests for validate_directory function."""
+
+    def test_empty_directory(self):
+        """Test validation of empty directory."""
+        # TODO: Implementation
+        pass

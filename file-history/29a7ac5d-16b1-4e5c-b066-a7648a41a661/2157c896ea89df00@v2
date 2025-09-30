@@ -1,0 +1,149 @@
+# Orchestration Testing - Status Update After Restart
+
+## What I Found and Fixed
+
+### Critical Bug Fixed ✅
+**Issue #12:** `OrchestrationConfig` object has no attribute `get`
+- **Problem:** workflow_coordinator was calling `self.config.get("coverage_threshold", 0.90)`
+- **Root Cause:** Config is a Pydantic BaseModel, not a dict - has no `.get()` method
+- **Fix:** Use hardcoded 0.90 threshold (matches workflows.yaml requirements anyway)
+- **Status:** ✅ **COMMITTED** (commit 885d56c)
+
+This was **blocking all validation** - the code would crash before ValidationRunner could even be initialized.
+
+## Current Status
+
+### Ready to Test (Need One More Restart)
+Now that the config bug is fixed, we can actually test if validation works:
+1. ✅ Fixed config.get() crash
+2. ⏳ Ready to test real validation (pytest/ruff/imports)
+3. ⏳ Ready to test checkpoint creation
+4. ⏳ Ready to test validation blocking
+
+### Still Needs Work (Can Fix After Validation Test)
+1. **Agent contexts too generic** (Issue #6)
+   - Agents don't see READY.md requirements/approach/gotchas
+   - Would need to:
+     - Store `spec` variable outside try block (line 212)
+     - Pass `spec` to `_build_agent_context` (line 261)
+     - Add requirements/approach/gotchas to PRIMARY context
+   - **Impact:** Agents implementing blind without full context
+   - **Priority:** HIGH but not blocking
+
+2. **Documentation fixes** (Issues #1, #4, #5, #8)
+   - Complexity enum docs
+   - Missing tool references
+   - Phase name mismatches
+   - **Priority:** MEDIUM
+
+## Recommended Next Steps
+
+### Immediate (Do Now)
+1. **Restart Claude Code again** (to pick up config fix)
+2. **Re-test skeleton finalize** - should validate imports this time
+3. **Check for checkpoint commit** - should create git commit
+4. **Build implementation with failing test**
+5. **Verify validation BLOCKS** - can't proceed with failures
+
+### After Validation Test Works
+6. Fix agent contexts to include READY.md details
+7. Fix documentation mismatches
+8. Test full workflow end-to-end
+9. Test advanced features (worktrees, rollback, decomposition)
+
+## Test Plan (After Restart)
+
+```python
+# Step 1: Finalize skeleton (should ACTUALLY validate now)
+result = mcp__orchestration__finalize_phase(
+    task_id="a7561e6e-0573-4dd7-a0af-67324221c170",
+    phase="skeleton",
+    validator_output={"complete": true},  # Should be ignored!
+    working_directory="/tmp/test_orchestration"
+)
+
+# Expected:
+# - Runs ValidationRunner.validate_phase("skeleton", ...)
+# - Checks imports with compileall
+# - Returns {"success": true, "validation": {"passed": true, ...}, "checkpoint": {...}}
+# - Creates git commit with "CHECKPOINT: skeleton" message
+
+# Step 2: Check git log for checkpoint
+$ cd /tmp/test_orchestration && git log --oneline
+# Should see: CHECKPOINT: skeleton - Task a7561e6e
+
+# Step 3: Build implementation with FAILING test
+# (I'll create this manually)
+
+# Step 4: Finalize implementation (should BLOCK)
+result = mcp__orchestration__finalize_phase(
+    task_id="a7561e6e-0573-4dd7-a0af-67324221c170",
+    phase="implementation",
+    validator_output={"complete": true},  # Should be ignored!
+    working_directory="/tmp/test_orchestration"
+)
+
+# Expected:
+# - Runs pytest and finds failing test
+# - Returns {"success": false, "can_proceed": false, "validation": {"passed": false, ...}}
+# - NO checkpoint created
+# - Evolution Log updated in READY.md
+
+# Step 5: Fix tests and retry
+# (Fix the test)
+# Re-run finalize_phase
+# Expected: Now passes, creates checkpoint
+
+# Step 6: Complete workflow
+result = mcp__orchestration__complete_task(
+    task_id="a7561e6e-0573-4dd7-a0af-67324221c170",
+    commit_changes=true,
+    summary="Completed task queue system"
+)
+```
+
+## What We Know Works
+- ✅ start_task with complexity detection
+- ✅ prepare_phase creates agent contexts
+- ✅ Git repository integration
+- ✅ READY.md parsing
+- ✅ Redis/Neo4j connectivity
+- ✅ WorkflowCoordinator loads workflows.yaml
+- ✅ ValidationRunner implementation (just wasn't being called)
+- ✅ CheckpointManager implementation (just wasn't being called)
+
+## What We Need to Verify
+- ⏳ ValidationRunner actually runs (was crashing on config.get())
+- ⏳ Checkpoints actually created
+- ⏳ Validation blocking actually works
+- ⏳ Evolution Log updates on failures
+- ⏳ Full workflow from skeleton → implementation → testing → complete
+
+## Known Issues Summary
+
+### P0 - Blocking (FIXED)
+- ✅ **Issue #12:** config.get() crash - **FIXED**
+
+### P1 - High Priority (Can fix after validation test)
+- **Issue #6:** Agent contexts missing READY.md details
+- **Issue #5:** "architecture" phase in docs but maybe not supported (need to test)
+
+### P2 - Medium Priority (Documentation)
+- **Issue #1:** Complexity enum docs wrong ("auto" vs actual enum)
+- **Issue #4:** analyze_task_complexity not exposed as standalone
+- **Issue #8:** validate_phase not exposed as standalone
+
+### P3 - Low Priority (Polish)
+- **Issue #7:** Duplicate agents created
+- **Issue #10:** Redis port issues on reboot
+- **Issue #11:** Neo4j startup delay
+
+## Bottom Line
+
+**One critical bug fixed that was blocking everything.**
+
+**After one more restart, we can actually test if the V2 validation system works.**
+
+**Agent contexts need improvement but that's not blocking validation testing.**
+
+Ready to restart and test for real?

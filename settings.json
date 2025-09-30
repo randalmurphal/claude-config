@@ -1,7 +1,8 @@
 {
-  "model": "sonnet",
   "statusLine": {
     "type": "command",
     "command": "~/.claude/statusline-command.sh"
-  }
+  },
+  "outputStyle": "daily-driver",
+  "alwaysThinkingEnabled": true
 }

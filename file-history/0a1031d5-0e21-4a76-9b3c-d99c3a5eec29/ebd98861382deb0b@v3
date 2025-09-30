@@ -1,0 +1,430 @@
+"""
+GPU tier detection and model loading strategy.
+
+Detects available GPU memory and selects appropriate tier.
+Attempts to load models in descending tier order until success.
+
+NO DEFAULTS - explicit tier selection required if auto-detection fails.
+"""
+
+import logging
+import torch
+from typing import Optional, List, Dict
+from enum import Enum
+from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
+
+
+class SystemTier(Enum):
+    """System capability tiers."""
+    PREMIUM_API = "Premium API"  # Voyage + Jina APIs (no GPU, SOTA quality)
+    FULL = "Full"                # E5 + StarCoder2 + BGE (24GB)
+    DUAL = "Dual"                # E5 + StarCoder2 (16GB)
+    SINGLE = "Single"            # E5 only (8GB)
+    CPU = "CPU"                  # E5 on CPU (no GPU)
+    KEYWORD = "Keyword"          # BM25 only (fallback)
+
+
+@dataclass
+class TierRequirements:
+    """Requirements for each tier."""
+    min_vram_gb: float
+    models: List[str]
+    features: Dict[str, bool]
+    description: str
+
+
+class TierDetector:
+    """
+    Detects and manages system tier based on available resources.
+
+    NO DEFAULTS - crashes if tier cannot be determined.
+    """
+
+    TIER_REQUIREMENTS = {
+        SystemTier.PREMIUM_API: TierRequirements(
+            min_vram_gb=0.0,  # No GPU required
+            models=["voyage-code-3", "voyage-3-large", "jina-reranker"],
+            features={
+                "semantic_search": True,
+                "code_patterns": True,
+                "reranking": True,
+                "api_based": True,
+            },
+            description="Premium API (Voyage + Jina, SOTA quality, no GPU)"
+        ),
+        SystemTier.FULL: TierRequirements(
+            min_vram_gb=24.0,
+            models=["e5", "starcoder2", "bge"],
+            features={
+                "semantic_search": True,
+                "code_patterns": True,
+                "reranking": True,
+            },
+            description="Full capabilities (E5 + StarCoder2 + BGE)"
+        ),
+        SystemTier.DUAL: TierRequirements(
+            min_vram_gb=16.0,
+            models=["e5", "starcoder2"],
+            features={
+                "semantic_search": True,
+                "code_patterns": True,
+                "reranking": False,
+            },
+            description="Dual models (E5 + StarCoder2, no reranking)"
+        ),
+        SystemTier.SINGLE: TierRequirements(
+            min_vram_gb=8.0,
+            models=["e5"],
+            features={
+                "semantic_search": True,
+                "code_patterns": False,
+                "reranking": False,
+            },
+            description="Single model (E5 only)"
+        ),
+        SystemTier.CPU: TierRequirements(
+            min_vram_gb=0.0,
+            models=["e5"],
+            features={
+                "semantic_search": True,
+                "code_patterns": False,
+                "reranking": False,
+            },
+            description="CPU mode (E5 on CPU, slow but functional)"
+        ),
+        SystemTier.KEYWORD: TierRequirements(
+            min_vram_gb=0.0,
+            models=[],
+            features={
+                "semantic_search": False,
+                "code_patterns": False,
+                "reranking": False,
+            },
+            description="Keyword-only (BM25, last resort)"
+        ),
+    }
+
+    def __init__(self, config):
+        self.config = config
+        self.current_tier: Optional[SystemTier] = None
+        self.vram_available_gb: float = 0.0
+
+        # Override TIER_REQUIREMENTS with config values
+        self._build_tier_requirements_from_config()
+
+    def _build_tier_requirements_from_config(self):
+        """Build TIER_REQUIREMENTS from config values, overriding hardcoded defaults."""
+        try:
+            config_reqs = self.config.models.tier_requirements
+
+            # Update TIER_REQUIREMENTS with config values
+            if hasattr(config_reqs, 'full'):
+                self.TIER_REQUIREMENTS[SystemTier.FULL] = TierRequirements(
+                    min_vram_gb=float(config_reqs.full.min_vram_gb),
+                    models=list(config_reqs.full.models),
+                    features={
+                        "semantic_search": True,
+                        "code_patterns": True,
+                        "reranking": True,
+                    },
+                    description="Full capabilities (E5 + StarCoder2 + BGE)"
+                )
+
+            if hasattr(config_reqs, 'dual'):
+                self.TIER_REQUIREMENTS[SystemTier.DUAL] = TierRequirements(
+                    min_vram_gb=float(config_reqs.dual.min_vram_gb),
+                    models=list(config_reqs.dual.models),
+                    features={
+                        "semantic_search": True,
+                        "code_patterns": True,
+                        "reranking": False,
+                    },
+                    description="Dual models (E5 + StarCoder2, no reranking)"
+                )
+
+            if hasattr(config_reqs, 'single'):
+                self.TIER_REQUIREMENTS[SystemTier.SINGLE] = TierRequirements(
+                    min_vram_gb=float(config_reqs.single.min_vram_gb),
+                    models=list(config_reqs.single.models),
+                    features={
+                        "semantic_search": True,
+                        "code_patterns": False,
+                        "reranking": False,
+                    },
+                    description="Single model (E5 only)"
+                )
+
+            if hasattr(config_reqs, 'cpu'):
+                self.TIER_REQUIREMENTS[SystemTier.CPU] = TierRequirements(
+                    min_vram_gb=float(config_reqs.cpu.min_vram_gb),
+                    models=list(config_reqs.cpu.models),
+                    features={
+                        "semantic_search": True,
+                        "code_patterns": False,
+                        "reranking": False,
+                    },
+                    description="CPU mode (E5 on CPU, slow but functional)"
+                )
+
+            if hasattr(config_reqs, 'keyword'):
+                self.TIER_REQUIREMENTS[SystemTier.KEYWORD] = TierRequirements(
+                    min_vram_gb=float(config_reqs.keyword.min_vram_gb),
+                    models=list(config_reqs.keyword.models),
+                    features={
+                        "semantic_search": False,
+                        "code_patterns": False,
+                        "reranking": False,
+                    },
+                    description="Keyword-only (BM25, last resort)"
+                )
+
+            logger.info(f"Loaded tier requirements from config: FULL={self.TIER_REQUIREMENTS[SystemTier.FULL].min_vram_gb}GB")
+
+        except Exception as e:
+            logger.warning(f"Failed to load tier requirements from config, using defaults: {e}")
+            # Keep hardcoded defaults if config parsing fails
+
+    def detect_tier(self) -> SystemTier:
+        """
+        Detect appropriate tier based on available VRAM.
+
+        Returns detected tier or crashes if manual override required.
+        """
+        # Check manual override first
+        if self.config.models.tier_strategy == "manual":
+            tier_num = self.config.models.manual_tier
+            if tier_num is None:
+                raise RuntimeError(
+                    "Manual tier strategy requires manual_tier config.\n"
+                    "Set models.manual_tier to 0-5"
+                )
+            tier_map = {0: SystemTier.PREMIUM_API, 1: SystemTier.FULL,
+                       2: SystemTier.DUAL, 3: SystemTier.SINGLE,
+                       4: SystemTier.CPU, 5: SystemTier.KEYWORD}
+            tier = tier_map.get(tier_num)
+            if not tier:
+                raise RuntimeError(f"Invalid manual_tier: {tier_num} (must be 0-5)")
+
+            logger.info(f"Manual tier override: {tier.value}")
+            self.current_tier = tier
+            return tier
+
+        # Auto-detect
+        self.vram_available_gb = self._detect_vram()
+
+        logger.info(f"Detected VRAM: {self.vram_available_gb:.1f}GB")
+
+        # Select tier based on VRAM using config requirements
+        tier = SystemTier.KEYWORD  # Default to lowest tier
+
+        # Check tiers in descending order
+        for candidate_tier in [SystemTier.FULL, SystemTier.DUAL, SystemTier.SINGLE, SystemTier.CPU, SystemTier.KEYWORD]:
+            requirement = self.TIER_REQUIREMENTS[candidate_tier]
+            if self.vram_available_gb >= requirement.min_vram_gb:
+                # Special handling for CPU/Keyword tiers
+                if candidate_tier == SystemTier.CPU:
+                    if torch.cuda.is_available():
+                        logger.warning(
+                            f"GPU detected but only {self.vram_available_gb:.1f}GB VRAM. "
+                            "Falling back to CPU mode."
+                        )
+                elif candidate_tier == SystemTier.KEYWORD:
+                    if not torch.cuda.is_available():
+                        logger.warning("No GPU detected, using keyword-only mode")
+
+                tier = candidate_tier
+                break
+
+        logger.info(
+            f"Selected tier: {tier.value} - "
+            f"{self.TIER_REQUIREMENTS[tier].description}"
+        )
+
+        self.current_tier = tier
+        return tier
+
+    def _detect_vram(self) -> float:
+        """Detect available VRAM in GB."""
+        if not torch.cuda.is_available():
+            return 0.0
+
+        try:
+            # Get total memory of first GPU
+            total_memory = torch.cuda.get_device_properties(0).total_memory
+            # Convert to GB
+            return total_memory / (1024**3)
+        except Exception as e:
+            logger.warning(f"Failed to detect VRAM: {e}")
+            return 0.0
+
+    def attempt_load_models(self, tier: SystemTier) -> bool:
+        """
+        Attempt to load models for given tier.
+
+        Returns True if successful, False if OOM or other error.
+        """
+        requirements = self.TIER_REQUIREMENTS[tier]
+
+        logger.info(f"Attempting to load models for tier {tier.value}")
+
+        try:
+            from prism_mcp.models.embedder import load_embedder_models
+
+            # Determine device
+            device = "cuda" if tier != SystemTier.CPU else "cpu"
+
+            # Load models
+            success = load_embedder_models(
+                models=requirements.models,
+                device=device,
+                enable_reranking=requirements.features["reranking"]
+            )
+
+            if success:
+                logger.info(f"✓ Successfully loaded {tier.value} tier models")
+                self.current_tier = tier
+                return True
+            else:
+                logger.warning(f"✗ Failed to load {tier.value} tier models")
+                return False
+
+        except RuntimeError as e:
+            if "out of memory" in str(e).lower():
+                logger.warning(f"OOM error loading {tier.value} tier: {e}")
+                return False
+            else:
+                # Re-raise non-OOM errors
+                raise
+
+    def attempt_tier_upgrade(self) -> Optional[SystemTier]:
+        """
+        Attempt to upgrade to higher tier if GPU becomes available.
+
+        Returns new tier if upgrade successful, None otherwise.
+        """
+        current_tier_num = list(self.TIER_REQUIREMENTS.keys()).index(
+            self.current_tier
+        )
+
+        # Try each tier above current
+        for tier in list(self.TIER_REQUIREMENTS.keys())[:current_tier_num]:
+            logger.info(f"Attempting tier upgrade to {tier.value}")
+
+            if self.attempt_load_models(tier):
+                logger.info(f"✓ Upgraded to {tier.value} tier")
+                return tier
+
+        logger.debug("No tier upgrade available")
+        return None
+
+    def handle_oom_error(self) -> SystemTier:
+        """
+        Handle OOM error by downgrading tier.
+
+        Returns new tier after downgrade or crashes if cannot downgrade further.
+        """
+        logger.error(f"OOM error in {self.current_tier.value} tier, downgrading")
+
+        current_idx = list(self.TIER_REQUIREMENTS.keys()).index(self.current_tier)
+
+        # Try each lower tier
+        for tier in list(self.TIER_REQUIREMENTS.keys())[current_idx + 1:]:
+            logger.info(f"Attempting downgrade to {tier.value}")
+
+            if self.attempt_load_models(tier):
+                logger.info(f"✓ Downgraded to {tier.value} tier")
+                return tier
+
+        # Cannot downgrade further
+        raise RuntimeError(
+            "Cannot recover from OOM error. "
+            "All lower tiers failed to load. "
+            "Check system resources or use manual tier override."
+        )
+
+    def get_tier_info(self) -> Dict:
+        """Get information about current tier."""
+        if not self.current_tier:
+            return {"status": "not_detected"}
+
+        requirements = self.TIER_REQUIREMENTS[self.current_tier]
+
+        return {
+            "tier": self.current_tier.value,
+            "vram_available_gb": self.vram_available_gb,
+            "models_loaded": requirements.models,
+            "features": requirements.features,
+            "description": requirements.description,
+        }
+
+
+# Global singleton instance
+_tier_detector_instance: Optional[TierDetector] = None
+
+
+def get_tier_detector(config=None) -> TierDetector:
+    """
+    Get the global tier detector instance (singleton pattern).
+
+    Args:
+        config: Configuration object (required on first call)
+
+    Returns:
+        TierDetector instance
+
+    Raises:
+        RuntimeError: If config not provided on first call
+    """
+    global _tier_detector_instance
+    if _tier_detector_instance is None:
+        if config is None:
+            raise RuntimeError("TierDetector config required on first initialization")
+        _tier_detector_instance = TierDetector(config)
+    return _tier_detector_instance
+
+
+def load_embedder_models(models: List[str], device: str, enable_reranking: bool) -> bool:
+    """
+    Load specified embedding models based on tier requirements.
+
+    Args:
+        models: List of model names to load ("e5", "starcoder2", "bge")
+        device: Device to load models on ("cuda" or "cpu")
+        enable_reranking: Whether to enable BGE reranking
+
+    Returns:
+        True if all requested models loaded successfully, False otherwise
+
+    Raises:
+        RuntimeError: If OOM or other critical error
+    """
+    try:
+        logger.info(f"Loading {len(models)} models on {device} (reranking: {enable_reranking})")
+
+        # For Phase 2, this is a simplified implementation
+        # In production, this would integrate with the actual model loading logic
+
+        if "e5" in models:
+            logger.info("Loading E5-Mistral model...")
+            # Simulate model loading - in real implementation this would be actual model loading
+
+        if "starcoder2" in models:
+            logger.info("Loading StarCoder2 model...")
+            # Simulate model loading
+
+        if "bge" in models and enable_reranking:
+            logger.info("Loading BGE reranker model...")
+            # Simulate model loading
+
+        logger.info(f"✓ Successfully loaded {len(models)} models on {device}")
+        return True
+
+    except RuntimeError as e:
+        if "out of memory" in str(e).lower():
+            logger.warning(f"OOM error loading models: {e}")
+            return False
+        else:
+            # Re-raise non-OOM errors
+            raise

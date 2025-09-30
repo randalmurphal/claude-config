@@ -1,0 +1,384 @@
+"""
+Code duplication detector using Voyage embeddings.
+
+Finds duplicate code patterns across a project using semantic similarity.
+"""
+
+import ast
+import difflib
+import logging
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+
+logger = logging.getLogger(__name__)
+
+
+class DuplicationDetector:
+    """
+    Finds duplicate code patterns across project.
+
+    Algorithm:
+    - Chunk code into blocks (functions/classes)
+    - Embed using Voyage code embeddings
+    - Compute cosine similarity matrix
+    - Cluster similar blocks (threshold: 0.85)
+    - Suggest consolidation/extraction
+    """
+
+    def __init__(self, embedding_model, similarity_threshold: float = 0.85):
+        """
+        Initialize duplication detector.
+
+        Args:
+            embedding_model: Voyage embedding model instance
+            similarity_threshold: Minimum similarity to consider duplication (0.85 = 85%)
+        """
+        self.embedding_model = embedding_model
+        self.similarity_threshold = similarity_threshold
+
+    def chunk_code(self, file_path: str, content: str, language: str) -> list[dict[str, Any]]:
+        """
+        Chunk code into analyzable blocks (functions, classes, methods).
+
+        Args:
+            file_path: Path to source file
+            content: File content
+            language: Programming language
+
+        Returns:
+            List of code blocks with metadata
+        """
+        if language != "python":
+            logger.warning(f"Language {language} not supported yet, only Python is implemented")
+            return []
+
+        # Skip tiny __init__.py files
+        if file_path.endswith("__init__.py") and len(content.split("\n")) < 10:
+            return []
+
+        chunks = []
+        lines = content.split("\n")
+
+        try:
+            tree = ast.parse(content)
+        except SyntaxError as e:
+            logger.warning(f"Syntax error in {file_path}: {e}")
+            return []
+
+        for node in ast.walk(tree):
+            chunk_data = None
+
+            if isinstance(node, ast.FunctionDef):
+                # Extract function
+                chunk_data = {
+                    "type": "function",
+                    "name": node.name,
+                    "line_start": node.lineno,
+                    "line_end": node.end_lineno,
+                }
+            elif isinstance(node, ast.AsyncFunctionDef):
+                # Extract async function
+                chunk_data = {
+                    "type": "function",
+                    "name": node.name,
+                    "line_start": node.lineno,
+                    "line_end": node.end_lineno,
+                }
+            elif isinstance(node, ast.ClassDef):
+                # Extract class
+                chunk_data = {
+                    "type": "class",
+                    "name": node.name,
+                    "line_start": node.lineno,
+                    "line_end": node.end_lineno,
+                }
+
+            if chunk_data:
+                # Extract code lines (AST uses 1-based indexing)
+                start_idx = chunk_data["line_start"] - 1
+                end_idx = chunk_data["line_end"]
+                code_lines = lines[start_idx:end_idx]
+                code = "\n".join(code_lines)
+
+                chunk_data["code"] = code
+                chunk_data["file_path"] = file_path
+                chunks.append(chunk_data)
+
+        return chunks
+
+    def embed_chunks(self, chunks: list[dict[str, Any]]) -> np.ndarray:
+        """
+        Generate embeddings for code chunks.
+
+        Args:
+            chunks: List of code blocks
+
+        Returns:
+            Numpy array of embeddings (shape: [num_chunks, embedding_dim])
+        """
+        # Extract code from chunks
+        code_texts = [chunk["code"] for chunk in chunks]
+
+        # Generate embeddings using Voyage
+        embeddings = self.embedding_model.embed_documents(code_texts)
+
+        return np.array(embeddings)
+
+    def compute_similarity_matrix(self, embeddings: np.ndarray) -> np.ndarray:
+        """
+        Compute pairwise cosine similarity matrix.
+
+        Args:
+            embeddings: Embedding vectors
+
+        Returns:
+            Similarity matrix (shape: [num_chunks, num_chunks])
+        """
+        # Normalize embeddings
+        norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+        normalized = embeddings / norms
+
+        # Compute cosine similarity
+        similarity = np.dot(normalized, normalized.T)
+
+        return similarity
+
+    def find_duplicates(
+        self, chunks: list[dict[str, Any]], similarity_matrix: np.ndarray
+    ) -> list[dict[str, Any]]:
+        """
+        Find duplicate code blocks above similarity threshold.
+
+        Args:
+            chunks: Code chunks
+            similarity_matrix: Pairwise similarity scores
+
+        Returns:
+            List of duplicate groups with similarity scores
+        """
+        duplicates = []
+        seen = set()
+
+        for i in range(len(chunks)):
+            if i in seen:
+                continue
+
+            # Find similar chunks
+            similar_indices = np.where(
+                (similarity_matrix[i] >= self.similarity_threshold)
+                & (np.arange(len(chunks)) != i)
+            )[0]
+
+            if len(similar_indices) > 0:
+                group = {
+                    "anchor": {
+                        "chunk": chunks[i],
+                        "index": i,
+                    },
+                    "duplicates": [
+                        {
+                            "chunk": chunks[j],
+                            "index": j,
+                            "similarity": float(similarity_matrix[i][j]),
+                        }
+                        for j in similar_indices
+                    ],
+                }
+                duplicates.append(group)
+
+                # Mark as seen
+                seen.add(i)
+                seen.update(similar_indices)
+
+        return duplicates
+
+    def suggest_consolidation(
+        self, duplicate_group: dict[str, Any]
+    ) -> dict[str, Any]:
+        """
+        Suggest how to consolidate duplicate code.
+
+        Args:
+            duplicate_group: Group of duplicate code blocks
+
+        Returns:
+            Consolidation suggestion
+        """
+        anchor = duplicate_group["anchor"]["chunk"]
+        duplicates = duplicate_group["duplicates"]
+
+        # Analyze commonalities
+        common_lines = self._find_common_lines(
+            anchor["code"], [d["chunk"]["code"] for d in duplicates]
+        )
+
+        return {
+            "strategy": "extract_function",
+            "suggested_name": self._suggest_function_name(anchor),
+            "common_code": common_lines,
+            "locations": [anchor]
+            + [d["chunk"] for d in duplicates],
+            "estimated_loc_reduction": len(common_lines) * len(duplicates),
+        }
+
+    def _find_common_lines(
+        self, anchor_code: str, duplicate_codes: list[str]
+    ) -> list[str]:
+        """
+        Find common lines across duplicate code blocks.
+
+        Args:
+            anchor_code: Reference code block
+            duplicate_codes: Similar code blocks
+
+        Returns:
+            List of common lines
+        """
+        if not duplicate_codes:
+            return []
+
+        # Start with anchor code lines
+        anchor_lines = anchor_code.split("\n")
+        common_sequences = []
+
+        # For each duplicate, find common subsequences
+        for dup_code in duplicate_codes:
+            dup_lines = dup_code.split("\n")
+
+            # Use SequenceMatcher to find matching blocks
+            matcher = difflib.SequenceMatcher(None, anchor_lines, dup_lines)
+            matching_blocks = matcher.get_matching_blocks()
+
+            # Extract matching sequences (filter out trivial matches)
+            for match in matching_blocks:
+                i, j, size = match
+                if size > 0:
+                    # Get the matching lines from anchor
+                    matching_lines = anchor_lines[i : i + size]
+                    common_sequences.append(matching_lines)
+
+        if not common_sequences:
+            return []
+
+        # Find lines that appear in ALL duplicates
+        # Count occurrences of each line across all common sequences
+        line_counts = {}
+        for sequence in common_sequences:
+            for line in sequence:
+                line_counts[line] = line_counts.get(line, 0) + 1
+
+        # Lines that appear at least once per duplicate
+        min_count = len(duplicate_codes)
+        common_lines = [
+            line
+            for line, count in line_counts.items()
+            if count >= min_count and self._is_meaningful_line(line)
+        ]
+
+        return common_lines
+
+    def _is_meaningful_line(self, line: str) -> bool:
+        """
+        Check if line is meaningful (not trivial).
+
+        Args:
+            line: Code line to check
+
+        Returns:
+            True if meaningful, False if trivial
+        """
+        stripped = line.strip()
+
+        # Filter out trivial lines
+        if not stripped:
+            return False
+        if stripped in ["", "{", "}", "(", ")", "[", "]", ":", "pass"]:
+            return False
+        if stripped.startswith("import ") or stripped.startswith("from "):
+            return False
+        if stripped.startswith("#"):
+            return False
+
+        return True
+
+    def _suggest_function_name(self, chunk: dict[str, Any]) -> str:
+        """
+        Suggest a name for extracted function.
+
+        Args:
+            chunk: Code chunk
+
+        Returns:
+            Suggested function name
+        """
+        # Simple heuristic: use existing name or generate from code content
+        if chunk.get("name"):
+            return f"extracted_{chunk['name']}"
+        return "extracted_common_logic"
+
+    def detect_project_duplicates(
+        self, project_path: str, min_lines: int = 10, max_results: int = 50
+    ) -> list[dict[str, Any]]:
+        """
+        Detect duplicates across entire project.
+
+        Args:
+            project_path: Path to project root
+            min_lines: Minimum lines to consider (ignore tiny blocks)
+            max_results: Maximum duplicate groups to return
+
+        Returns:
+            List of duplicate groups with consolidation suggestions
+        """
+        project_path = Path(project_path)
+        all_chunks = []
+
+        # Find all source files
+        # TODO: Support multiple languages
+        source_files = list(project_path.rglob("*.py"))
+
+        logger.info(f"Analyzing {len(source_files)} files for duplicates...")
+
+        # Chunk all files
+        for file_path in source_files:
+            try:
+                content = file_path.read_text()
+                chunks = self.chunk_code(str(file_path), content, "python")
+
+                # Filter by minimum lines
+                chunks = [
+                    c
+                    for c in chunks
+                    if len(c["code"].split("\n")) >= min_lines
+                ]
+
+                all_chunks.extend(chunks)
+            except Exception as e:
+                logger.warning(f"Error processing {file_path}: {e}")
+
+        if not all_chunks:
+            logger.info("No code chunks found")
+            return []
+
+        logger.info(f"Found {len(all_chunks)} code chunks, generating embeddings...")
+
+        # Generate embeddings
+        embeddings = self.embed_chunks(all_chunks)
+
+        # Compute similarity
+        similarity_matrix = self.compute_similarity_matrix(embeddings)
+
+        # Find duplicates
+        duplicates = self.find_duplicates(all_chunks, similarity_matrix)
+
+        logger.info(f"Found {len(duplicates)} duplicate groups")
+
+        # Generate consolidation suggestions
+        results = []
+        for dup_group in duplicates[:max_results]:
+            suggestion = self.suggest_consolidation(dup_group)
+            results.append(suggestion)
+
+        return results

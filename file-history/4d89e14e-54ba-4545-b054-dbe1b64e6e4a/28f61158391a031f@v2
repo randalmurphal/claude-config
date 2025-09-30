@@ -1,0 +1,362 @@
+"""
+Web Search Integration - Search for technology updates.
+
+Responsibilities:
+- Search for tech updates using web search (security, breaking changes, deprecations)
+- Parse release notes and security advisories
+- Cache search results (24hr TTL)
+- Rate limiting and error handling
+
+NOTE: This is currently a stub implementation. Actual web search requires:
+- Web search API integration (e.g., Tavily, SerpAPI, or WebFetch MCP tool)
+- Or direct GitHub API for checking releases
+- Or RSS feed parsing for security advisories
+
+For Phase 3 MVP, this provides the interface and can return mock data for testing.
+Later phases can implement actual search integration.
+
+NO DEFAULTS - crash loudly on missing required fields.
+"""
+
+import json
+import logging
+import time
+import uuid
+from datetime import datetime
+from typing import Dict, List, Optional
+
+from prism_mcp.models.tech_update import TechUpdate
+from prism_mcp.storage.redis_cache import RedisCache
+
+
+logger = logging.getLogger(__name__)
+
+
+# Search query templates
+SEARCH_QUERIES = {
+    'security': '{tech_name} security vulnerability CVE {year}',
+    'breaking': '{tech_name} breaking changes version {version}',
+    'deprecation': '{tech_name} deprecated features {year}',
+    'release': '{tech_name} latest release notes {year}',
+}
+
+# Trusted sources for tech updates
+TRUSTED_SOURCES = [
+    'github.com',
+    'docs.',
+    'blog.',
+    'security.',
+    'cve.mitre.org',
+    'nvd.nist.gov',
+]
+
+
+class WebSearchIntegration:
+    """
+    Web search integration for technology updates.
+
+    Currently a stub implementation. Can be extended with actual web search APIs.
+    """
+
+    def __init__(self, rate_limit_per_second: int = 10):
+        """
+        Initialize web search integration.
+
+        Args:
+            rate_limit_per_second: Max searches per second (default: 10)
+        """
+        self.redis = RedisCache()
+        self.rate_limit = rate_limit_per_second
+        self.last_request_time = 0.0
+
+        logger.info(f'WebSearchIntegration initialized (rate_limit={rate_limit_per_second}/s)')
+
+    def search_tech_updates(
+        self,
+        tech_name: str,
+        current_version: Optional[str] = None,
+        update_types: List[str] = None,
+        max_results: int = 10,
+    ) -> List[TechUpdate]:
+        """
+        Search for technology updates.
+
+        NOTE: This is currently a stub. Implement actual search by:
+        1. Using Claude Code's WebFetch tool
+        2. Or integrating web search MCP server
+        3. Or using GitHub API for project releases
+
+        Args:
+            tech_name: Technology name (required)
+            current_version: Current version (optional, for targeted search)
+            update_types: Types to search for (default: ['security', 'breaking'])
+            max_results: Max results to return
+
+        Returns:
+            List of TechUpdate objects
+
+        Raises:
+            RuntimeError: If tech_name missing
+        """
+        if not tech_name:
+            raise RuntimeError('tech_name required')
+
+        if update_types is None:
+            update_types = ['security', 'breaking']  # Default to critical types only
+
+        # Check cache first
+        cache_key = f'tech_updates:{tech_name}:{":".join(update_types)}'
+        cached = self.redis.client.get(cache_key)
+        if cached:
+            try:
+                update_dicts = json.loads(cached)
+                logger.info(f'Loaded {len(update_dicts)} updates from cache for {tech_name}')
+                return [self._update_from_dict(u) for u in update_dicts]
+            except Exception as e:
+                logger.warning(f'Failed to parse cached updates: {e}')
+
+        # Rate limiting
+        self._enforce_rate_limit()
+
+        # TODO: Implement actual web search here
+        # Options:
+        # 1. Use Claude Code WebFetch tool
+        # 2. Use web search MCP server if available
+        # 3. Use GitHub API for releases
+        # 4. Parse RSS feeds for security advisories
+
+        # For now, return empty list (stub implementation)
+        logger.warning(
+            f'Web search stub called for {tech_name} - no actual search performed. '
+            'Implement search integration to enable update checking.'
+        )
+
+        updates = []
+
+        # Cache empty result for 24 hours
+        try:
+            update_dicts = [u.to_dict() for u in updates]
+            self.redis.client.setex(cache_key, 86400, json.dumps(update_dicts))  # 24hr TTL
+        except Exception as e:
+            logger.warning(f'Failed to cache updates: {e}')
+
+        return updates
+
+    def parse_release_notes(self, url: str, tech_name: str) -> Optional[TechUpdate]:
+        """
+        Parse release notes from URL.
+
+        NOTE: This is currently a stub. Implement by:
+        1. Fetching URL content (WebFetch tool)
+        2. Parsing HTML/markdown for version, changes, breaking changes
+        3. Extracting structured data
+
+        Args:
+            url: Release notes URL (required)
+            tech_name: Technology name (required)
+
+        Returns:
+            TechUpdate object or None if parsing fails
+
+        Raises:
+            RuntimeError: If required params missing
+        """
+        if not url:
+            raise RuntimeError('url required')
+        if not tech_name:
+            raise RuntimeError('tech_name required')
+
+        logger.warning(f'parse_release_notes stub called for {url} - not implemented')
+
+        return None
+
+    def check_cve_database(
+        self, tech_name: str, version: Optional[str] = None
+    ) -> List[TechUpdate]:
+        """
+        Check CVE database for security vulnerabilities.
+
+        NOTE: This is currently a stub. Implement by:
+        1. Querying CVE API (e.g., https://cve.circl.lu/api/)
+        2. Parsing NVD database
+        3. Checking vendor security advisories
+
+        Args:
+            tech_name: Technology name (required)
+            version: Specific version to check (optional)
+
+        Returns:
+            List of security TechUpdate objects
+
+        Raises:
+            RuntimeError: If tech_name missing
+        """
+        if not tech_name:
+            raise RuntimeError('tech_name required')
+
+        logger.warning(f'check_cve_database stub called for {tech_name} - not implemented')
+
+        return []
+
+    def search_github_releases(
+        self, tech_name: str, owner: str, repo: str, since_version: Optional[str] = None
+    ) -> List[TechUpdate]:
+        """
+        Search GitHub releases for technology.
+
+        This can be implemented using GitHub API:
+        GET /repos/{owner}/{repo}/releases
+
+        Args:
+            tech_name: Technology name (required)
+            owner: GitHub owner (required)
+            repo: GitHub repo (required)
+            since_version: Only show releases after this version
+
+        Returns:
+            List of TechUpdate objects from releases
+
+        Raises:
+            RuntimeError: If required params missing
+        """
+        if not tech_name:
+            raise RuntimeError('tech_name required')
+        if not owner:
+            raise RuntimeError('owner required')
+        if not repo:
+            raise RuntimeError('repo required')
+
+        # Check cache
+        cache_key = f'github_releases:{owner}:{repo}'
+        cached = self.redis.client.get(cache_key)
+        if cached:
+            try:
+                update_dicts = json.loads(cached)
+                logger.info(f'Loaded {len(update_dicts)} releases from cache')
+                return [self._update_from_dict(u) for u in update_dicts]
+            except Exception as e:
+                logger.warning(f'Failed to parse cached releases: {e}')
+
+        # TODO: Implement GitHub API integration
+        logger.warning(
+            f'search_github_releases stub called for {owner}/{repo} - not implemented'
+        )
+
+        return []
+
+    def invalidate_cache(self, tech_name: str):
+        """
+        Invalidate cached search results for technology.
+
+        Call when forcing a fresh check.
+
+        Args:
+            tech_name: Technology name (required)
+
+        Raises:
+            RuntimeError: If tech_name missing
+        """
+        if not tech_name:
+            raise RuntimeError('tech_name required')
+
+        # Delete all cache keys for this tech
+        pattern_keys = [
+            f'tech_updates:{tech_name}:*',
+            f'github_releases:*:{tech_name}',
+        ]
+
+        try:
+            for pattern in pattern_keys:
+                # Note: Redis SCAN would be better for production
+                keys = self.redis.client.keys(pattern)
+                if keys:
+                    self.redis.client.delete(*keys)
+                    logger.info(f'Invalidated {len(keys)} cache entries for {tech_name}')
+        except Exception as e:
+            logger.warning(f'Failed to invalidate cache: {e}')
+
+    # Helper methods
+
+    def _enforce_rate_limit(self):
+        """Enforce rate limiting for web requests."""
+        current_time = time.time()
+        time_since_last = current_time - self.last_request_time
+
+        if time_since_last < (1.0 / self.rate_limit):
+            sleep_time = (1.0 / self.rate_limit) - time_since_last
+            logger.debug(f'Rate limiting: sleeping {sleep_time:.3f}s')
+            time.sleep(sleep_time)
+
+        self.last_request_time = time.time()
+
+    def _update_from_dict(self, data: Dict) -> TechUpdate:
+        """Reconstruct TechUpdate from cached dict."""
+        return TechUpdate(
+            update_id=data['update_id'],
+            tech_name=data['tech_name'],
+            update_type=data['update_type'],
+            severity=data['severity'],
+            title=data['title'],
+            summary=data['summary'],
+            impact=data['impact'],
+            release_date=datetime.fromisoformat(data['release_date']),
+            source_url=data['source_url'],
+            discovered_at=datetime.fromisoformat(data['discovered_at']),
+            version_from=data.get('version_from'),
+            version_to=data.get('version_to'),
+            cve_id=data.get('cve_id'),
+        )
+
+    def _create_update_from_search_result(
+        self,
+        tech_name: str,
+        update_type: str,
+        severity: str,
+        title: str,
+        summary: str,
+        impact: str,
+        source_url: str,
+        release_date: datetime,
+        version_from: Optional[str] = None,
+        version_to: Optional[str] = None,
+        cve_id: Optional[str] = None,
+    ) -> TechUpdate:
+        """
+        Create TechUpdate from search result data.
+
+        Helper for actual search implementations.
+        """
+        return TechUpdate(
+            update_id=str(uuid.uuid4()),
+            tech_name=tech_name,
+            update_type=update_type,
+            severity=severity,
+            title=title,
+            summary=summary,
+            impact=impact,
+            source_url=source_url,
+            release_date=release_date,
+            discovered_at=datetime.now(),
+            version_from=version_from,
+            version_to=version_to,
+            cve_id=cve_id,
+        )
+
+
+# Singleton instance
+_web_search_integration: Optional[WebSearchIntegration] = None
+
+
+def get_web_search_integration() -> WebSearchIntegration:
+    """
+    Get global WebSearchIntegration instance (singleton).
+
+    Returns:
+        WebSearchIntegration instance
+    """
+    global _web_search_integration
+
+    if _web_search_integration is None:
+        _web_search_integration = WebSearchIntegration()
+
+    return _web_search_integration

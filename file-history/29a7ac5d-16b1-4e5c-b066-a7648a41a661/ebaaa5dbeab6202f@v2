@@ -1,0 +1,563 @@
+# Orchestration MCP V2 - Implementation Plan
+
+**⚠️ CRITICAL: DO NOT TOUCH PRISM YET**
+All changes are for orchestration_mcp only. PRISM improvements come later.
+
+## PRISM Audit Results
+
+**GOOD NEWS:** PRISM setup is actually solid for what it does.
+
+### Current PRISM Architecture
+- **Qdrant**: 2 collections (E5-Mistral for semantic, StarCoder2 for code patterns)
+- **Neo4j**: Memory tiers (ANCHORS/LONGTERM/EPISODIC/WORKING), PageRank, relationships
+- **Redis**: 24h session cache
+- **6-stage retrieval**: Semantic → Graph → Context → Temporal → Diversity → Scoring
+
+**Conclusion:** PRISM is for memory/preferences. Keep it separate. Don't fuck with it.
+
+### Orchestration Neo4j (Current State)
+Stores:
+- Module dependency graphs
+- Decision trees with rationale
+- Spike results
+- Code relationships
+
+**Missing:**
+- Query for similar past tasks
+- Historical time estimation
+- Pattern matching for similar work
+- Gotcha retrieval by task type
+
+---
+
+## Implementation Plan
+
+### Phase 1: Core Validation System (CRITICAL)
+**Goal:** Actually run tests, don't just ask if they passed
+
+#### 1.1 - Add `validate_phase` Tool
+```python
+@server.tool()
+async def validate_phase(task_id: str, phase: str, working_directory: str) -> dict:
+    """
+    Actually run validation checks for a phase.
+
+    Validation by phase:
+    - skeleton: imports work, syntax valid (python -m compileall)
+    - implementation: pytest passes, coverage >90%, linting passes
+    - testing: tests exist, coverage reports generated
+    - integration: integration tests pass
+
+    Returns:
+        {
+            "passed": bool,
+            "checks": {
+                "imports": {"passed": bool, "errors": [...]},
+                "pytest": {"passed": bool, "failed_tests": [...], "coverage": 0.0},
+                "linting": {"passed": bool, "issues": [...]},
+            },
+            "can_proceed": bool,
+            "suggestion": str  # What to fix if failed
+        }
+    """
+```
+
+**Implementation:**
+- Create `validation_runner.py` service
+- For skeleton: `python -m compileall <dir>`, check imports
+- For implementation: `pytest --cov=. --cov-report=json`, parse results
+- For linting: `ruff check .` (use project config or ~/.claude/configs/)
+- Store validation results in Redis under `validation:{task_id}:{phase}`
+
+#### 1.2 - Update Phase State Machine
+Modify `workflow_coordinator.py`:
+- After prepare_phase, automatically suggest validation
+- Block phase transitions if validation failed (unless force flag)
+- Store validation history for learning
+
+**Files to Create:**
+- `orchestration_mcp/services/validation_runner.py` (~300 lines)
+- `orchestration_mcp/services/validation_parsers.py` (parse pytest/ruff output)
+
+**Files to Modify:**
+- `orchestration_mcp/services/workflow_coordinator.py` (add validation hooks)
+- `orchestration_mcp/mcp_server.py` (add validate_phase tool)
+
+**Time Estimate:** 6-8 hours
+
+---
+
+### Phase 2: Git-Based Checkpoints + Worktrees (CRITICAL)
+**Goal:** Snapshot state for rollback + parallel work isolation
+
+#### 2.1 - Checkpoint Manager Service
+```python
+class CheckpointManager:
+    def create_checkpoint(self, task_id: str, phase: str, working_directory: str) -> str:
+        """
+        Create git commit checkpoint.
+
+        Steps:
+        1. git add -A (stage all changes)
+        2. git commit -m "CHECKPOINT: {phase} - {timestamp}"
+        3. Store commit SHA in Redis: checkpoint:{task_id}:{phase}
+        4. Tag with orchestration metadata
+
+        Returns checkpoint_id (git SHA)
+        """
+
+    def rollback_to_checkpoint(self, task_id: str, checkpoint_id: str) -> bool:
+        """
+        Rollback to checkpoint.
+
+        Steps:
+        1. git reset --hard {checkpoint_id}
+        2. Clear phase state in Redis after checkpoint
+        3. Update task state to previous phase
+
+        Returns success bool
+        """
+
+    def list_checkpoints(self, task_id: str) -> List[dict]:
+        """
+        List all checkpoints for task.
+
+        Query git log for CHECKPOINT commits, return:
+        [{
+            "checkpoint_id": sha,
+            "phase": str,
+            "timestamp": datetime,
+            "validation_passed": bool,
+            "files_changed": int
+        }]
+        """
+```
+
+#### 2.2 - Git Worktree Manager (For Parallel Work)
+```python
+class WorktreeManager:
+    def create_worktree(self, task_id: str, module: str, base_dir: str) -> str:
+        """
+        Create git worktree for parallel module work.
+
+        Steps:
+        1. git worktree add ../worktree_{module} -b orchestration/{task_id}/{module}
+        2. Store worktree path in Redis: worktree:{task_id}:{module}
+        3. Return worktree path for agent to work in
+
+        Agents work in isolation, no conflicts until merge.
+        """
+
+    def merge_worktrees(self, task_id: str, modules: List[str], strategy: str = "smart") -> dict:
+        """
+        Merge worktrees back to main, intelligently handling conflicts.
+
+        Strategies:
+        - "first_wins": Keep first module's version on conflict
+        - "last_wins": Keep last module's version
+        - "smart": Analyze both, pick better version (use PRISM code quality scoring)
+        - "manual": Return conflicts for user review
+
+        Steps:
+        1. For each worktree:
+           a. git merge orchestration/{task_id}/{module}
+           b. If conflicts, apply strategy
+           c. Run validation to ensure merge didn't break things
+        2. Cleanup worktrees: git worktree remove
+        3. Delete branches: git branch -D orchestration/{task_id}/*
+
+        Returns:
+            {
+                "merged": [module_names],
+                "conflicts": [{module, file, resolution_used}],
+                "validation": {"passed": bool, "issues": []}
+            }
+        """
+
+    def cleanup_worktrees(self, task_id: str):
+        """
+        Remove all worktrees and branches for task.
+        Call after successful merge or on abort.
+        """
+```
+
+#### 2.2 - Auto-Checkpoint Strategy
+**When to checkpoint:**
+- After skeleton phase (before implementation)
+- After implementation phase (before testing)
+- After any phase that passes validation
+- Before starting massive refactors
+
+**Git commit format:**
+```
+CHECKPOINT: {phase} - Task {task_id[:8]}
+
+Phase: skeleton
+Validation: passed
+Files: 15 created, 3 modified
+Modules: auth, cart, products
+
+Orchestration metadata below (parseable)
+---
+task_id: {full_uuid}
+phase: skeleton
+timestamp: 2025-09-29T21:45:00Z
+validation_checks: imports:pass, syntax:pass
+```
+
+**Files to Create:**
+- `orchestration_mcp/services/checkpoint_manager.py` (~400 lines)
+- `orchestration_mcp/services/worktree_manager.py` (~500 lines)
+
+**Files to Modify:**
+- `orchestration_mcp/services/workflow_coordinator.py` (add checkpoint hooks)
+- `orchestration_mcp/mcp_server.py` (add checkpoint + worktree tools)
+
+**Time Estimate:** 8-10 hours (checkpoint + worktree management)
+
+---
+
+### Phase 3: Intelligent Neo4j Queries
+**Goal:** Use past task data for context and time estimation
+
+#### 3.1 - Historical Task Queries
+```python
+class Neo4jManager:
+    def find_similar_tasks(self, description: str, limit: int = 5) -> List[dict]:
+        """
+        Find similar past tasks by description keywords.
+
+        Cypher:
+        MATCH (t:Task)
+        WHERE t.description CONTAINS $keyword1 OR t.description CONTAINS $keyword2
+        OPTIONAL MATCH (t)-[:HAD_GOTCHA]->(g:Gotcha)
+        OPTIONAL MATCH (t)-[:MADE_DECISION]->(d:Decision)
+        RETURN t, collect(g) as gotchas, collect(d) as decisions
+        ORDER BY t.completed_at DESC
+        LIMIT $limit
+        """
+
+    def get_time_estimate(self, complexity: str, modules: int) -> dict:
+        """
+        Estimate time based on historical data.
+
+        Query past tasks with similar complexity/module count:
+        MATCH (t:Task {complexity: $complexity})
+        WHERE t.module_count >= $modules - 2 AND t.module_count <= $modules + 2
+        RETURN
+            avg(t.duration_minutes) as avg_time,
+            min(t.duration_minutes) as min_time,
+            max(t.duration_minutes) as max_time,
+            count(t) as sample_size
+        """
+
+    def get_relevant_gotchas(self, task_type: str, phase: str) -> List[str]:
+        """
+        Get gotchas from similar tasks in same phase.
+
+        Cypher:
+        MATCH (t:Task)-[:HAD_GOTCHA]->(g:Gotcha {phase: $phase})
+        WHERE t.task_type = $task_type
+        RETURN g.description, g.resolution, count(*) as frequency
+        ORDER BY frequency DESC
+        LIMIT 10
+        """
+```
+
+#### 3.2 - Pattern Library
+Store successful patterns as nodes:
+```python
+def record_successful_pattern(
+    self,
+    task_id: str,
+    pattern_name: str,
+    description: str,
+    code_example: str,
+    success_metrics: dict
+):
+    """
+    Record pattern that worked well.
+
+    Creates:
+    - (p:Pattern {name, description, code_example})
+    - (t:Task)-[:USED_PATTERN]->(p)
+    - p.success_count += 1
+    - p.last_used = now()
+    """
+```
+
+**Files to Modify:**
+- `orchestration_mcp/services/neo4j_manager.py` (add query methods)
+
+**Time Estimate:** 4-6 hours
+
+---
+
+### Phase 4: Complexity-Aware Workflow
+**Goal:** Adjust workflow based on task size
+
+#### 4.1 - Complexity Detection
+```python
+def analyze_task_complexity(description: str, working_directory: str) -> dict:
+    """
+    Detect complexity automatically.
+
+    Factors:
+    - File count estimate from description
+    - Keywords: "refactor", "migrate", "build complete"
+    - Existing codebase size
+    - Dependencies mentioned
+
+    Returns:
+        {
+            "complexity": "small|medium|large|massive",
+            "estimated_files": int,
+            "estimated_duration": {"min": int, "max": int},
+            "should_decompose": bool,
+            "parallel_recommended": bool
+        }
+    """
+```
+
+#### 4.2 - Workflow Templates
+```python
+WORKFLOWS = {
+    "small": {
+        "phases": ["skeleton", "implementation", "validate"],
+        "validation_gates": ["implementation"],
+        "checkpoints": ["implementation"],
+        "parallel_threshold": None,  # Never parallel for small
+    },
+    "medium": {
+        "phases": ["architecture", "skeleton", "implementation", "testing", "validate"],
+        "validation_gates": ["skeleton", "implementation", "testing"],
+        "checkpoints": ["skeleton", "implementation"],
+        "parallel_threshold": 3,  # Parallel if >3 modules
+    },
+    "large": {
+        "phases": ["architecture", "skeleton", "validate", "implementation", "testing", "integration", "validate"],
+        "validation_gates": ["skeleton", "implementation", "integration"],
+        "checkpoints": ["skeleton", "implementation", "testing"],
+        "parallel_threshold": 2,  # Always parallel if >2 modules
+    },
+    "massive": {
+        "decompose_first": True,
+        "subtask_workflow": "large",
+        "integration_testing": "mandatory",
+        "checkpoint_frequency": "every_phase"
+    }
+}
+```
+
+**Files to Create:**
+- `orchestration_mcp/services/complexity_analyzer.py` (~200 lines)
+- `orchestration_mcp/config/workflows.yaml` (workflow definitions)
+
+**Files to Modify:**
+- `orchestration_mcp/services/workflow_coordinator.py` (use workflow templates)
+
+**Time Estimate:** 4-5 hours
+
+---
+
+### Phase 5: Task Decomposition (For Massive Tasks)
+**Goal:** Break 30+ file tasks into manageable subtasks
+
+#### 5.1 - Decomposition Logic
+```python
+async def decompose_task(task_id: str, description: str, complexity: dict) -> dict:
+    """
+    Decompose massive task into subtasks.
+
+    Strategy:
+    1. Identify major components from description
+    2. Order by dependencies (foundation first)
+    3. Create subtask queue in Redis
+    4. Each subtask gets its own task_id
+    5. Link parent_task_id for tracking
+
+    Returns:
+        {
+            "subtasks": [{
+                "subtask_id": str,
+                "order": int,
+                "description": str,
+                "checkpoint_criteria": str,
+                "depends_on": [subtask_ids],
+                "estimated_duration": int
+            }],
+            "total_subtasks": int,
+            "strategy": "vertical_slices | horizontal_layers"
+        }
+    """
+```
+
+#### 5.2 - Subtask Queue Management
+Use Redis lists for queue:
+```python
+# Push subtasks
+RPUSH subtask_queue:{master_task_id} {subtask_1_id}
+RPUSH subtask_queue:{master_task_id} {subtask_2_id}
+
+# Pop next subtask
+LPOP subtask_queue:{master_task_id}
+
+# Track completion
+HSET subtask_status:{master_task_id} {subtask_id} "completed"
+```
+
+**Files to Create:**
+- `orchestration_mcp/services/task_decomposer.py` (~500 lines)
+
+**Files to Modify:**
+- `orchestration_mcp/services/workflow_coordinator.py` (check for decomposition)
+- `orchestration_mcp/mcp_server.py` (add decomposition tools)
+
+**Time Estimate:** 8-10 hours
+
+---
+
+### Phase 6: Update Documentation
+**Goal:** Docs match reality
+
+#### 6.1 - Update Command Files
+- `/conduct` - Remove phantom tools, show real workflow with validation
+- `/prelude` - Update READY.md format to include complexity hints
+- `README.md` - Replace with simplified guide + link to SIMPLE_USAGE.md
+- `SIMPLE_USAGE.md` - Add validation and checkpoint examples
+
+#### 6.2 - Create Migration Guide
+Document changes from V1 to V2 for existing users
+
+**Time Estimate:** 3-4 hours
+
+---
+
+## Total Implementation Timeline
+
+**Critical Path (Must Have):**
+1. Phase 1: Validation System (6-8h)
+2. Phase 2: Git Checkpoints + Worktrees (8-10h)
+3. Phase 3: Neo4j Queries (4-6h)
+**Total: 18-24 hours**
+
+**Important (Should Have):**
+4. Phase 4: Complexity Workflows (4-5h)
+5. Phase 5: Task Decomposition (8-10h)
+**Total: +12-15 hours = 30-39 hours**
+
+**Nice to Have:**
+6. Phase 6: Documentation (3-4h)
+**Grand Total: 33-43 hours**
+
+---
+
+## Build Order (What to Do First)
+
+### Week 1: Make it Work
+- **Day 1-2:** Phase 1 (Validation)
+  - Build validation_runner.py
+  - Test on real Python projects
+  - Hook into workflow_coordinator
+- **Day 3-4:** Phase 2 (Checkpoints + Worktrees)
+  - Build checkpoint_manager.py
+  - Build worktree_manager.py
+  - Test git commit/rollback
+  - Test parallel worktree creation + merge
+  - Add auto-checkpoint triggers
+- **Day 5:** Phase 3 (Neo4j queries)
+  - Add similarity queries
+  - Test with existing decision data
+
+**Deliverable:** Can run full workflow with real validation, checkpoints, and parallel work
+
+### Week 2: Make it Smart
+- **Day 1-2:** Phase 4 (Complexity detection)
+  - Build analyzer
+  - Test workflow selection
+- **Day 3-5:** Phase 5 (Decomposition)
+  - Build decomposer
+  - Test on massive task
+  - Verify subtask queue
+
+**Deliverable:** Scales from 1-file to 100-file tasks
+
+### Week 3: Polish
+- Update all documentation
+- Create examples
+- Test on real user tasks
+- Fix rough edges
+
+---
+
+## Testing Strategy
+
+### Unit Tests
+- validation_runner: Mock pytest/ruff output, verify parsing
+- checkpoint_manager: Test git operations in temp repo
+- complexity_analyzer: Test size estimation accuracy
+
+### Integration Tests
+- Full workflow: skeleton → validate → checkpoint → implement → validate
+- Rollback: Create checkpoint, break things, rollback, verify clean state
+- Decomposition: Large task → subtasks → merge
+
+### Real-World Tests
+- Small task: Single file change (1-2 files)
+- Medium task: Feature addition (5-10 files)
+- Large task: Module refactor (15-25 files)
+- Massive task: System migration (50+ files, should decompose)
+
+---
+
+## Questions to Resolve Before Starting
+
+1. **Validation blocking**: Should validation failures prevent phase transition, or just warn?
+   → **Answer from user: BLOCK on test failures**
+
+2. **Checkpoint frequency**: After every phase, or only major milestones?
+   → **Answer from user: Checkpoint with git, autonomous rollback**
+
+3. **Complexity threshold**: At what file count do we auto-decompose?
+   → **Suggest: 30+ files = massive = decompose**
+
+4. **PRISM integration**: Should we query PRISM for code patterns during implementation?
+   → **Defer to Phase 3, can add later**
+
+5. **Agent model selection**: Always Sonnet 4.5, or upgrade to Opus for complex phases?
+   → **Default Sonnet, can add complexity-based model selection later**
+
+---
+
+## Success Criteria
+
+The V2 system is "bulletproof" when:
+
+✅ Can start 3-hour task and walk away (autonomous)
+✅ Validation catches breaking changes before moving forward
+✅ Git checkpoints allow rollback without losing all progress
+✅ Neo4j provides useful context from past tasks
+✅ Small tasks don't get over-engineered (right workflow for size)
+✅ Large tasks don't crash (decomposition works)
+✅ User can see progress (clear state reporting)
+✅ Recovers from failures gracefully (rollback + retry)
+
+---
+
+## Notes
+
+- **Don't touch PRISM**: It's solid for memory/preferences, leave it alone
+- **Keep it simple first**: Get validation + checkpoints working, add intelligence after
+- **Test on real work**: Use your Tenable refactor as test case
+- **Git is the source of truth**: All state recoverable from git history
+- **Block on failures**: Better to stop and fix than continue with broken code
+
+---
+
+## Ready to Build?
+
+Review this plan, confirm priorities, then we can start with Phase 1 (validation_runner.py).
+
+Should take 16-22 hours to get validation + checkpoints working, then another 12-15 for decomposition.
+
+Total: ~30-40 hours to have a bulletproof orchestration system.

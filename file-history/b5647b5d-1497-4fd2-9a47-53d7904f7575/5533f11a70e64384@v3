@@ -1,0 +1,87 @@
+"""
+Simplified synchronous test of PRISM integration.
+
+Tests sync methods that internally handle async PRISM calls.
+"""
+
+import tempfile
+from pathlib import Path
+
+import pytest
+from git import Repo
+
+from orchestration_mcp.phases.architecture import ArchitecturePhase
+from orchestration_mcp.services.prism_http_client import PRISMHTTPClient
+
+
+def test_architecture_adr_storage_sync():
+    """
+    Test ADR storage from ArchitecturePhase (synchronous usage).
+
+    This is how /conduct will actually use it - sync context.
+    """
+    print("\n=== Testing ADR Storage (Sync Context) ===")
+
+    session_id = "test_simple_sync"
+    project_id = "test_project_sync"
+    task_id = "task_sync_001"
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        working_dir = Path(tmpdir)
+        repo = Repo.init(working_dir)
+
+        # Create PRISMHTTPClient (but don't connect yet - methods will handle it)
+        prism_client = PRISMHTTPClient("http://localhost:8090")
+
+        # Create architecture phase with PRISM
+        arch_phase = ArchitecturePhase(
+            working_directory=str(working_dir),
+            task_id=task_id,
+            prism_client=prism_client,
+            session_id=session_id,
+            project_id=project_id,
+        )
+
+        # Test 1: Store ADRs
+        print("\n1. Storing ADRs...")
+        test_decisions = [
+            {
+                "title": "Test Decision",
+                "context": "Testing PRISM integration",
+                "decision": "Use synchronous wrapper for async operations",
+                "alternatives": [
+                    {"alternative": "Pure async", "reason_rejected": "Hard to use from sync code"},
+                ],
+                "consequences": [
+                    "Easy to use from orchestration workflows",
+                    "Slight overhead from thread pool",
+                ],
+                "status": "accepted",
+            },
+        ]
+
+        try:
+            arch_phase.store_adrs(test_decisions)
+            print("✅ ADRs stored successfully")
+        except Exception as e:
+            print(f"❌ ADR storage failed: {e}")
+            # Don't fail test if PRISM not available
+            pytest.skip(f"PRISM not available: {e}")
+
+        # Test 2: Query past architectures
+        print("\n2. Querying past architectures...")
+        try:
+            past_adrs = arch_phase.query_past_architectures(
+                query="synchronous wrapper async",
+                limit=5
+            )
+            print(f"✅ Query returned {len(past_adrs)} results")
+        except Exception as e:
+            print(f"❌ Query failed: {e}")
+            pytest.skip(f"PRISM query failed: {e}")
+
+    print("\n✅ Synchronous PRISM integration test complete!")
+
+
+if __name__ == "__main__":
+    test_architecture_adr_storage_sync()

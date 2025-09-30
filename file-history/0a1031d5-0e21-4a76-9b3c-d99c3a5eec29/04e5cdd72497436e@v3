@@ -1,0 +1,669 @@
+"""
+Rejection Learner - Learns from preference rejections to improve future suggestions.
+
+Responsibility: Analyze rejection patterns, create negative signals, update confidence scores.
+Single responsibility: Rejection pattern learning, not preference lifecycle management.
+"""
+
+import logging
+import uuid
+from datetime import datetime
+from typing import Dict, List, Any, Optional, Tuple
+import numpy as np
+from collections import defaultdict
+
+from prism_mcp.storage.qdrant_manager import QdrantManager
+from prism_mcp.storage.neo4j_manager import Neo4jManager, GraphNode
+from prism_mcp.models.embedder import get_embedder
+
+logger = logging.getLogger(__name__)
+
+# Rejection learning thresholds
+SIMILARITY_THRESHOLD = 0.75  # Threshold for considering preferences similar
+MIN_REJECTIONS_FOR_PATTERN = 3  # Minimum rejections to form a pattern
+CONFIDENCE_PENALTY = 0.15  # Amount to reduce confidence for similar preferences
+MAX_CONFIDENCE_REDUCTION = 0.50  # Maximum confidence reduction
+
+
+class RejectionLearner:
+    """
+    Learns from preference rejections to improve future suggestions.
+
+    Workflow:
+    1. Store rejection metadata with REJECTED relationships
+    2. Analyze rejection patterns through embedding similarity
+    3. Update confidence scores for similar preferences
+    4. Create rejection clusters for pattern detection
+    5. Provide rejection checking for new preferences
+    """
+
+    def __init__(self):
+        """Initialize rejection learner."""
+        self.qdrant = QdrantManager()
+        self.neo4j = Neo4jManager()
+        self.embedder = get_embedder()
+
+        # Tier-aware collection name (memories_voyage for Tier 0, memories_e5 for Tier 1+)
+        self.collection_name = self.qdrant.get_collection_for_memory_type("preference")
+
+        logger.info(f'RejectionLearner initialized (collection: {self.collection_name})')
+
+    async def learn_from_rejection(
+        self,
+        preference_id: str,
+        reason: str,
+        session_id: str,
+        rejection_context: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        Learn from a preference rejection.
+
+        Args:
+            preference_id: ID of rejected preference
+            reason: Rejection reason
+            session_id: Session ID
+            rejection_context: Additional context (tool_name, project_id, etc.)
+
+        Returns:
+            {
+                "rejection_id": str,
+                "similar_preferences_found": int,
+                "confidence_adjustments": int,
+                "patterns_detected": List[str],
+                "message": str
+            }
+
+        Raises:
+            RuntimeError: If preference not found or learning fails
+        """
+        if not preference_id:
+            raise RuntimeError('preference_id required for rejection learning')
+        if not reason:
+            raise RuntimeError('reason required for rejection learning')
+        if not session_id:
+            raise RuntimeError('session_id required for rejection learning')
+
+        try:
+            # Get the rejected preference
+            rejected_preference = await self._get_preference_details(preference_id)
+            if not rejected_preference:
+                raise RuntimeError(f'Preference not found: {preference_id}')
+
+            # Create rejection metadata node
+            rejection_id = await self._create_rejection_metadata(
+                preference_id, reason, session_id, rejection_context
+            )
+
+            # Analyze similar preferences and update confidence scores
+            similar_count, adjusted_count = await self._analyze_and_update_similar_preferences(
+                rejected_preference, reason
+            )
+
+            # Detect rejection patterns
+            patterns = await self._detect_rejection_patterns(rejected_preference, reason)
+
+            logger.info(
+                f'Rejection learning complete for {preference_id}: '
+                f'{similar_count} similar found, {adjusted_count} adjusted, '
+                f'{len(patterns)} patterns detected'
+            )
+
+            return {
+                'rejection_id': rejection_id,
+                'similar_preferences_found': similar_count,
+                'confidence_adjustments': adjusted_count,
+                'patterns_detected': patterns,
+                'message': f'Learned from rejection: {similar_count} similar preferences identified, '
+                          f'{adjusted_count} confidence scores adjusted, {len(patterns)} patterns detected'
+            }
+
+        except Exception as e:
+            logger.error(f'Rejection learning failed for {preference_id}: {e}')
+            raise RuntimeError(f'Rejection learning failed: {e}')
+
+    async def _get_preference_details(self, preference_id: str) -> Optional[Dict[str, Any]]:
+        """Get preference details from Qdrant."""
+        try:
+            points = self.qdrant.client.retrieve(
+                collection_name=self.collection_name,
+                ids=[preference_id]
+            )
+
+            if not points:
+                return None
+
+            return {
+                'id': preference_id,
+                'content': points[0].payload['content'],
+                'category': points[0].payload.get('preference_category', 'unknown'),
+                'confidence': points[0].payload.get('confidence', 0.0),
+                'scope_type': points[0].payload.get('scope_type', 'global'),
+                'scope_value': points[0].payload.get('scope_value'),
+                'detection_method': points[0].payload.get('detection_method', 'unknown'),
+                'embedding': points[0].vector
+            }
+        except Exception as e:
+            logger.error(f'Failed to get preference details for {preference_id}: {e}')
+            return None
+
+    async def _create_rejection_metadata(
+        self,
+        preference_id: str,
+        reason: str,
+        session_id: str,
+        rejection_context: Optional[Dict[str, Any]] = None
+    ) -> str:
+        """Create rejection metadata node and REJECTED relationship in Neo4j."""
+        rejection_id = str(uuid.uuid4())
+        timestamp = datetime.now().isoformat()
+
+        # Create rejection metadata node
+        import json
+        rejection_node = GraphNode(
+            node_id=rejection_id,
+            node_type="Rejection",
+            properties={
+                "rejection_id": rejection_id,
+                "preference_id": preference_id,
+                "reason": reason,
+                "session_id": session_id,
+                "created_at": timestamp,
+                "context": json.dumps(rejection_context or {}),  # Neo4j needs JSON string, not dict
+                "similarity_threshold": SIMILARITY_THRESHOLD,
+                "learning_applied": True
+            }
+        )
+
+        self.neo4j.create_node(rejection_node, unique_property="rejection_id")
+
+        # Create REJECTED relationship from preference to rejection
+        cypher = """
+        MATCH (p:Memory {memory_id: $preference_id}), (r:Rejection {rejection_id: $rejection_id})
+        CREATE (p)-[:REJECTED {
+            reason: $reason,
+            timestamp: $timestamp,
+            session_id: $session_id,
+            context: $context
+        }]->(r)
+        """
+
+        self.neo4j.query(
+            cypher,
+            preference_id=preference_id,
+            rejection_id=rejection_id,
+            reason=reason,
+            timestamp=timestamp,
+            session_id=session_id,
+            context=json.dumps(rejection_context or {})  # Neo4j needs JSON string, not dict
+        )
+
+        logger.info(f'Created rejection metadata: {rejection_id} for preference {preference_id}')
+        return rejection_id
+
+    async def _analyze_and_update_similar_preferences(
+        self,
+        rejected_preference: Dict[str, Any],
+        reason: str
+    ) -> Tuple[int, int]:
+        """
+        Find similar preferences and update their confidence scores.
+
+        Returns:
+            (similar_preferences_found, confidence_adjustments_made)
+        """
+        try:
+            # Find similar preferences using embedding similarity
+            similar_preferences = await self._find_similar_preferences(
+                rejected_preference['embedding'],
+                rejected_preference['id']
+            )
+
+            if not similar_preferences:
+                return 0, 0
+
+            # Update confidence scores for similar preferences
+            adjusted_count = 0
+            for pref in similar_preferences:
+                try:
+                    old_confidence = pref['confidence']
+
+                    # Calculate confidence penalty based on similarity and reason
+                    penalty = self._calculate_confidence_penalty(
+                        pref['similarity'], reason, pref.get('category', 'unknown')
+                    )
+
+                    new_confidence = max(0.0, old_confidence - penalty)
+
+                    # Only update if change is significant
+                    if abs(old_confidence - new_confidence) >= 0.05:
+                        await self._update_preference_confidence(
+                            pref['id'], new_confidence, reason
+                        )
+                        adjusted_count += 1
+
+                        logger.debug(
+                            f'Adjusted confidence for {pref["id"]}: '
+                            f'{old_confidence:.2f} -> {new_confidence:.2f} '
+                            f'(similarity: {pref["similarity"]:.2f})'
+                        )
+
+                except Exception as e:
+                    logger.warning(f'Failed to update confidence for {pref["id"]}: {e}')
+                    continue
+
+            return len(similar_preferences), adjusted_count
+
+        except Exception as e:
+            logger.error(f'Failed to analyze similar preferences: {e}')
+            return 0, 0
+
+    async def _find_similar_preferences(
+        self,
+        rejected_embedding: List[float],
+        excluded_id: str
+    ) -> List[Dict[str, Any]]:
+        """Find preferences similar to the rejected one."""
+        try:
+            # Search for similar preferences in Qdrant
+            search_results = self.qdrant.client.search(
+                collection_name=self.collection_name,
+                query_vector=rejected_embedding,
+                query_filter={
+                    "must": [
+                        {"key": "memory_type", "match": {"value": "user_preference"}},
+                        {"key": "status", "match": {"value": "approved"}}  # Only approved preferences
+                    ],
+                    "must_not": [
+                        {"key": "memory_id", "match": {"value": excluded_id}}  # Exclude the rejected one
+                    ]
+                },
+                limit=50,
+                score_threshold=SIMILARITY_THRESHOLD
+            )
+
+            similar_preferences = []
+            for result in search_results:
+                payload = result.payload
+                similar_preferences.append({
+                    'id': payload['memory_id'],
+                    'content': payload['content'],
+                    'confidence': payload.get('confidence', 0.0),
+                    'category': payload.get('preference_category', 'unknown'),
+                    'similarity': result.score
+                })
+
+            logger.debug(f'Found {len(similar_preferences)} similar preferences')
+            return similar_preferences
+
+        except Exception as e:
+            logger.error(f'Failed to find similar preferences: {e}')
+            return []
+
+    def _calculate_confidence_penalty(
+        self,
+        similarity: float,
+        reason: str,
+        category: str
+    ) -> float:
+        """Calculate confidence penalty based on similarity and rejection context."""
+        # Base penalty increases with similarity
+        base_penalty = CONFIDENCE_PENALTY * (similarity / SIMILARITY_THRESHOLD)
+
+        # Increase penalty for certain rejection reasons
+        reason_multipliers = {
+            'not applicable': 1.2,
+            'wrong context': 1.5,
+            'incorrect': 2.0,
+            'harmful': 3.0,
+            'completely wrong': 2.5
+        }
+
+        reason_lower = reason.lower()
+        multiplier = 1.0
+        for key, mult in reason_multipliers.items():
+            if key in reason_lower:
+                multiplier = mult
+                break
+
+        # Category-specific adjustments
+        if category in ['quality', 'security']:
+            multiplier *= 1.3  # Higher penalty for quality/security preferences
+
+        penalty = min(MAX_CONFIDENCE_REDUCTION, base_penalty * multiplier)
+        return penalty
+
+    async def _update_preference_confidence(
+        self,
+        preference_id: str,
+        new_confidence: float,
+        rejection_reason: str
+    ) -> None:
+        """Update preference confidence in both Qdrant and Neo4j."""
+        try:
+            # Update Qdrant
+            self.qdrant.client.set_payload(
+                collection_name=self.collection_name,
+                payload={
+                    'confidence': new_confidence,
+                    'confidence_adjusted_by_rejection': True,
+                    'last_rejection_reason': rejection_reason,
+                    'confidence_adjustment_timestamp': datetime.now().isoformat()
+                },
+                points=[preference_id]
+            )
+
+            # Update Neo4j
+            cypher = """
+            MATCH (m:Memory {memory_id: $preference_id})
+            SET m.confidence = $confidence,
+                m.confidence_adjusted_by_rejection = true,
+                m.last_rejection_reason = $rejection_reason,
+                m.confidence_adjustment_timestamp = $timestamp
+            """
+
+            self.neo4j.query(
+                cypher,
+                preference_id=preference_id,
+                confidence=new_confidence,
+                rejection_reason=rejection_reason,
+                timestamp=datetime.now().isoformat()
+            )
+
+        except Exception as e:
+            logger.error(f'Failed to update confidence for {preference_id}: {e}')
+            raise
+
+    async def _detect_rejection_patterns(
+        self,
+        rejected_preference: Dict[str, Any],
+        reason: str
+    ) -> List[str]:
+        """Detect patterns in rejections to identify common rejection themes."""
+        try:
+            # Query recent rejections from Neo4j
+            cypher = """
+            MATCH (p:Memory)-[r:REJECTED]->(rej:Rejection)
+            WHERE r.timestamp > datetime() - duration('P30D')
+            RETURN p.content AS content,
+                   p.preference_category AS category,
+                   r.reason AS reason,
+                   p.scope_type AS scope_type,
+                   p.detection_method AS detection_method
+            ORDER BY r.timestamp DESC
+            LIMIT 100
+            """
+
+            recent_rejections = self.neo4j.query(cypher)
+
+            if len(recent_rejections) < MIN_REJECTIONS_FOR_PATTERN:
+                return []
+
+            # Analyze patterns
+            patterns = []
+
+            # Pattern 1: Category-specific rejections
+            category_rejections = defaultdict(list)
+            for rej in recent_rejections:
+                category = rej.get('category', 'unknown')
+                category_rejections[category].append(rej['reason'])
+
+            for category, reasons in category_rejections.items():
+                if len(reasons) >= MIN_REJECTIONS_FOR_PATTERN:
+                    patterns.append(f'High rejection rate for {category} preferences')
+
+            # Pattern 2: Scope-specific rejections
+            scope_rejections = defaultdict(list)
+            for rej in recent_rejections:
+                scope = rej.get('scope_type', 'global')
+                scope_rejections[scope].append(rej['reason'])
+
+            for scope, reasons in scope_rejections.items():
+                if len(reasons) >= MIN_REJECTIONS_FOR_PATTERN:
+                    patterns.append(f'High rejection rate for {scope} scope preferences')
+
+            # Pattern 3: Detection method rejections
+            method_rejections = defaultdict(list)
+            for rej in recent_rejections:
+                method = rej.get('detection_method', 'unknown')
+                method_rejections[method].append(rej['reason'])
+
+            for method, reasons in method_rejections.items():
+                if len(reasons) >= MIN_REJECTIONS_FOR_PATTERN:
+                    patterns.append(f'High rejection rate for {method} detection method')
+
+            # Pattern 4: Common rejection reasons
+            reason_counts = defaultdict(int)
+            for rej in recent_rejections:
+                reason_words = rej['reason'].lower().split()
+                for word in reason_words:
+                    if len(word) > 3:  # Skip short words
+                        reason_counts[word] += 1
+
+            common_reasons = [word for word, count in reason_counts.items()
+                            if count >= MIN_REJECTIONS_FOR_PATTERN]
+            if common_reasons:
+                patterns.append(f'Common rejection themes: {", ".join(common_reasons[:3])}')
+
+            logger.debug(f'Detected {len(patterns)} rejection patterns')
+            return patterns
+
+        except Exception as e:
+            logger.error(f'Failed to detect rejection patterns: {e}')
+            return []
+
+    async def check_against_rejections(
+        self,
+        preference_content: str,
+        category: str,
+        scope_type: str,
+        detection_method: str
+    ) -> Dict[str, Any]:
+        """
+        Check if a new preference is similar to previously rejected ones.
+
+        Args:
+            preference_content: Content of the new preference
+            category: Preference category
+            scope_type: Scope type
+            detection_method: Detection method
+
+        Returns:
+            {
+                "should_reject": bool,
+                "confidence_adjustment": float,
+                "similar_rejections": List[str],
+                "patterns_matched": List[str],
+                "message": str
+            }
+        """
+        try:
+            # Generate embedding for the new preference
+            embedding = self.embedder.embed_with_e5(preference_content, augment=True)
+
+            # Convert to list (handle both numpy arrays and plain lists)
+            embedding_list = embedding.tolist() if hasattr(embedding, 'tolist') else embedding
+
+            # Find similar rejected preferences
+            similar_rejections = await self._find_similar_rejected_preferences(
+                embedding_list, category, scope_type
+            )
+
+            # Check for pattern matches
+            patterns_matched = await self._check_rejection_patterns(
+                category, scope_type, detection_method
+            )
+
+            # Calculate confidence adjustment
+            confidence_adjustment = 0.0
+            if similar_rejections:
+                # Reduce confidence based on similarity to rejected preferences
+                max_similarity = max(rej['similarity'] for rej in similar_rejections)
+                confidence_adjustment = -(CONFIDENCE_PENALTY * max_similarity)
+
+            # Add pattern-based adjustment
+            if patterns_matched:
+                confidence_adjustment -= (0.1 * len(patterns_matched))
+
+            # Determine if should reject
+            should_reject = (
+                len(similar_rejections) >= 2 and  # Multiple similar rejections
+                any(rej['similarity'] > 0.9 for rej in similar_rejections)  # Very high similarity
+            )
+
+            similar_rejection_contents = [rej['content'][:100] for rej in similar_rejections[:3]]
+
+            message = f'Found {len(similar_rejections)} similar rejected preferences, ' \
+                     f'{len(patterns_matched)} pattern matches. ' \
+                     f'Confidence adjustment: {confidence_adjustment:.2f}'
+
+            return {
+                'should_reject': should_reject,
+                'confidence_adjustment': confidence_adjustment,
+                'similar_rejections': similar_rejection_contents,
+                'patterns_matched': patterns_matched,
+                'message': message
+            }
+
+        except Exception as e:
+            logger.error(f'Failed to check against rejections: {e}')
+            # Fail loud - don't silently continue
+            raise RuntimeError(f'Rejection checking failed: {e}')
+
+    async def _find_similar_rejected_preferences(
+        self,
+        embedding: List[float],
+        category: str,
+        scope_type: str
+    ) -> List[Dict[str, Any]]:
+        """Find rejected preferences similar to the new one."""
+        try:
+            # Search for similar rejected preferences
+            search_results = self.qdrant.client.search(
+                collection_name=self.collection_name,
+                query_vector=embedding,
+                query_filter={
+                    "must": [
+                        {"key": "memory_type", "match": {"value": "user_preference"}},
+                        {"key": "status", "match": {"value": "rejected"}}
+                    ]
+                },
+                limit=20,
+                score_threshold=0.7  # Lower threshold for rejection checking
+            )
+
+            similar_rejections = []
+            for result in search_results:
+                payload = result.payload
+
+                # Additional filtering by category and scope if they match
+                if (payload.get('preference_category') == category or
+                    payload.get('scope_type') == scope_type):
+                    similar_rejections.append({
+                        'id': payload['memory_id'],
+                        'content': payload['content'],
+                        'reason': payload.get('rejection_reason', 'Unknown'),
+                        'similarity': result.score,
+                        'category': payload.get('preference_category', 'unknown'),
+                        'scope_type': payload.get('scope_type', 'global')
+                    })
+
+            return similar_rejections
+
+        except Exception as e:
+            logger.error(f'Failed to find similar rejected preferences: {e}')
+            return []
+
+    async def _check_rejection_patterns(
+        self,
+        category: str,
+        scope_type: str,
+        detection_method: str
+    ) -> List[str]:
+        """Check if preference matches known rejection patterns."""
+        try:
+            # Query rejection patterns from the last 30 days
+            cypher = """
+            MATCH (p:Memory)-[r:REJECTED]->(rej:Rejection)
+            WHERE r.timestamp > datetime() - duration('P30D')
+            AND (p.preference_category = $category
+                 OR p.scope_type = $scope_type
+                 OR p.detection_method = $detection_method)
+            RETURN count(*) as rejection_count,
+                   p.preference_category as category,
+                   p.scope_type as scope_type,
+                   p.detection_method as detection_method
+            """
+
+            results = self.neo4j.query(
+                cypher,
+                category=category,
+                scope_type=scope_type,
+                detection_method=detection_method
+            )
+
+            patterns_matched = []
+            for result in results:
+                rejection_count = result.get('rejection_count', 0)
+
+                if rejection_count >= MIN_REJECTIONS_FOR_PATTERN:
+                    if result.get('category') == category:
+                        patterns_matched.append(f'High rejection rate for {category} category')
+                    if result.get('scope_type') == scope_type:
+                        patterns_matched.append(f'High rejection rate for {scope_type} scope')
+                    if result.get('detection_method') == detection_method:
+                        patterns_matched.append(f'High rejection rate for {detection_method} detection')
+
+            return patterns_matched
+
+        except Exception as e:
+            logger.error(f'Failed to check rejection patterns: {e}')
+            return []
+
+    async def get_rejection_statistics(self) -> Dict[str, Any]:
+        """Get comprehensive rejection statistics for monitoring and analysis."""
+        try:
+            cypher = """
+            MATCH (p:Memory)-[r:REJECTED]->(rej:Rejection)
+            RETURN
+                count(*) as total_rejections,
+                collect(DISTINCT p.preference_category) as categories,
+                collect(DISTINCT p.scope_type) as scope_types,
+                collect(DISTINCT p.detection_method) as detection_methods,
+                avg(p.confidence) as avg_rejected_confidence,
+                min(r.timestamp) as first_rejection,
+                max(r.timestamp) as latest_rejection
+            """
+
+            result = self.neo4j.query(cypher)
+
+            if not result:
+                return {
+                    'total_rejections': 0,
+                    'categories': [],
+                    'scope_types': [],
+                    'detection_methods': [],
+                    'avg_rejected_confidence': 0.0,
+                    'first_rejection': None,
+                    'latest_rejection': None,
+                    'patterns_detected': 0
+                }
+
+            stats = result[0]
+
+            # Count recent patterns
+            recent_patterns = await self._detect_rejection_patterns({}, "statistics")
+
+            return {
+                'total_rejections': stats.get('total_rejections', 0),
+                'categories': stats.get('categories', []),
+                'scope_types': stats.get('scope_types', []),
+                'detection_methods': stats.get('detection_methods', []),
+                'avg_rejected_confidence': stats.get('avg_rejected_confidence', 0.0),
+                'first_rejection': stats.get('first_rejection'),
+                'latest_rejection': stats.get('latest_rejection'),
+                'patterns_detected': len(recent_patterns)
+            }
+
+        except Exception as e:
+            logger.error(f'Failed to get rejection statistics: {e}')
+            raise RuntimeError(f'Failed to get rejection statistics: {e}')

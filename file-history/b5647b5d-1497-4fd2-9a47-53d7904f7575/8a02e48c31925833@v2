@@ -1,0 +1,430 @@
+# Orchestration + PRISM Enhancements for Massive Codebase Refactoring
+
+## Problem Statement
+
+Current orchestration system handles small-medium tasks well but lacks capabilities for massive (100k LOC) refactoring projects that span days/weeks. Missing:
+
+1. **Architecture-first workflow** - No phase to define interfaces/boundaries before implementation
+2. **Dependency-aware execution** - Can't work on independent tasks while blocked on dependencies
+3. **Duplication detection** - Can't find duplicate code patterns across files
+4. **Progressive context** - Context doesn't accumulate across checkpoints
+5. **Integration validation** - No validation when combining components
+6. **User query system** - Gets stuck when missing info instead of asking and continuing
+
+## User Impact
+
+**Current limitation:** User must break down tasks manually, can't handle messy specs, gets stuck on unknowns
+
+**After enhancement:** Feed meeting transcripts/docs → system generates architecture → executes components in parallel → integrates with validation → delivers working code with checkpoints
+
+**Target user:** Technical PM or smart non-coder who can review code but not write it from scratch
+
+## Mission
+
+Build system capable of handling week-long refactoring projects by:
+- Working in validated chunks (not holding 100k LOC in context)
+- Defining architecture before implementation
+- Executing independent components in parallel
+- Validating at each integration point
+- Learning from architectural decisions
+- Continuing work when blocked (ask user, work on unblocked tasks)
+
+## Immutable Requirements
+
+1. **Architecture Phase** - New phase before skeleton that defines all interfaces/boundaries
+2. **Dependency Graph** - Extract dependencies from architecture, store in Neo4j
+3. **Task Queue with Deps** - Execute tasks when dependencies satisfied, skip when blocked
+4. **PRISM Duplication Detector** - Find similar code blocks using Voyage embeddings
+5. **PRISM ADR Storage** - Store architectural decisions in ANCHORS tier
+6. **Integration Validator** - Validate component combinations, not just individual components
+7. **Checkpoint Context** - Store learnings at each checkpoint to PRISM
+8. **User Query System** - Generate questions for user, continue with other work
+9. **90%+ Test Coverage** - All new code must have comprehensive tests
+10. **Zero Breaking Changes** - Existing orchestration workflows must continue working
+11. **Real Validation** - pytest/ruff/imports at every checkpoint
+12. **Rollback Safety** - Any phase can rollback to last checkpoint
+
+## Architecture
+
+### New Components
+
+**1. Architecture Phase (`orchestration_mcp/phases/architecture.py`)**
+```python
+class ArchitecturePhase:
+    """
+    Defines system architecture before implementation.
+
+    Responsibilities:
+    - Parse READY.md to extract components
+    - Define interfaces/contracts for each component
+    - Generate dependency graph
+    - Store architecture decisions (ADRs) to PRISM
+    - Create skeleton structure with interface definitions
+
+    Output: architecture.yaml with all interfaces + deps
+    """
+```
+
+**2. Dependency Graph Manager (`orchestration_mcp/services/dependency_manager.py`)**
+```python
+class DependencyManager:
+    """
+    Manages task dependencies and execution order.
+
+    Capabilities:
+    - Extract dependencies from architecture spec
+    - Store as graph in Neo4j
+    - Query for ready tasks (deps satisfied)
+    - Query for blocked tasks
+    - Update graph as tasks complete
+    """
+```
+
+**3. PRISM Duplication Detector (`prism_mcp/core/duplication_detector.py`)**
+```python
+class DuplicationDetector:
+    """
+    Finds duplicate code patterns across project.
+
+    Algorithm:
+    - Chunk code into blocks (functions/classes)
+    - Embed using Voyage code embeddings
+    - Compute cosine similarity matrix
+    - Cluster similar blocks (threshold: 0.85)
+    - Suggest consolidation/extraction
+    """
+```
+
+**4. PRISM ADR Manager (`prism_mcp/core/adr_manager.py`)**
+```python
+class ADRManager:
+    """
+    Stores architectural decision records.
+
+    Storage:
+    - Tier: ANCHORS (never expires)
+    - Type: architecture_decision
+    - Links: Related code symbols
+    - Metadata: Alternatives considered, consequences
+    """
+```
+
+**5. Integration Validator (`orchestration_mcp/services/integration_validator.py`)**
+```python
+class IntegrationValidator:
+    """
+    Validates component combinations.
+
+    Checks:
+    - Import compatibility
+    - Interface contracts satisfied
+    - No circular dependencies
+    - Tests pass for combined components
+    - No new duplication introduced
+    """
+```
+
+**6. User Query System (`orchestration_mcp/services/query_manager.py`)**
+```python
+class QueryManager:
+    """
+    Generates and tracks user queries.
+
+    Workflow:
+    - Detect unknowns during architecture phase
+    - Generate clear questions for user
+    - Store questions in Redis (pending)
+    - Continue with unblocked tasks
+    - Resume blocked tasks when answered
+    """
+```
+
+### Enhanced Components
+
+**1. Workflow Coordinator** - Add architecture phase support
+**2. Checkpoint Manager** - Store PRISM context at each checkpoint
+**3. Task Orchestrator** - Use DependencyManager for execution order
+**4. Validation Runner** - Add integration validation mode
+
+### Data Flow
+
+```
+READY.md
+  ↓
+Architecture Phase
+  ├→ Generate interfaces (architecture.yaml)
+  ├→ Extract dependencies (DependencyManager)
+  ├→ Store ADRs (PRISM)
+  └→ Generate user queries (QueryManager)
+  ↓
+Get Ready Tasks (DependencyManager)
+  ↓
+Execute Component (parallel if independent)
+  ├→ Skeleton phase
+  ├→ Implementation phase
+  ├→ Validation (ValidationRunner)
+  └→ Checkpoint + PRISM context
+  ↓
+Integration Phase
+  ├→ Combine components
+  ├→ Check duplication (DuplicationDetector)
+  ├→ Validate integration (IntegrationValidator)
+  └→ Checkpoint + PRISM context
+  ↓
+Consolidation Phase
+  ├→ Apply duplication fixes
+  ├→ Final validation
+  └→ Complete task
+```
+
+### Complexity Tier: Massive
+
+Add new tier to `workflows.yaml`:
+
+```yaml
+massive:
+  phases:
+    - architecture  # NEW: Define all interfaces first
+    - skeleton     # Create component skeletons
+    - implementation  # Implement components (parallel)
+    - integration  # Combine components
+    - consolidation  # Remove duplication
+
+  validation_gates:
+    - architecture  # Validate interface completeness
+    - skeleton      # Validate imports
+    - implementation  # Per-component validation
+    - integration   # Integration validation
+    - consolidation  # Final validation
+
+  checkpoints:
+    - architecture
+    - per_component  # Checkpoint after each component
+    - integration
+    - consolidation
+
+  parallel_execution: true  # Components can work in parallel
+  checkpoint_context: true  # Store PRISM context at checkpoints
+```
+
+## Success Criteria
+
+**Functional:**
+1. ✅ Architecture phase generates complete interface definitions
+2. ✅ DependencyManager correctly orders task execution
+3. ✅ System executes independent components in parallel
+4. ✅ DuplicationDetector finds similar code (≥85% similarity)
+5. ✅ IntegrationValidator catches interface mismatches
+6. ✅ QueryManager asks user questions when blocked
+7. ✅ System continues with unblocked tasks while waiting
+8. ✅ PRISM stores ADRs in ANCHORS tier
+9. ✅ Checkpoint creates git commit + stores PRISM context
+10. ✅ Can rollback to any checkpoint
+
+**Quality:**
+1. ✅ 90%+ test coverage on all new code
+2. ✅ All tests pass (pytest)
+3. ✅ No linting issues (ruff)
+4. ✅ No breaking changes to existing workflows
+
+**Performance:**
+1. ✅ DuplicationDetector processes 1000 files in <5 minutes
+2. ✅ Architecture phase completes in <30 seconds for 100-component spec
+3. ✅ Checkpoint + PRISM context storage in <10 seconds
+
+**Integration:**
+1. ✅ Test on real medium-complexity project (20-30 files)
+2. ✅ Prove parallel execution works with git worktrees
+3. ✅ Prove duplication detection finds real duplicates
+4. ✅ Prove PRISM context improves future tasks
+
+## Implementation Phases
+
+### Phase 1: Architecture Phase (Foundation)
+**Goal:** New workflow phase that defines interfaces before implementation
+
+**Components:**
+- `phases/architecture.py` - ArchitecturePhase class
+- `services/dependency_manager.py` - DependencyManager class
+- Update `config/workflows.yaml` - Add massive tier
+- Update `services/workflow_coordinator.py` - Support architecture phase
+
+**Tests:**
+- Test architecture phase extracts components from READY.md
+- Test dependency extraction creates correct graph
+- Test architecture validation checks interface completeness
+
+**Validation:** Architecture phase generates architecture.yaml with all interfaces
+
+### Phase 2: PRISM ADR Storage
+**Goal:** Store architectural decisions in PRISM ANCHORS tier
+
+**Components:**
+- `prism_mcp/core/adr_manager.py` - ADRManager class
+- Add MCP tool `prism_store_adr`
+- Add MCP tool `prism_query_adrs`
+- Update `prism_mcp/interfaces/mcp_server.py`
+
+**Tests:**
+- Test ADR storage in ANCHORS tier
+- Test ADR retrieval by project/component
+- Test ADR linking to code symbols
+
+**Validation:** ADRs stored and retrievable via MCP tools
+
+### Phase 3: Dependency-Aware Task Queue
+**Goal:** Execute tasks when dependencies satisfied, skip when blocked
+
+**Components:**
+- Update `services/task_orchestrator.py` - Use DependencyManager
+- `services/query_manager.py` - QueryManager class
+- Add Redis schema for pending queries
+- Update Neo4j schema for dependency graph
+
+**Tests:**
+- Test task queue respects dependencies
+- Test parallel execution of independent tasks
+- Test query generation when blocked
+- Test task resumption after query answered
+
+**Validation:** System executes independent tasks in parallel
+
+### Phase 4: Duplication Detection
+**Goal:** Find duplicate code patterns using Voyage embeddings
+
+**Components:**
+- `prism_mcp/core/duplication_detector.py` - DuplicationDetector class
+- Add MCP tool `prism_detect_duplicates`
+- Update `prism_mcp/interfaces/mcp_server.py`
+
+**Tests:**
+- Test duplication detection finds similar functions
+- Test similarity threshold (85%)
+- Test consolidation suggestions
+- Test performance on 1000 files
+
+**Validation:** Duplication detector finds real duplicates in test codebase
+
+### Phase 5: Integration Validation
+**Goal:** Validate component combinations, detect new duplication
+
+**Components:**
+- `services/integration_validator.py` - IntegrationValidator class
+- Update `services/validation_runner.py` - Add integration mode
+- Add consolidation phase to workflows
+
+**Tests:**
+- Test integration validation catches interface mismatches
+- Test duplication detection at integration points
+- Test consolidation phase removes duplicates
+
+**Validation:** Integration validator catches real interface issues
+
+### Phase 6: Checkpoint Context Integration
+**Goal:** Store learnings at each checkpoint to PRISM
+
+**Components:**
+- Update `services/checkpoint_manager.py` - Call PRISM after checkpoint
+- Update `phases/` - Store decisions to PRISM
+- Add retrieval of checkpoint context at phase start
+
+**Tests:**
+- Test checkpoint stores PRISM context
+- Test next phase retrieves context
+- Test context accumulates across checkpoints
+
+**Validation:** PRISM context improves task execution quality
+
+## Known Gotchas
+
+1. **Dependency Cycles** - Architecture phase must detect and reject circular dependencies
+2. **Parallel Validation** - Running pytest in parallel can cause race conditions (use worktrees)
+3. **Context Accumulation** - Too much PRISM context can slow retrieval (use phase-aware limits)
+4. **Duplication False Positives** - Similar but intentionally different code (use confidence scores)
+5. **Redis Persistence** - User queries must survive Redis restart (use TTL=7 days)
+6. **Neo4j Transactions** - Dependency graph updates must be atomic
+7. **Git Conflicts** - Parallel worktrees can conflict on integration (merge strategy needed)
+8. **Voyage API Limits** - 200M tokens free, but batching needed for large projects
+9. **Interface Evolution** - Architecture phase must allow interface refinement during implementation
+10. **Test Isolation** - Integration tests need clean database state (fixtures)
+
+## Non-Requirements (Out of Scope)
+
+1. **Spec Parser** - Not building meeting transcript → READY.md (future phase)
+2. **Multi-modal Input** - Voice/chat parsing (future phase)
+3. **LLM Orchestration** - Not building agent routing (use existing /conduct)
+4. **UI Dashboard** - CLI only (future phase)
+5. **CI/CD Integration** - Not building GitHub Actions integration (future phase)
+
+## Dependencies
+
+**Existing:**
+- Python 3.10+
+- Neo4j 5.13+ (running)
+- Redis 8+ (running)
+- Qdrant v1.7.4+ (running)
+- Voyage AI API key (configured)
+- Jina AI API key (configured)
+
+**New:**
+- None (use existing infrastructure)
+
+## Validation Strategy
+
+**Per-phase validation:**
+- Skeleton: Import checks only
+- Implementation: pytest + ruff + imports (per component)
+- Integration: All of above + interface validation + duplication check
+- Consolidation: Final full validation
+
+**Coverage requirements:**
+- Unit tests: 90%+
+- Integration tests: Key workflows covered
+- E2E test: Real medium-complexity project
+
+## Rollback Strategy
+
+- Every checkpoint is a git commit
+- Can rollback to any checkpoint: `rollback_to_checkpoint(checkpoint_id)`
+- PRISM context includes what was learned before rollback
+- User query answers persist across rollback
+
+## Success Metrics
+
+**Before:**
+- Can handle ~1000 LOC task
+- Single-file or small-module changes
+- No architecture support
+- No duplication detection
+
+**After:**
+- Can handle 100k LOC refactoring
+- Multi-component with clear interfaces
+- Parallel execution of components
+- Automatic duplication detection
+- Progressive validation with checkpoints
+- Human-guided but AI-executed
+
+## Documentation Requirements
+
+1. **Architecture docs** - Document architecture phase workflow
+2. **API docs** - Document new MCP tools
+3. **Examples** - Real refactoring example end-to-end
+4. **Gotchas** - Document all edge cases found during implementation
+
+## Timeline Estimate
+
+Using AI (Claude) to build this:
+- Phase 1-2: 2-3 days
+- Phase 3-4: 2-3 days
+- Phase 5-6: 2-3 days
+- Testing + refinement: 1-2 days
+- **Total: ~1-2 weeks**
+
+## Open Questions
+
+1. Should architecture phase generate code stubs or just definitions?
+2. How to handle dependency changes during implementation?
+3. Should duplication detection run automatically or on-demand?
+4. How to merge parallel worktrees when there are conflicts?
+5. Should user queries block entire task or just that component?

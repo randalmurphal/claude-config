@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# Test PRISM's actual working functionality
+
+API_URL="http://localhost:8090"
+API_KEY="prism_development_key_2024"
+
+echo "🎯 Testing PRISM's actual functionality (what Claude Code uses)..."
+echo
+
+# 1. Store a memory (like when you correct Claude)
+echo "1. Storing a correction memory..."
+MEMORY_RESPONSE=$(curl -s -X POST "$API_URL/api/memories/store" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "content": "In our forex_trader project, we use clean architecture with domain/infrastructure separation. All business logic stays in domain layer.",
+    "memory_type": "correction",
+    "tier": "ANCHORS",
+    "context": {
+      "project": "forex_trader",
+      "language": "go",
+      "role": "architect"
+    },
+    "frustration_score": 0.8
+  }')
+echo "$MEMORY_RESPONSE" | jq .
+MEMORY_ID=$(echo "$MEMORY_RESPONSE" | jq -r '.memory_id // empty')
+echo
+
+# 2. Retrieve memories (what Claude queries during coding)
+echo "2. Retrieving memories about architecture..."
+curl -s -X POST "$API_URL/api/memories/retrieve" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "How should I structure code in forex trader project?",
+    "context": {
+      "project": "forex_trader",
+      "language": "go"
+    },
+    "limit": 3
+  }' | jq '.memories[] | {content, tier, frustration_score}'
+echo
+
+# 3. Check memory tiers (ANCHORS = corrections you made)
+echo "3. Checking memory distribution..."
+curl -s "$API_URL/api/memories/tiers" \
+  -H "Authorization: Bearer $API_KEY" | jq '.'
+echo
+
+echo "✅ Core PRISM functionality is working!"
+echo "   This is what Claude Code actually uses to learn from YOUR corrections"

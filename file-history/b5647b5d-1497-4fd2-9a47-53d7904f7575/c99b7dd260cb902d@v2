@@ -1,0 +1,410 @@
+"""
+Architectural Decision Records (ADR) manager for PRISM.
+
+Stores and retrieves architectural decisions in ANCHORS tier.
+"""
+
+import logging
+import uuid
+from datetime import datetime
+from typing import Any
+
+logger = logging.getLogger(__name__)
+
+
+class ADRManager:
+    """
+    Stores architectural decision records.
+
+    Storage:
+    - Tier: ANCHORS (never expires)
+    - Type: architecture_decision
+    - Links: Related code symbols
+    - Metadata: Alternatives considered, consequences
+    """
+
+    def __init__(self, memory_engine):
+        """
+        Initialize ADR manager.
+
+        Args:
+            memory_engine: PRISM memory engine instance
+        """
+        self.memory_engine = memory_engine
+
+    def store_adr(
+        self,
+        decision: str,
+        context: str,
+        alternatives_considered: list[dict[str, str]],
+        consequences: list[str],
+        status: str,
+        session_id: str,
+        project_id: str | None = None,
+        related_symbols: list[str] | None = None,
+    ) -> str:
+        """
+        Store an architectural decision record.
+
+        Args:
+            decision: The decision made
+            context: Context/problem being addressed
+            alternatives_considered: List of alternatives with rejection reasons
+            consequences: List of consequences from this decision
+            status: Decision status (proposed, accepted, deprecated, superseded)
+            session_id: Current session ID
+            project_id: Optional project identifier
+            related_symbols: Optional list of related code symbols
+
+        Returns:
+            ADR ID (UUID)
+        """
+        adr_id = str(uuid.uuid4())
+
+        # Format ADR content
+        content = self._format_adr(
+            decision=decision,
+            context=context,
+            alternatives=alternatives_considered,
+            consequences=consequences,
+            status=status,
+        )
+
+        # Store in ANCHORS tier (never expires)
+        self.memory_engine.store_memory(
+            content=content,
+            memory_type="architecture_decision",
+            tier="ANCHORS",
+            frustration_score=0.0,  # ADRs are not frustration-based
+            project_id=project_id,
+            session_id=session_id,
+            related_to=related_symbols or [],
+            metadata={
+                "adr_id": adr_id,
+                "status": status,
+                "decision": decision,
+                "timestamp": datetime.utcnow().isoformat(),
+            },
+        )
+
+        logger.info(f"Stored ADR {adr_id}: {decision}")
+        return adr_id
+
+    def _format_adr(
+        self,
+        decision: str,
+        context: str,
+        alternatives: list[dict[str, str]],
+        consequences: list[str],
+        status: str,
+    ) -> str:
+        """
+        Format ADR in standardized template.
+
+        Args:
+            decision: The decision made
+            context: Context/problem
+            alternatives: Alternatives considered
+            consequences: Consequences
+            status: Decision status
+
+        Returns:
+            Formatted ADR string
+        """
+        lines = [
+            f"# Architectural Decision: {decision}",
+            "",
+            f"**Status:** {status}",
+            f"**Date:** {datetime.utcnow().strftime('%Y-%m-%d')}",
+            "",
+            "## Context",
+            context,
+            "",
+            "## Decision",
+            decision,
+            "",
+            "## Alternatives Considered",
+        ]
+
+        for alt in alternatives:
+            lines.append(f"- **{alt['alternative']}**: {alt['reason_rejected']}")
+
+        lines.extend(
+            [
+                "",
+                "## Consequences",
+            ]
+        )
+
+        for consequence in consequences:
+            lines.append(f"- {consequence}")
+
+        return "\n".join(lines)
+
+    def query_adrs(
+        self,
+        query: str,
+        session_id: str,
+        project_id: str | None = None,
+        status: str | None = None,
+        limit: int = 10,
+    ) -> list[dict[str, Any]]:
+        """
+        Query ADRs by search term.
+
+        Args:
+            query: Search query
+            session_id: Current session ID
+            project_id: Optional project filter
+            status: Optional status filter (accepted, proposed, etc.)
+            limit: Maximum results
+
+        Returns:
+            List of matching ADRs
+        """
+        # Build filters
+        filters = {"memory_type": "architecture_decision"}
+        if project_id:
+            filters["project_id"] = project_id
+        if status:
+            filters["metadata.status"] = status
+
+        # Retrieve from memory engine
+        results = self.memory_engine.retrieve_memories(
+            query=query,
+            session_id=session_id,
+            retrieval_mode="balanced",
+            tier="ANCHORS",
+            limit=limit,
+            **filters,
+        )
+
+        return results
+
+    def update_adr_status(
+        self, adr_id: str, new_status: str, session_id: str, reason: str | None = None
+    ) -> None:
+        """
+        Update ADR status (e.g., accepted → deprecated).
+
+        Args:
+            adr_id: ADR identifier
+            new_status: New status
+            session_id: Current session ID
+            reason: Optional reason for status change
+        """
+        # Retrieve existing ADR
+        existing_adr = self.get_adr_by_id(adr_id, session_id)
+        if not existing_adr:
+            raise RuntimeError(f"ADR not found: {adr_id}")
+
+        # Extract memory_id from existing ADR
+        memory_id = existing_adr.get("memory_id")
+        if not memory_id:
+            raise RuntimeError(f"ADR {adr_id} missing memory_id")
+
+        # Update status in metadata
+        metadata = existing_adr.get("metadata", {})
+        old_status = metadata.get("status", "unknown")
+        metadata["status"] = new_status
+        metadata["status_updated_at"] = datetime.utcnow().isoformat()
+        if reason:
+            metadata["status_change_reason"] = reason
+
+        # Update the ADR content with new status
+        content = existing_adr.get("content", "")
+        # Replace status line in content
+        content_lines = content.split("\n")
+        for i, line in enumerate(content_lines):
+            if line.startswith("**Status:**"):
+                content_lines[i] = f"**Status:** {new_status}"
+                break
+        updated_content = "\n".join(content_lines)
+
+        # Store updated version in Qdrant
+        from prism_mcp.storage.qdrant_manager import COLLECTION_E5, VectorPoint
+
+        # Get existing embedding (ADRs use E5 collection)
+        embedding = existing_adr.get("embedding")
+        if embedding is None or len(embedding) == 0:
+            # Regenerate embedding if not available
+            from prism_mcp.models.embedder import get_embedder
+
+            embedder = get_embedder()
+            embedding = embedder.embed_with_e5(updated_content)
+
+        # Update in Qdrant
+        point = VectorPoint(
+            point_id=self.memory_engine._memory_id_to_uuid(memory_id),
+            vector=embedding,
+            payload={
+                **existing_adr,
+                "content": updated_content,
+                "metadata": metadata,
+                "last_accessed": datetime.now().isoformat(),
+            },
+        )
+        self.memory_engine.qdrant.upsert(COLLECTION_E5, [point])
+
+        # Update in Neo4j
+        self.memory_engine.neo4j.query(
+            """
+            MATCH (m:Memory {memory_id: $memory_id})
+            SET m.tier = 'anchors'
+            SET m.last_accessed = $timestamp
+            RETURN m
+            """,
+            memory_id=memory_id,
+            timestamp=datetime.now().isoformat(),
+        )
+
+        # Create supersession relationship if status change indicates replacement
+        if reason and new_status in ["deprecated", "superseded"]:
+            # Create SUPERSEDED_BY relationship in Neo4j
+            self.memory_engine.neo4j.query(
+                """
+                MATCH (old:Memory {memory_id: $old_memory_id})
+                CREATE (old)-[:STATUS_CHANGED {
+                    from_status: $old_status,
+                    to_status: $new_status,
+                    reason: $reason,
+                    timestamp: $timestamp
+                }]->(old)
+                RETURN old
+                """,
+                old_memory_id=memory_id,
+                old_status=old_status,
+                new_status=new_status,
+                reason=reason,
+                timestamp=datetime.utcnow().isoformat(),
+            )
+
+        logger.info(
+            f"Updated ADR {adr_id} status from {old_status} to {new_status}"
+            + (f" (reason: {reason})" if reason else "")
+        )
+
+    def get_adr_by_id(self, adr_id: str, session_id: str) -> dict[str, Any] | None:
+        """
+        Get specific ADR by ID.
+
+        Args:
+            adr_id: ADR identifier
+            session_id: Current session ID
+
+        Returns:
+            ADR data or None if not found
+        """
+        results = self.memory_engine.retrieve_memories(
+            query=adr_id,
+            session_id=session_id,
+            tier="ANCHORS",
+            limit=1,
+            return_scores=True,
+        )
+
+        if results and results[0].get("metadata", {}).get("adr_id") == adr_id:
+            return results[0]
+        return None
+
+    def link_adr_to_code(
+        self, adr_id: str, symbol_ids: list[str], session_id: str
+    ) -> None:
+        """
+        Link ADR to code symbols.
+
+        Args:
+            adr_id: ADR identifier
+            symbol_ids: List of code symbol IDs
+            session_id: Current session ID
+        """
+        # Retrieve ADR to get memory_id
+        adr = self.get_adr_by_id(adr_id, session_id)
+        if not adr:
+            raise RuntimeError(f"ADR not found: {adr_id}")
+
+        memory_id = adr.get("memory_id")
+        if not memory_id:
+            raise RuntimeError(f"ADR {adr_id} missing memory_id")
+
+        # Create relationships in Neo4j between ADR memory_id and code symbol IDs
+        for symbol_id in symbol_ids:
+            # Verify symbol exists
+            symbol_check = self.memory_engine.neo4j.find_node(node_id=symbol_id)
+            if not symbol_check:
+                logger.warning(f"Symbol {symbol_id} not found, skipping link to ADR {adr_id}")
+                continue
+
+            # Create DOCUMENTS relationship
+            from prism_mcp.storage.neo4j_manager import GraphRelationship
+
+            relationship = GraphRelationship(
+                from_id=memory_id,
+                to_id=symbol_id,
+                relationship_type="DOCUMENTS",
+                properties={
+                    "created_at": datetime.utcnow().isoformat(),
+                    "adr_id": adr_id,
+                },
+            )
+
+            try:
+                self.memory_engine.neo4j.create_relationship(relationship)
+                logger.info(f"Linked ADR {adr_id} to code symbol {symbol_id}")
+            except Exception as e:
+                # Relationship might already exist
+                logger.warning(f"Failed to link ADR {adr_id} to symbol {symbol_id}: {e}")
+
+    def get_adrs_for_symbol(
+        self, symbol_id: str, session_id: str
+    ) -> list[dict[str, Any]]:
+        """
+        Get all ADRs related to a code symbol.
+
+        Args:
+            symbol_id: Code symbol identifier
+            session_id: Current session ID
+
+        Returns:
+            List of related ADRs
+        """
+        # Query Neo4j for ADRs linked to this symbol via DOCUMENTS relationship
+        results = self.memory_engine.neo4j.query(
+            """
+            MATCH (symbol {node_id: $symbol_id})<-[:DOCUMENTS]-(adr:Memory)
+            WHERE adr.type = 'architecture_decision'
+            RETURN adr.memory_id as memory_id,
+                   adr.content as content,
+                   adr.tier as tier,
+                   adr.created_at as created_at,
+                   adr.last_accessed as last_accessed
+            """,
+            symbol_id=symbol_id,
+        )
+
+        if not results:
+            return []
+
+        # Enrich with full ADR data from Qdrant
+        adr_list = []
+        for result in results:
+            memory_id = result.get("memory_id")
+            if not memory_id:
+                continue
+
+            # Retrieve full ADR data
+            # Query Qdrant directly with memory_id filter
+            from prism_mcp.storage.qdrant_manager import COLLECTION_E5
+
+            points = self.memory_engine.qdrant.search(
+                collection_name=COLLECTION_E5,
+                query_vector=None,  # Don't need semantic search
+                limit=1,
+                filter_conditions={"memory_id": memory_id},
+            )
+
+            if points:
+                adr_data = points[0].get("payload", {})
+                adr_list.append(adr_data)
+
+        return adr_list

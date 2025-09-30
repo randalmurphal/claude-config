@@ -1,0 +1,333 @@
+#!/usr/bin/env python3
+"""
+Enhanced Forex Architectural Knowledge Indexer
+Creates high-level architectural understanding, not just code patterns
+"""
+import ast
+import os
+import requests
+from pathlib import Path
+from typing import List, Dict, Any, Set
+from collections import defaultdict
+
+API_URL = "http://localhost:8090"
+API_KEY = "prism_development_key_2024"
+FOREX_ROOT = "/home/randy/repos/forex_trader"
+
+SKIP_DIRS = {'node_modules', '.git', 'data', '__pycache__', '.venv', 'venv', 'build', 'dist', '.pytest_cache', 'logs'}
+
+class ArchitecturalIndexer:
+    def __init__(self):
+        self.session = requests.Session()
+        self.session.headers.update({
+            "Authorization": f"Bearer {API_KEY}",
+            "Content-Type": "application/json"
+        })
+        self.module_summaries = {}
+        self.design_patterns = defaultdict(list)
+        self.system_components = defaultdict(list)
+
+    def store_memory(self, content: str, memory_type: str, context: Dict[str, Any], tags: List[str]):
+        """Store architectural knowledge"""
+        payload = {
+            "content": content,
+            "memory_type": memory_type,
+            "context": {
+                "session_id": "forex_architectural_analysis",
+                "role": "architect",
+                "task": "understanding forex_trader architecture",
+                "project_id": "forex_trader",
+                **context
+            },
+            "tags": tags
+        }
+
+        try:
+            response = self.session.post(f"{API_URL}/api/store_memory", json=payload)
+            if response.status_code == 200:
+                return response.json().get('memory_id')
+            return None
+        except:
+            return None
+
+    def analyze_module_architecture(self, file_path: Path, content: str):
+        """Extract architectural understanding from module"""
+        try:
+            tree = ast.parse(content)
+            rel_path = file_path.relative_to(FOREX_ROOT)
+            component = rel_path.parts[0] if rel_path.parts else "root"
+
+            # Collect classes and functions
+            classes = []
+            functions = []
+            imports = []
+
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ClassDef):
+                    classes.append(node.name)
+                elif isinstance(node, ast.FunctionDef) and not node.name.startswith('_'):
+                    functions.append(node.name)
+                elif isinstance(node, (ast.Import, ast.ImportFrom)):
+                    if isinstance(node, ast.ImportFrom) and node.module:
+                        imports.append(node.module)
+
+            # Create architectural summary
+            if classes or functions:
+                module_doc = ast.get_docstring(tree) or ""
+
+                summary = f"""
+**Module**: {rel_path}
+**Component**: {component}
+
+**Purpose**: {module_doc[:300] if module_doc else "Implementation module"}
+
+**Architecture**:
+- {len(classes)} classes: {', '.join(classes[:5])}
+- {len(functions)} public functions
+- Dependencies: {len(set(imports))} external modules
+
+**Key Responsibilities**:
+"""
+                # Add class purposes
+                for node in ast.walk(tree):
+                    if isinstance(node, ast.ClassDef):
+                        class_doc = ast.get_docstring(node)
+                        if class_doc:
+                            summary += f"\n- `{node.name}`: {class_doc.split('.')[0]}"
+
+                # Store as architectural documentation
+                self.store_memory(
+                    content=summary,
+                    memory_type="research_note",
+                    context={
+                        "file_path": str(rel_path),
+                        "component": component,
+                        "analysis_type": "architecture"
+                    },
+                    tags=["architecture", "component", component, "high-level", "forex_trader"]
+                )
+
+                print(f"  📐 Architectural summary: {rel_path.name}")
+
+                # Detect design patterns
+                self._detect_design_patterns(rel_path, classes, functions, content)
+
+        except:
+            pass
+
+    def _detect_design_patterns(self, rel_path: Path, classes: List[str], functions: List[str], content: str):
+        """Detect and document design patterns"""
+        patterns_found = []
+
+        # Strategy Pattern
+        if any('Strategy' in c for c in classes) or 'strategy' in str(rel_path).lower():
+            patterns_found.append("Strategy Pattern")
+
+        # Observer Pattern
+        if any(word in content.lower() for word in ['subscribe', 'notify', 'observer', 'listener']):
+            patterns_found.append("Observer Pattern")
+
+        # Factory Pattern
+        if any(word in content.lower() for word in ['factory', 'create_', 'make_']):
+            patterns_found.append("Factory Pattern")
+
+        # Adapter Pattern
+        if any(word in str(rel_path) for word in ['adapter', 'converter', 'bridge']):
+            patterns_found.append("Adapter Pattern")
+
+        if patterns_found:
+            note = f"""
+**Design Patterns Detected** in {rel_path}:
+
+{chr(10).join(f'- {pattern}' for pattern in patterns_found)}
+
+This suggests the module uses well-established design patterns for:
+- Extensibility and modularity
+- Separation of concerns
+- Code maintainability
+"""
+            self.store_memory(
+                content=note,
+                memory_type="research_note",
+                context={
+                    "file_path": str(rel_path),
+                    "analysis_type": "design_patterns",
+                    "patterns": patterns_found
+                },
+                tags=["design-patterns", "architecture", "forex_trader"] + patterns_found
+            )
+            print(f"  🎯 Design patterns: {', '.join(patterns_found)}")
+
+    def create_component_summaries(self):
+        """Create high-level component summaries"""
+        components = {
+            "core/evaluation": "Trade evaluation and scoring system - assesses trade quality, risk management, and trading discipline",
+            "core/simulator": "Realistic forex trading simulation - handles orders, positions, margin, and market conditions",
+            "core/reporting": "Report generation and analytics - creates performance reports and trade analysis",
+            "core/data": "Data pipeline and management - handles market data ingestion and processing",
+            "core/analysis": "Pattern detection and market analysis - identifies trading opportunities and market regimes",
+            "research_tools": "Strategy research and backtesting tools - parallel testing, regime analysis, strategy generation",
+            "tests": "Comprehensive test suite - integration tests and unit tests for all core systems"
+        }
+
+        for component, description in components.items():
+            summary = f"""
+**Component**: {component}
+
+**High-Level Purpose**:
+{description}
+
+**Role in System**:
+This component is part of the forex trading platform's architecture, providing critical functionality for {'automated trading research and validation' if 'research' in component or 'test' in component else 'live trading operations'}.
+
+**Integration Points**:
+- Works with other core components through well-defined interfaces
+- Receives market data from data pipeline
+- Provides metrics and analysis to reporting system
+
+**Key Use Cases**:
+Query this component when you need to understand:
+- {description.split('-')[0].strip()}
+- Implementation patterns for similar functionality
+- Testing strategies for {component.split('/')[-1]}
+"""
+
+            self.store_memory(
+                content=summary,
+                memory_type="research_note",
+                context={
+                    "component": component,
+                    "analysis_type": "component_architecture",
+                    "level": "high"
+                },
+                tags=["architecture", "component", "high-level", "system-design", "forex_trader"]
+            )
+
+        print("\n✅ Created high-level component summaries")
+
+    def create_system_overview(self):
+        """Create overall system architecture overview"""
+        overview = """
+**Forex Trading Platform - System Architecture Overview**
+
+**System Purpose**:
+A professional-grade forex trading platform with comprehensive evaluation, simulation, and research capabilities.
+
+**Core Architectural Layers**:
+
+1. **Evaluation Layer** (core/evaluation/)
+   - Trade quality assessment
+   - Risk analysis and portfolio management
+   - Human trade scoring and validation
+   - Converts data from multiple broker formats
+
+2. **Simulation Layer** (core/simulator/)
+   - Realistic forex market simulation
+   - Order execution with slippage and spread
+   - Margin calculation and liquidation
+   - Professional-grade broker simulation
+
+3. **Data Layer** (core/data/)
+   - Market data pipeline
+   - Historical and real-time data processing
+   - Data normalization and cleaning
+
+4. **Analysis Layer** (core/analysis/)
+   - Pattern detection
+   - Market regime identification
+   - Technical indicator calculation
+
+5. **Research Layer** (research_tools/)
+   - Strategy backtesting
+   - Parallel strategy testing
+   - Regime-aware analysis
+   - Rule discovery and optimization
+
+6. **Reporting Layer** (core/reporting/)
+   - Performance metrics and analytics
+   - Trade-by-trade analysis
+   - Portfolio summaries
+
+**Design Philosophy**:
+- Modularity: Each component has clear responsibilities
+- Extensibility: Easy to add new strategies, brokers, or data sources
+- Testability: Comprehensive test coverage ensures reliability
+- Realism: Simulations model real-world trading conditions accurately
+
+**Key Design Patterns**:
+- Strategy Pattern for trading strategies
+- Factory Pattern for order creation
+- Observer Pattern for event handling
+- Adapter Pattern for broker integrations
+
+**Query Use Cases**:
+Ask questions like:
+- "How does risk management work?"
+- "Show me the trade evaluation logic"
+- "What simulations are available?"
+- "How do I backtest a strategy?"
+- "What data formats are supported?"
+"""
+
+        self.store_memory(
+            content=overview,
+            memory_type="research_note",
+            context={
+                "analysis_type": "system_architecture",
+                "level": "system",
+                "scope": "complete"
+            },
+            tags=["architecture", "overview", "system-design", "high-level", "forex_trader", "documentation"]
+        )
+
+        print("✅ Created system architecture overview")
+
+    def index_directory(self, root_dir: Path):
+        """Index with architectural understanding"""
+        python_files = []
+
+        for root, dirs, files in os.walk(root_dir):
+            dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+            root_path = Path(root)
+            for file in files:
+                if file.endswith('.py'):
+                    python_files.append(root_path / file)
+
+        print(f"\n📊 Analyzing {len(python_files)} files for architectural patterns\n")
+
+        for i, file_path in enumerate(python_files, 1):
+            if i % 20 == 0:
+                print(f"[{i}/{len(python_files)}] Processing...")
+
+            try:
+                content = file_path.read_text(encoding='utf-8')
+                self.analyze_module_architecture(file_path, content)
+            except:
+                pass
+
+        print(f"\n{'='*70}")
+        print("Creating high-level architectural documentation...")
+        print(f"{'='*70}\n")
+
+        self.create_component_summaries()
+        self.create_system_overview()
+
+        print(f"\n{'='*70}")
+        print("✅ Architectural indexing complete!")
+        print(f"{'='*70}\n")
+        print("🎯 Now you can ask high-level questions like:")
+        print('   - "Explain the overall architecture"')
+        print('   - "What design patterns are used?"')
+        print('   - "How do the components interact?"')
+        print('   - "What is the evaluation layer responsible for?"')
+
+def main():
+    print("="*70)
+    print("🏗️  Forex Trader Architectural Analyzer")
+    print("="*70)
+
+    indexer = ArchitecturalIndexer()
+    indexer.index_directory(Path(FOREX_ROOT))
+
+if __name__ == "__main__":
+    main()

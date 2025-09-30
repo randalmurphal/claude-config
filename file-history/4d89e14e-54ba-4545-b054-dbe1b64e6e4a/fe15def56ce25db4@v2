@@ -1,0 +1,10 @@
+"""
+Tech Scanner - Integration modules.
+
+Integrations with external services:
+- PRISM: Memory and pattern storage
+"""
+
+from .prism_client import PRISMClient, ADR
+
+__all__ = ['PRISMClient', 'ADR']

@@ -1,0 +1,183 @@
+# PRISM MCP - AI Agent Guide
+
+## System Overview
+
+AI memory system with 6-stage retrieval, 155K+ code patterns, and preference learning.
+
+## Architecture
+
+###Three-Model System (FULL Tier)
+- **E5-Mistral-7B** (4096d): Semantic understanding (notes/decisions/guidance) → `memories_e5` collection
+- **StarCoder2-7B** (4608d): Code pattern embeddings → `code_patterns` collection
+- **BGE-Reranker-v2-m3**: Cross-encoder precision boost
+
+### Storage
+- **Qdrant** (localhost:6333): Vector embeddings, similarity search
+- **Neo4j** (localhost:7687): Graph relationships, PageRank, memory tiers
+- **Redis** (localhost:6379): Session cache (24h TTL), query dedup
+
+### 6-Stage Retrieval Pipeline
+1. **Semantic** → Qdrant similarity (threshold: 0.70)
+2. **Graph** → Neo4j PageRank + BFS expansion (depth: 2)
+3. **Context** → Role/task/project/branch filtering
+4. **Temporal** → Recency + git SHA boost
+5. **Diversity** → MMR + Louvain clustering
+6. **Scoring** → Weighted: semantic(0.40) + graph(0.30) + temporal(0.20) + utility(0.10)
+
+### 4-Tier Memory System
+- **ANCHORS**: High-frustration (user corrections) - never expires
+- **LONGTERM**: Frequently accessed (count ≥ 5) - promotes from EPISODIC
+- **EPISODIC**: Recent session discoveries - promotes from WORKING
+- **WORKING**: Current session only - 72h TTL
+
+## Key Files
+
+### Core (`prism_mcp/core/`)
+- `orchestrator.py` (1200L): Main coordinator, warm-up, retrieval orchestration
+- `memory_engine.py` (950L): 4-tier memory, promotion logic
+- `retrieval_coordinator.py` (900L): 6-stage pipeline execution
+- `pattern_engine.py`: Hybrid AST + semantic pattern detection
+- `preference_manager.py` (540L): Preference lifecycle (suggest/approve/reject/undo)
+
+### Storage (`prism_mcp/storage/`)
+- `qdrant_manager.py`: Vector ops, **CRITICAL**: Use `.client` for `retrieve()`/`scroll()`, NOT wrappers
+- `neo4j_manager.py`: Graph ops, use Cypher for updates (no `update_node_properties()`)
+- `redis_cache.py`: Use `.client.lpush()`/`.lpop()` for list ops
+
+### Models (`prism_mcp/models/`)
+- `embedder.py`: Dual-model system, tier-aware loading
+- `quantization.py`: **FIXED 2025-09-29**: Skip verification with `device_map="auto"`
+
+### Interfaces (`prism_mcp/interfaces/`)
+- `http_api.py` (1400L): FastAPI server, 25+ endpoints
+- `mcp_server.py`: MCP protocol, 20+ tools
+
+## Critical Patterns
+
+### UUID Systems
+- **Legacy memories**: 12-char hex → integer via MD5
+- **Preferences**: 36-char UUID → stored natively as string (NO conversion)
+
+### API Quirks
+**Qdrant**:
+```python
+# WRONG
+payload = record['payload']  # Record not subscriptable
+
+# CORRECT
+payload = record.payload  # Use dot notation
+
+# Scroll returns tuple
+results, next_offset = self.qdrant.client.scroll(...)
+```
+
+**Redis**:
+```python
+# Use raw client for list ops
+self.redis.client.lpush(key, value)
+preference_id = self.redis.client.lpop(key)
+```
+
+**Neo4j**:
+```python
+# No update_node_properties() - use Cypher
+cypher = "MATCH (m:Memory {memory_id: $id}) SET m.status = $status"
+neo4j.query(cypher, id=memory_id, status="approved")
+```
+
+### Retry Pattern for Eventual Consistency
+```python
+def _retrieve_with_retry(self, collection, ids, max_retries=10, delay=0.1):
+    for attempt in range(max_retries):
+        points = self.qdrant.client.retrieve(collection_name=collection, ids=ids)
+        if points:
+            return points
+        if attempt < max_retries - 1:
+            time.sleep(delay)
+            delay *= 2  # Exponential backoff
+    raise RuntimeError(f"Failed after {max_retries} attempts")
+```
+
+## Configuration
+
+Edit `config/config.yaml` (NO env vars, NO defaults):
+
+```yaml
+database:
+  neo4j_uri: "bolt://localhost:7687"
+  neo4j_password: "prism_neo4j_2024"
+  qdrant_url: "http://localhost:6333"
+  redis_url: "redis://localhost:6379"
+
+models:
+  tier_strategy: "manual"
+  manual_tier: 1  # 1=Full, 2=Dual, 3=Single, 4=CPU, 5=Keyword
+
+intelligent_retrieval:
+  semantic:
+    min_similarity_threshold: 0.70
+  graph:
+    expansion_enabled: true
+    max_depth: 2
+  scoring:
+    weights:
+      semantic: 0.40
+      graph: 0.30
+      temporal: 0.20
+      utility: 0.10
+```
+
+## Common Operations
+
+### Start System
+```bash
+# Databases
+nerdctl start prism-neo4j prism-qdrant prism-redis
+
+# API server
+python -m prism_mcp.interfaces.http_api --port 8090
+
+# Load patterns (separate process, ~3 hours)
+python -m prism_mcp.bootstrap.load_patterns_via_api \
+  --api-url http://localhost:8090 \
+  --api-key prism_development_key_2024
+```
+
+### Health Check
+```bash
+curl http://localhost:8090/api/health/detailed
+```
+
+## Recent Fixes (2025-09-29)
+
+**CRITICAL**: Model loading device mismatch fixed
+
+**Root cause**: When using `device_map="auto"`, model handles device placement internally. Attempting to verify with CPU tensors causes crash: "Expected all tensors on same device, got index on cpu, others on cuda:0"
+
+**Fix**: Skip dimension verification when using `device_map`:
+- `prism_mcp/models/quantization.py:223-227` (StarCoder2)
+- `prism_mcp/models/quantization.py:275-279` (BGE-Reranker)
+
+**Impact**: Unblocked entire pattern recognition system
+
+## NO DEFAULTS Philosophy
+
+- All config values must be explicit
+- No `.get(key, default)` for required fields
+- No try/except without re-raising
+- System CRASHES if misconfigured
+
+## Error Handling
+
+All errors include specific solutions:
+- `ConfigError`: Shows file, line, fix instructions
+- `DatabaseConnectionError`: Service-specific troubleshooting
+- `ModelLoadingError`: Memory, GPU, model-specific guidance
+
+## Documentation
+
+- **For users**: `README.md`, `SETUP_GPU.md`
+- **For AI agents**: This file
+- **For developers**: `docs/IMPLEMENTATION_NOTES.md`
+- **Complete spec**: `docs/ULTIMATE_ARCHITECTURE_SPEC.md` (88K words)
+- **Historical**: `docs/archive/*`

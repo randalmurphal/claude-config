@@ -1,0 +1,837 @@
+"""
+Retrieval coordinator - orchestrates 6-stage intelligent retrieval pipeline.
+
+Responsibility: Coordinate all retrieval stages and compute final weighted scores.
+Single responsibility: Pipeline orchestration, not individual stage logic.
+
+Phase 1 Enhancement: Retrieval modes (lightning/fast/balanced/comprehensive)
+with semantic caching, timeout enforcement, and phase-aware mapping.
+"""
+
+import logging
+import asyncio
+from typing import List, Tuple, Optional, Union, Dict
+from dataclasses import dataclass
+
+from prism_mcp.core.memory_engine import Memory, MemoryTier
+from prism_mcp.core.semantic_searcher import SemanticSearcher
+from prism_mcp.core.graph_expander import GraphExpander
+from prism_mcp.core.context_filter import ContextFilter
+from prism_mcp.core.temporal_ranker import TemporalRanker
+from prism_mcp.core.diversity_selector import DiversitySelector
+from prism_mcp.core.utility_tracker import UtilityTracker
+from prism_mcp.core.cache_manager import CacheManager
+from prism_mcp.utils.config import get_config
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class RetrievalScores:
+    """
+    Scores from all retrieval stages.
+
+    All scores normalized to 0.0-1.0 range.
+    Combined score is weighted sum of individual scores.
+    """
+
+    semantic: float
+    graph: float
+    temporal: float
+    utility: float
+    diversity: float
+    combined: float
+
+
+class RetrievalCoordinator:
+    """
+    Orchestrates 6-stage intelligent retrieval pipeline.
+
+    Pipeline stages:
+    1. SemanticSearcher - Qdrant search with quality gate
+    2. GraphExpander - Neo4j BFS + PageRank
+    3. ContextFilter - Deduplication + compatibility
+    4. TemporalRanker - Age decay + recency + SHA
+    5. DiversitySelector - MMR + Louvain communities
+    6. Final Scoring - Weighted combination + utility
+
+    NO DEFAULTS - all config values required.
+    """
+
+    def __init__(self):
+        """
+        Initialize retrieval coordinator from configuration.
+
+        Initializes all 6 stage components + cache manager.
+
+        Raises:
+            RuntimeError: If configuration missing or invalid
+        """
+        self.config = get_config()
+
+        # Initialize all pipeline components
+        self.semantic_searcher = SemanticSearcher()
+        self.graph_expander = GraphExpander()
+        self.context_filter = ContextFilter()
+        self.temporal_ranker = TemporalRanker()
+        self.diversity_selector = DiversitySelector()
+        self.utility_tracker = UtilityTracker()
+
+        # Phase 1: Initialize cache manager
+        self.cache_manager = CacheManager()
+
+        # Validate scoring weights
+        self.semantic_weight = (
+            self.config.intelligent_retrieval.scoring.weights.semantic
+        )
+        self.graph_weight = (
+            self.config.intelligent_retrieval.scoring.weights.graph
+        )
+        self.temporal_weight = (
+            self.config.intelligent_retrieval.scoring.weights.temporal
+        )
+        self.utility_weight = (
+            self.config.intelligent_retrieval.scoring.weights.utility
+        )
+
+        total_weight = (
+            self.semantic_weight
+            + self.graph_weight
+            + self.temporal_weight
+            + self.utility_weight
+        )
+        if abs(total_weight - 1.0) > 0.01:
+            raise RuntimeError(
+                f'Scoring weights must sum to 1.0, got {total_weight}. '
+                f'semantic={self.semantic_weight}, graph={self.graph_weight}, '
+                f'temporal={self.temporal_weight}, utility={self.utility_weight}'
+            )
+
+        # Phase 1: Validate retrieval modes configuration
+        if not hasattr(self.config, 'retrieval'):
+            raise RuntimeError("retrieval section missing from config.yaml")
+
+        if not hasattr(self.config.retrieval, 'modes'):
+            raise RuntimeError("retrieval.modes section missing from config.yaml")
+
+        if not hasattr(self.config.retrieval, 'phase_mapping'):
+            raise RuntimeError("retrieval.phase_mapping section missing from config.yaml")
+
+        logger.info(
+            f'RetrievalCoordinator initialized with weights: '
+            f'semantic={self.semantic_weight}, graph={self.graph_weight}, '
+            f'temporal={self.temporal_weight}, utility={self.utility_weight}, '
+            f'cache_enabled={self.cache_manager.enabled}'
+        )
+
+    def _map_phase_to_mode(self, phase: str) -> str:
+        """
+        Map orchestration phase to retrieval mode.
+
+        Rationale:
+        - prepare: Planning, needs completeness (comprehensive)
+        - skeleton: Design, needs quality patterns (balanced)
+        - implementation: Coding, many queries, needs speed (fast)
+        - validation: Review, needs thoroughness (balanced)
+        """
+        phase_mapping = self.config.retrieval.phase_mapping
+
+        mode = phase_mapping.get(phase, None)
+        if not mode:
+            valid_phases = list(phase_mapping.keys())
+            raise RuntimeError(
+                f"Unknown orchestration phase '{phase}'. "
+                f"Valid: {valid_phases}"
+            )
+
+        logger.info(f"Phase '{phase}' → mode '{mode}'")
+        return mode
+
+    async def retrieve_intelligent(
+        self,
+        query: str,
+        session_id: str,
+        retrieval_mode: str = "balanced",  # NEW: Phase 1
+        phase: Optional[str] = None,       # Enhanced for phase mapping
+        role: Optional[str] = None,
+        task_type: Optional[str] = None,
+        task_id: Optional[str] = None,
+        project_id: Optional[str] = None,
+        branch: Optional[str] = None,
+        git_sha: Optional[str] = None,
+        limit: int = 10,
+        tier_filter: Optional[MemoryTier] = None,
+        exclude_memory_ids: Optional[List[str]] = None,
+        return_scores: bool = False,
+        enable_augmentation: bool = True,
+        enable_reranking: bool = False,
+    ) -> Tuple[Union[List[Memory], List[Tuple[Memory, RetrievalScores]]], str]:
+        """
+        Main entry point for intelligent retrieval with mode-based execution.
+
+        Phase 1 Enhancement: Supports 4 retrieval modes with semantic caching,
+        timeout enforcement, and phase-aware mode mapping.
+
+        Args:
+            query: Search query
+            session_id: REQUIRED for deduplication
+            retrieval_mode: "lightning" | "fast" | "balanced" | "comprehensive" (NEW)
+            phase: Optional orchestration phase for automatic mode selection (overrides retrieval_mode)
+            role: Optional role context ("architect", "implementer", "reviewer", "debugger")
+            task_type: Optional task type ("skeleton", "implementation", "testing")
+            task_id: Optional specific task identifier
+            project_id: Optional project filter
+            branch: Optional branch filter
+            git_sha: Optional current git SHA for recency boost
+            limit: Maximum number of results to return
+            tier_filter: Optional memory tier filter
+            exclude_memory_ids: Optional list of memory IDs to exclude
+            return_scores: If True, return (Memory, RetrievalScores) tuples for debugging
+            enable_augmentation: Use query augmentation for E5 queries (default: True, +33% precision)
+            enable_reranking: Use BGE cross-encoder reranking (default: False, slower but more precise)
+
+        Retrieval Modes:
+            - lightning: <100ms, cache-only with ANCHORS fallback (for hooks)
+            - fast: <500ms, 3 stages + utility (for real-time queries)
+            - balanced: <2s, full 6 stages depth=1 (standard quality)
+            - comprehensive: <20s, full 6 stages depth=3 (for planning)
+
+        Phase Mapping:
+            - prepare → comprehensive
+            - skeleton → balanced
+            - implementation → fast
+            - validation → balanced
+
+        Returns:
+            Tuple of (memories_list, retrieval_id) where memories_list is either
+            List[Memory] or List[(Memory, RetrievalScores)] depending on return_scores
+
+        Raises:
+            RuntimeError: If session_id missing, invalid mode, or timeout
+        """
+        # Phase 1: Input validation
+        if not query:
+            raise RuntimeError('query is required for intelligent retrieval')
+        if not session_id:
+            raise RuntimeError('session_id is required for intelligent retrieval')
+
+        # Phase 1: Phase mapping overrides explicit mode
+        if phase:
+            retrieval_mode = self._map_phase_to_mode(phase)
+
+        # Phase 1: Validate mode
+        valid_modes = ["lightning", "fast", "balanced", "comprehensive"]
+        if retrieval_mode not in valid_modes:
+            raise RuntimeError(
+                f"Invalid retrieval_mode '{retrieval_mode}'. "
+                f"Valid: {valid_modes}"
+            )
+
+        logger.info(
+            f"Retrieval: mode={retrieval_mode}, query='{query[:50]}...', "
+            f"session={session_id}"
+        )
+
+        # Phase 1: Get timeout from config
+        mode_config = self.config.retrieval.modes[retrieval_mode]
+        timeout_ms = mode_config.timeout_ms
+
+        # Phase 1: Wrap in timeout
+        try:
+            return await asyncio.wait_for(
+                self._retrieve_with_mode(
+                    query=query,
+                    session_id=session_id,
+                    retrieval_mode=retrieval_mode,
+                    phase=phase,
+                    role=role,
+                    task_type=task_type,
+                    task_id=task_id,
+                    project_id=project_id,
+                    branch=branch,
+                    git_sha=git_sha,
+                    limit=limit,
+                    tier_filter=tier_filter,
+                    exclude_memory_ids=exclude_memory_ids,
+                    return_scores=return_scores,
+                    enable_augmentation=enable_augmentation,
+                    enable_reranking=enable_reranking,
+                ),
+                timeout=timeout_ms / 1000
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                f"Retrieval timeout ({timeout_ms}ms), returning partial results"
+            )
+            # Return cached + preferences as fallback
+            return await self._get_partial_results(query, session_id, return_scores)
+
+    async def _retrieve_with_mode(
+        self,
+        query: str,
+        session_id: str,
+        retrieval_mode: str,
+        phase: Optional[str] = None,
+        role: Optional[str] = None,
+        task_type: Optional[str] = None,
+        task_id: Optional[str] = None,
+        project_id: Optional[str] = None,
+        branch: Optional[str] = None,
+        git_sha: Optional[str] = None,
+        limit: int = 10,
+        tier_filter: Optional[MemoryTier] = None,
+        exclude_memory_ids: Optional[List[str]] = None,
+        return_scores: bool = False,
+        enable_augmentation: bool = True,
+        enable_reranking: bool = False,
+    ) -> Tuple[Union[List[Memory], List[Tuple[Memory, RetrievalScores]]], str]:
+        """Internal retrieval implementation per mode."""
+
+        # === LIGHTNING MODE ===
+        if retrieval_mode == "lightning":
+            # Check cache first
+            cached = await self.cache_manager.get_cached_results(
+                query=query,
+                session_id=session_id,
+                mode="lightning"
+            )
+            if cached:
+                logger.info(f"Lightning: cache HIT, {len(cached)} results")
+                # Record retrieval for utility tracking
+                retrieval_id = self.utility_tracker.record_retrieval(
+                    session_id=session_id,
+                    role=role,
+                    task_type=task_type,
+                    task_id=task_id,
+                    query=query,
+                    memories=[m for m, _ in cached],
+                )
+
+                if return_scores:
+                    return (cached, retrieval_id)
+                else:
+                    return ([m for m, _ in cached], retrieval_id)
+
+            # FALLBACK: Return ANCHORS (always fast, always useful)
+            anchors = self._fetch_anchors_preferences(
+                query=query,
+                project_id=project_id,
+                limit=3
+            )
+            logger.info(f"Lightning: cache MISS, returning {len(anchors)} ANCHORS")
+
+            # Convert to proper format with perfect scores
+            results = [(pref, self._perfect_scores()) for pref in anchors]
+
+            # Record retrieval
+            retrieval_id = self.utility_tracker.record_retrieval(
+                session_id=session_id,
+                role=role,
+                task_type=task_type,
+                task_id=task_id,
+                query=query,
+                memories=anchors,
+            )
+
+            if return_scores:
+                return (results, retrieval_id)
+            else:
+                return (anchors, retrieval_id)
+
+        # === ALL NON-LIGHTNING MODES ===
+
+        # Stage 0: Preferences (ALL non-lightning modes)
+        preferences = self._fetch_anchors_preferences(
+            query=query,
+            project_id=project_id,
+            limit=10
+        )
+
+        # Stage 1: Semantic Search (ALL modes)
+        semantic_results = self._run_semantic_search(
+            query,
+            'research_note',
+            project_id,
+            branch,
+            tier_filter,
+            enable_augmentation,
+        )
+
+        # Track already seen memories
+        already_seen = {m.memory_id for m, _ in semantic_results}
+        candidates = [
+            (m, {'semantic': score, 'graph': 0.0, 'temporal': 0.0, 'diversity': 1.0})
+            for m, score in semantic_results
+        ]
+
+        # === FAST MODE: 3 stages + utility ===
+        if retrieval_mode == "fast":
+            # Stage 3: Context Filter (skip graph and temporal)
+            filtered = self._run_context_filter(
+                candidates,
+                session_id,
+                role,
+                task_type,
+                task_id,
+                None,  # phase not needed for context filter
+                exclude_memory_ids,
+            )
+
+            # Stage 5: Diversity Selection
+            diverse = self._run_diversity_selection(filtered, limit)
+
+            # Stage 6: Utility Scoring (KEEP THIS - only adds ~5ms)
+            final_scores = self._run_final_scoring(diverse, role, task_type, limit)
+
+            # Combine with preferences
+            final_results = await self._prepend_preferences(
+                preferences,
+                final_scores,
+                session_id=session_id,
+                retrieval_mode=retrieval_mode,
+                role=role,
+                task_type=task_type,
+                phase=phase
+            )
+
+            # Cache results
+            await self.cache_manager.cache_results(
+                query, session_id, final_results, mode="fast"
+            )
+
+            # Record retrieval
+            retrieval_id = self.utility_tracker.record_retrieval(
+                session_id=session_id,
+                role=role,
+                task_type=task_type,
+                task_id=task_id,
+                query=query,
+                memories=[m for m, _ in final_results],
+            )
+
+            logger.info(
+                f"Fast mode: {len(final_results)} results "
+                f"({len(final_scores)} memories + {len(preferences)} prefs)"
+            )
+
+            if return_scores:
+                return (final_results, retrieval_id)
+            else:
+                return ([m for m, _ in final_results], retrieval_id)
+
+        # === BALANCED/COMPREHENSIVE: Full pipeline ===
+
+        # Stage 2: Graph Expansion (depth varies)
+        max_depth = 3 if retrieval_mode == "comprehensive" else 1
+        if self.config.intelligent_retrieval.graph.expansion_enabled:
+            expanded = self._run_graph_expansion(semantic_results, max_depth)
+            expanded_candidates = [
+                (m, {'semantic': 0.0, 'graph': score, 'temporal': 0.0, 'diversity': 1.0})
+                for m, score in expanded
+            ]
+            candidates = candidates + expanded_candidates
+            already_seen.update(m.memory_id for m, _ in expanded)
+
+        # Stage 3: Context Filter
+        filtered = self._run_context_filter(
+            candidates,
+            session_id,
+            role,
+            task_type,
+            task_id,
+            None,  # phase not needed for context filter
+            exclude_memory_ids,
+        )
+
+        # Stage 4: Temporal Ranking
+        ranked = self._run_temporal_ranking(filtered, git_sha)
+
+        # Stage 5: Diversity Selection
+        diverse = self._run_diversity_selection(ranked, limit)
+
+        # Stage 6: Utility Scoring
+        final_scores = self._run_final_scoring(diverse, role, task_type, limit)
+
+        # Apply BGE reranking if requested and available
+        if enable_reranking:
+            final_scores = self._apply_reranking(query, final_scores)
+
+        # Combine with preferences
+        final_results = await self._prepend_preferences(
+            preferences,
+            final_scores,
+            session_id=session_id,
+            retrieval_mode=retrieval_mode,
+            role=role,
+            task_type=task_type,
+            phase=phase
+        )
+
+        # Cache results
+        await self.cache_manager.cache_results(
+            query, session_id, final_results, mode=retrieval_mode
+        )
+
+        # Record retrieval
+        retrieval_id = self.utility_tracker.record_retrieval(
+            session_id=session_id,
+            role=role,
+            task_type=task_type,
+            task_id=task_id,
+            query=query,
+            memories=[m for m, _ in final_results],
+        )
+
+        logger.info(
+            f"{retrieval_mode.capitalize()}: {len(final_results)} results, "
+            f"depth={max_depth}"
+        )
+
+        if return_scores:
+            return (final_results, retrieval_id)
+        else:
+            return ([m for m, _ in final_results], retrieval_id)
+
+    def _perfect_scores(self) -> RetrievalScores:
+        """Perfect scores for preferences (always rank highest)."""
+        return RetrievalScores(
+            semantic=1.0,
+            graph=1.0,
+            temporal=1.0,
+            utility=1.0,
+            diversity=1.0,
+            combined=1.0
+        )
+
+    async def _prepend_preferences(
+        self,
+        preferences: List[Memory],
+        other_results: List[Tuple[Memory, RetrievalScores]],
+        session_id: Optional[str] = None,
+        retrieval_mode: str = "balanced",
+        role: Optional[str] = None,
+        task_type: Optional[str] = None,
+        phase: Optional[str] = None
+    ) -> List[Tuple[Memory, RetrievalScores]]:
+        """
+        Prepend preferences with perfect scores and track analytics.
+
+        Phase 3: Tracks preference usage for analytics.
+        """
+        if not preferences:
+            return other_results
+
+        # Phase 3: Track preference usage for analytics
+        try:
+            from prism_mcp.core.preference_analytics import get_preference_analytics, AnalyticsContext
+            analytics = get_preference_analytics()
+
+            if analytics.enabled:
+                for pref, _ in preferences:
+                    # Track usage of each preference
+                    context = AnalyticsContext(
+                        role=role,
+                        task_type=task_type,
+                        phase=phase,
+                        session_id=session_id,
+                        retrieval_mode=retrieval_mode
+                    )
+
+                    await analytics.track_preference_usage(
+                        preference_id=pref.memory_id,
+                        context=context
+                    )
+
+                    logger.debug(
+                        f"Tracked preference usage: {pref.memory_id} "
+                        f"(mode={retrieval_mode}, phase={phase})"
+                    )
+        except Exception as e:
+            # Don't fail retrieval if analytics fails
+            logger.warning(f"Failed to track preference analytics: {e}")
+
+        pref_results = [
+            (pref, self._perfect_scores())
+            for pref in preferences
+        ]
+
+        return pref_results + other_results
+
+    async def _get_partial_results(
+        self, query: str, session_id: str, return_scores: bool
+    ) -> Tuple[Union[List[Memory], List[Tuple[Memory, RetrievalScores]]], str]:
+        """Get partial results on timeout (cached + ANCHORS)."""
+        # Try cache first
+        cached = await self.cache_manager.get_cached_results(
+            query, session_id, mode="lightning"
+        )
+        if cached:
+            retrieval_id = self.utility_tracker.record_retrieval(
+                session_id=session_id,
+                role=None,
+                task_type=None,
+                task_id=None,
+                query=query,
+                memories=[m for m, _ in cached],
+            )
+            if return_scores:
+                return (cached, retrieval_id)
+            else:
+                return ([m for m, _ in cached], retrieval_id)
+
+        # Return ANCHORS as fallback
+        anchors = self._fetch_anchors_preferences(query, limit=5)
+        retrieval_id = self.utility_tracker.record_retrieval(
+            session_id=session_id,
+            role=None,
+            task_type=None,
+            task_id=None,
+            query=query,
+            memories=anchors,
+        )
+
+        if return_scores:
+            results = [(pref, self._perfect_scores()) for pref in anchors]
+            return (results, retrieval_id)
+        else:
+            return (anchors, retrieval_id)
+
+    def _fetch_anchors_preferences(
+        self, query: str, project_id: Optional[str], limit: int = 10
+    ) -> List[Tuple[Memory, float]]:
+        """
+        Stage 0 (Phase 4B): Fetch approved preferences from ANCHORS tier.
+
+        Preferences are always included in results with highest priority.
+        Uses semantic search over user_preference memory type.
+
+        Args:
+            query: Search query
+            project_id: Optional project filter
+            limit: Max preferences to return (default: 10)
+
+        Returns:
+            List of (Memory, score) tuples for approved preferences
+        """
+        try:
+            preferences = self.semantic_searcher.search(
+                query=query,
+                limit=limit,
+                memory_type='user_preference',
+                project_id=project_id,
+                branch=None,
+                tier_filter=MemoryTier.ANCHORS,
+                augment=True,
+                include_deleted=False,
+            )
+
+            # Filter to only approved status
+            approved = [
+                (m, score)
+                for m, score in preferences
+                if hasattr(m, 'status') and m.status == 'approved'
+            ]
+
+            return approved
+        except Exception as e:
+            logger.warning(f'Failed to fetch preferences: {e}')
+            return []
+
+    def _run_semantic_search(
+        self,
+        query: str,
+        memory_type: str,
+        project_id: Optional[str],
+        branch: Optional[str],
+        tier_filter: Optional[MemoryTier],
+        augment: bool = False,
+    ) -> List[Tuple[Memory, float]]:
+        """Stage 1: Semantic search with quality gate and optional augmentation."""
+        initial_pool = (
+            self.config.intelligent_retrieval.semantic.initial_candidate_pool
+        )
+
+        candidates = self.semantic_searcher.search(
+            query=query,
+            limit=initial_pool,
+            memory_type=memory_type,
+            project_id=project_id,
+            branch=branch,
+            tier_filter=tier_filter,
+            augment=augment,
+            include_deleted=False,
+        )
+
+        return candidates
+
+    def _run_graph_expansion(
+        self, semantic_results: List[Tuple[Memory, float]], max_depth: Optional[int] = None
+    ) -> List[Tuple[Memory, float]]:
+        """Stage 2: Graph expansion via Neo4j."""
+        top_k = self.config.intelligent_retrieval.graph.top_k_seeds
+
+        # Use provided depth or fall back to config
+        if max_depth is None:
+            max_depth = self.config.intelligent_retrieval.graph.max_depth
+
+        seeds = [m for m, _ in semantic_results[:top_k]]
+        already_seen = {m.memory_id for m, _ in semantic_results}
+
+        expanded = self.graph_expander.expand(
+            seeds=seeds, max_depth=max_depth, already_seen=already_seen
+        )
+
+        return expanded
+
+    def _run_context_filter(
+        self,
+        candidates: List[Tuple[Memory, dict]],
+        session_id: str,
+        role: Optional[str],
+        task_type: Optional[str],
+        task_id: Optional[str],
+        phase: Optional[str],
+        exclude_memory_ids: Optional[List[str]],
+    ) -> List[Tuple[Memory, dict]]:
+        """Stage 3: Context filtering and deduplication."""
+        filtered = self.context_filter.filter(
+            candidates=candidates,
+            session_id=session_id,
+            role=role,
+            task_type=task_type,
+            task_id=task_id,
+            phase=phase,
+            exclude_ids=exclude_memory_ids,
+        )
+
+        return filtered
+
+    def _run_temporal_ranking(
+        self, candidates: List[Tuple[Memory, dict]], git_sha: Optional[str]
+    ) -> List[Tuple[Memory, dict]]:
+        """Stage 4: Temporal ranking with age decay and recency."""
+        scored = self.temporal_ranker.score(
+            candidates=candidates, current_git_sha=git_sha
+        )
+
+        return scored
+
+    def _run_diversity_selection(
+        self, candidates: List[Tuple[Memory, dict]], limit: int
+    ) -> List[Tuple[Memory, dict]]:
+        """Stage 5: Diversity selection via MMR."""
+        diversity_limit = limit * 2
+
+        diverse = self.diversity_selector.select(
+            candidates=candidates, limit=diversity_limit
+        )
+
+        return diverse
+
+    def _run_final_scoring(
+        self,
+        candidates: List[Tuple[Memory, dict]],
+        role: Optional[str],
+        task_type: Optional[str],
+        limit: Optional[int] = None,
+    ) -> List[Tuple[Memory, RetrievalScores]]:
+        """Stage 6: Final scoring with utility integration."""
+        results = []
+
+        for memory, scores in candidates:
+            utility_score = self.utility_tracker.get_utility_score(
+                memory_id=memory.memory_id, role=role, task_type=task_type
+            )
+
+            if (
+                'semantic' not in scores
+                or 'graph' not in scores
+                or 'temporal' not in scores
+            ):
+                raise RuntimeError(
+                    f'Missing required scores in pipeline. Got: {scores.keys()}. '
+                    f'Expected: semantic, graph, temporal'
+                )
+
+            semantic = scores['semantic']
+            graph = scores['graph']
+            temporal = scores['temporal']
+            diversity = scores.get('diversity', 1.0)
+
+            combined = (
+                semantic * self.semantic_weight
+                + graph * self.graph_weight
+                + temporal * self.temporal_weight
+                + utility_score * self.utility_weight
+            )
+
+            retrieval_scores = RetrievalScores(
+                semantic=semantic,
+                graph=graph,
+                temporal=temporal,
+                utility=utility_score,
+                diversity=diversity,
+                combined=combined,
+            )
+
+            results.append((memory, retrieval_scores))
+
+        # Sort by combined score descending (highest first)
+        results.sort(key=lambda x: x[1].combined, reverse=True)
+
+        # Truncate to limit (diversity selector returns limit*2 for quality)
+        if limit is not None:
+            results = results[:limit]
+
+        return results
+
+    def _apply_reranking(
+        self, query: str, results: List[Tuple[Memory, RetrievalScores]]
+    ) -> List[Tuple[Memory, RetrievalScores]]:
+        """
+        Apply BGE cross-encoder reranking to final results.
+
+        Phase 2.3: Optional reranking for maximum precision.
+
+        Args:
+            query: Original query
+            results: Scored results from pipeline
+
+        Returns:
+            Reranked results (same format)
+        """
+        if not results:
+            return results
+
+        try:
+            # Get embedder to check BGE availability
+            from prism_mcp.models.embedder import get_embedder
+
+            embedder = get_embedder()
+
+            if not embedder.bge_available:
+                logger.warning('BGE reranker not available, skipping reranking')
+                return results
+
+            logger.info(f'Reranking {len(results)} results with BGE')
+
+            # Extract memories and contents
+            memories = [m for m, _ in results]
+            contents = [m.content for m in memories]
+
+            # Rerank with BGE
+            ranked_indices = embedder.rerank_with_bge(query, contents)
+
+            # Reorder results by BGE ranking
+            reranked = [results[i] for i in ranked_indices]
+
+            logger.debug(
+                f'BGE reranking complete: reordered {len(reranked)} results'
+            )
+            return reranked
+
+        except Exception as e:
+            logger.warning(
+                f'BGE reranking failed: {e}, continuing with original order'
+            )
+            return results

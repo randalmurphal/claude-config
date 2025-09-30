@@ -1,0 +1,37 @@
+"""Thread-safe priority queue for tasks."""
+
+import queue
+import threading
+from typing import Optional
+
+from task_queue.task import Task
+
+
+class TaskQueue:
+    """Thread-safe priority queue for task management."""
+
+    def __init__(self, max_size: int = 10000) -> None:
+        """Initialize the task queue."""
+        self._queue: queue.PriorityQueue = queue.PriorityQueue(maxsize=max_size)
+        self._counter = 0
+        self._counter_lock = threading.Lock()
+
+    def enqueue(self, task: Task) -> None:
+        """Add a task to the queue."""
+        pass
+
+    def dequeue(self, timeout: float = 1.0) -> Optional[Task]:
+        """Remove and return the highest priority task."""
+        pass
+
+    def size(self) -> int:
+        """Return the current queue size."""
+        pass
+
+    def is_empty(self) -> bool:
+        """Check if queue is empty."""
+        pass
+
+    def is_full(self) -> bool:
+        """Check if queue is at max capacity."""
+        pass

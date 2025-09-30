@@ -1,0 +1,1069 @@
+# Personal Claude - Portable Knowledge System Specification
+
+**Version:** 1.0
+**Date:** 2025-09-30
+**Status:** Design Phase
+
+## Executive Summary
+
+Transform PRISM from "project memory" to "personal memory" - a portable knowledge base that learns YOUR preferences, YOUR gotchas, YOUR problem-solving patterns across ALL projects. Make Claude into YOUR personalized assistant that remembers everything and evolves with the tech landscape.
+
+---
+
+## Goals
+
+### Primary Goals
+1. **Personal Knowledge Capture**: Track user preferences, gotchas, lessons, tech opinions across all projects
+2. **Tech Evolution Monitoring**: Automatically discover relevant tech updates, alternatives, security issues
+3. **Portable Brain**: Export/import complete knowledge graph to any machine
+4. **Proactive Intelligence**: Anticipate needs based on past patterns, not just react to queries
+
+### Success Metrics
+- Knowledge base survives 100+ sessions across multiple machines
+- Tech monitoring surfaces 10+ actionable insights per month
+- 80% of suggestions align with user's actual preferences
+- Export/import completes in <5 minutes for typical knowledge base
+
+---
+
+## Architecture
+
+### Integration with Existing System
+
+**Current (Refactored) Architecture:**
+```
+Client → HTTP API → PrismEngine → Qdrant/Neo4j/Redis
+         └─ Pydantic models
+         └─ NO async, all sync
+         └─ Unified brain pattern
+```
+
+**New Components (follows same patterns):**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ PrismEngine (existing)                                       │
+│ ├─ store_memory() / retrieve_memory()                       │
+│ ├─ store_adr() / query_adrs()                               │
+│ ├─ detect_duplicates()                                       │
+│ └─ get_tier_statistics()                                     │
+└─────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────┐
+│ PersonalKnowledgeEngine (NEW - extends PrismEngine)         │
+│ ├─ store_preference() / get_preferences()                   │
+│ ├─ store_tech_opinion() / get_tech_stack()                  │
+│ ├─ store_lesson() / query_lessons()                         │
+│ ├─ store_user_term() / translate_term()                     │
+│ ├─ track_thread() / continue_thread()                       │
+│ └─ get_user_context() [unified personal context]            │
+└─────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────┐
+│ TechEvolutionMonitor (NEW - background service)             │
+│ ├─ monitor_user_tech_stack()                                │
+│ ├─ search_tech_updates()                                    │
+│ ├─ link_updates_to_adrs()                                   │
+│ └─ create_proactive_suggestions()                           │
+└─────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────┐
+│ KnowledgePortability (NEW - export/import service)          │
+│ ├─ export_knowledge_graph()                                 │
+│ ├─ import_knowledge_graph()                                 │
+│ ├─ validate_import()                                        │
+│ └─ merge_knowledge_bases()                                  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Design Principles
+
+1. **DRY**: Reuse PrismEngine patterns, don't duplicate logic
+2. **NO DEFAULTS**: All configs explicit, fail loudly
+3. **Sync-First**: Follow PrismEngine's sync pattern, no async complexity
+4. **Memory-Based**: Everything is a memory with proper typing
+5. **Graph-Native**: Leverage Neo4j relationships for evolution tracking
+
+---
+
+## Data Models
+
+### New Memory Types
+
+All use existing `Memory` dataclass + specialized payloads in Qdrant.
+
+#### 1. User Preference
+```python
+memory_type: "user_preference"
+tier: MemoryTier.ANCHORS  # Preferences never expire
+
+# Specialized fields (in Qdrant payload):
+{
+    "preference_category": str,  # tech_stack, coding_style, workflow, communication
+    "preference_scope": str,      # global, language, framework, project
+    "preference_value": str,      # The actual preference
+    "confidence": float,          # 0.0-1.0
+    "evidence_count": int,        # How many times observed
+    "last_used": datetime,        # Last time preference applied
+    "supersedes": Optional[str],  # ID of old preference this replaced
+}
+
+# Neo4j relationships:
+(Preference)-[:SUPERSEDES]->(OldPreference)
+(Preference)-[:APPLIES_TO]->(Project)
+(Preference)-[:DERIVED_FROM]->(Correction)
+```
+
+**Categories:**
+- `tech_stack`: "Prefer FastAPI over Flask"
+- `coding_style`: "Always use type hints"
+- `workflow`: "Write tests before implementation"
+- `communication`: "Prefer code examples over theory"
+- `architecture`: "Microservices > monolith for my use case"
+
+#### 2. Tech Opinion
+```python
+memory_type: "tech_opinion"
+tier: MemoryTier.ANCHORS
+
+{
+    "tech_name": str,             # "Redis", "Django", "Docker"
+    "sentiment": str,             # "love", "prefer", "neutral", "avoid", "hate"
+    "reasoning": str,             # Why this opinion
+    "alternatives_considered": List[str],  # Other options evaluated
+    "projects_used": List[str],   # Where this tech was used
+    "last_evaluation": datetime,  # Last time reconsidered
+    "changed_from": Optional[str], # Previous sentiment (if changed)
+}
+
+# Neo4j relationships:
+(TechOpinion)-[:EVOLVED_FROM]->(OldTechOpinion)
+(TechOpinion)-[:BASED_ON]->(Project)
+(TechOpinion)-[:RELATED_TO]->(ADR)
+```
+
+#### 3. Lesson Learned
+```python
+memory_type: "lesson_learned"
+tier: MemoryTier.LONGTERM  # Can promote to ANCHORS if frequently accessed
+
+{
+    "lesson_category": str,       # architecture, debugging, optimization, security
+    "problem_context": str,       # What problem was being solved
+    "approach_tried": str,        # What was attempted
+    "outcome": str,               # success, failure, partial
+    "learning": str,              # What was learned
+    "applicable_to": List[str],   # Where this lesson applies
+    "source_project": str,        # Where this was learned
+    "related_corrections": List[str],  # Corrections that led to this lesson
+}
+
+# Neo4j relationships:
+(Lesson)-[:LEARNED_FROM]->(Project)
+(Lesson)-[:DERIVED_FROM]->(Correction)
+(Lesson)-[:APPLIES_TO]->(Problem)
+(Lesson)-[:CONTRADICTS]->(OldLesson)  # When lessons conflict
+```
+
+#### 4. User Term (Personal Dictionary)
+```python
+memory_type: "user_term"
+tier: MemoryTier.LONGTERM
+
+{
+    "user_term": str,             # "the auth thing"
+    "canonical_term": str,        # "JWT middleware in prism_mcp"
+    "context": str,               # "authentication"
+    "aliases": List[str],         # Other ways user refers to this
+    "definition": str,            # What it means
+    "related_files": List[str],   # Files associated with this term
+    "usage_count": int,           # How often user says this
+}
+
+# Neo4j relationships:
+(UserTerm)-[:REFERS_TO]->(CodeSymbol)
+(UserTerm)-[:SYNONYM_OF]->(OtherUserTerm)
+```
+
+#### 5. Conversation Thread
+```python
+memory_type: "thread"
+tier: MemoryTier.EPISODIC  # Promote based on importance
+
+{
+    "thread_id": str,             # UUID for thread
+    "thread_status": str,         # "open", "paused", "resolved", "abandoned"
+    "thread_topic": str,          # "Auth system redesign"
+    "started_at": datetime,
+    "last_activity": datetime,
+    "resolution": Optional[str],  # How it was resolved (if completed)
+    "key_decisions": List[str],   # Decisions made in this thread
+    "open_questions": List[str],  # Unresolved questions
+}
+
+# Neo4j relationships:
+(Thread)-[:CONTAINS]->(Memory)  # All memories in thread
+(Thread)-[:CONTINUES]->(PreviousThread)  # Thread continuation
+(Thread)-[:RESOLVED_BY]->(Solution)
+(Thread)-[:RELATED_TO]->(Project)
+```
+
+#### 6. Tech Update
+```python
+memory_type: "tech_update"
+tier: MemoryTier.WORKING  # Promote if relevant/actionable
+
+{
+    "tech_name": str,             # "Redis"
+    "update_type": str,           # "alternative", "deprecation", "feature", "security"
+    "update_summary": str,        # Short summary
+    "update_detail": str,         # Full details
+    "source_url": str,            # Where this was found
+    "discovered_at": datetime,
+    "relevance_score": float,     # 0.0-1.0 based on user's tech stack
+    "user_problems_addressed": List[str],  # Problems this solves
+    "suggested_action": str,      # "evaluate", "migrate", "ignore"
+    "actioned": bool,             # Whether user acted on this
+}
+
+# Neo4j relationships:
+(TechUpdate)-[:RELATES_TO]->(TechOpinion)
+(TechUpdate)-[:UPDATES]->(ADR)
+(TechUpdate)-[:ADDRESSES]->(Problem)
+```
+
+---
+
+## API Design
+
+### PersonalKnowledgeEngine Methods
+
+Following PrismEngine patterns (sync, explicit params, no defaults).
+
+```python
+class PersonalKnowledgeEngine:
+    """
+    Personal knowledge management extending PrismEngine.
+
+    Handles user preferences, tech opinions, lessons learned,
+    and personal terminology tracking.
+    """
+
+    def __init__(self):
+        """Initialize with existing PrismEngine."""
+        self.prism = PrismEngine()
+        # Reuse all storage from PrismEngine
+        self.qdrant = self.prism.qdrant
+        self.neo4j = self.prism.neo4j
+        self.embedder = self.prism.embedder
+
+    # ═══════════════════════════════════════════════════════════
+    # PREFERENCE MANAGEMENT
+    # ═══════════════════════════════════════════════════════════
+
+    def store_preference(
+        self,
+        category: str,
+        scope: str,
+        value: str,
+        reasoning: str,
+        session_id: str,
+        confidence: float = 0.8,
+        project_id: Optional[str] = None,
+        supersedes: Optional[str] = None,
+    ) -> str:
+        """
+        Store user preference.
+
+        Args:
+            category: tech_stack, coding_style, workflow, communication, architecture
+            scope: global, language, framework, project
+            value: The preference statement
+            reasoning: Why this preference
+            session_id: Session ID (required)
+            confidence: How confident (0.0-1.0)
+            project_id: Project context
+            supersedes: ID of preference this replaces
+
+        Returns:
+            preference_id
+
+        Raises:
+            RuntimeError: If required params missing
+        """
+
+    def get_preferences(
+        self,
+        session_id: str,
+        category: Optional[str] = None,
+        scope: Optional[str] = None,
+        project_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Retrieve user preferences (most recent per scope).
+
+        Returns preferences sorted by confidence + evidence count.
+        """
+
+    def update_preference_evidence(
+        self,
+        preference_id: str,
+        session_id: str,
+    ) -> None:
+        """
+        Increment evidence count when preference is successfully applied.
+        """
+
+    # ═══════════════════════════════════════════════════════════
+    # TECH OPINION MANAGEMENT
+    # ═══════════════════════════════════════════════════════════
+
+    def store_tech_opinion(
+        self,
+        tech_name: str,
+        sentiment: str,
+        reasoning: str,
+        session_id: str,
+        alternatives: Optional[List[str]] = None,
+        project_id: Optional[str] = None,
+        changed_from: Optional[str] = None,
+    ) -> str:
+        """
+        Store opinion about technology.
+
+        Args:
+            tech_name: Technology name
+            sentiment: love, prefer, neutral, avoid, hate
+            reasoning: Why this opinion
+            session_id: Session ID
+            alternatives: Other options considered
+            project_id: Project where opinion formed
+            changed_from: Previous sentiment (if changed)
+
+        Returns:
+            opinion_id
+        """
+
+    def get_tech_stack(
+        self,
+        session_id: str,
+        sentiment_filter: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Get user's current tech stack/opinions.
+
+        Returns:
+            {
+                "preferred": List[tech],
+                "avoided": List[tech],
+                "neutral": List[tech],
+                "by_category": Dict[category, List[tech]]
+            }
+        """
+
+    # ═══════════════════════════════════════════════════════════
+    # LESSON MANAGEMENT
+    # ═══════════════════════════════════════════════════════════
+
+    def store_lesson(
+        self,
+        category: str,
+        problem_context: str,
+        approach_tried: str,
+        outcome: str,
+        learning: str,
+        session_id: str,
+        project_id: Optional[str] = None,
+        applicable_to: Optional[List[str]] = None,
+    ) -> str:
+        """
+        Store lesson learned from experience.
+
+        Args:
+            category: architecture, debugging, optimization, security
+            problem_context: What problem was being solved
+            approach_tried: What was attempted
+            outcome: success, failure, partial
+            learning: What was learned
+            session_id: Session ID
+            project_id: Source project
+            applicable_to: Where lesson applies
+
+        Returns:
+            lesson_id
+        """
+
+    def query_lessons(
+        self,
+        query: str,
+        session_id: str,
+        category: Optional[str] = None,
+        outcome: Optional[str] = None,
+        limit: int = 10,
+    ) -> List[Dict[str, Any]]:
+        """
+        Query lessons semantically.
+
+        Returns lessons sorted by relevance + success rate.
+        """
+
+    # ═══════════════════════════════════════════════════════════
+    # TERMINOLOGY MANAGEMENT
+    # ═══════════════════════════════════════════════════════════
+
+    def store_user_term(
+        self,
+        user_term: str,
+        canonical_term: str,
+        context: str,
+        session_id: str,
+        definition: Optional[str] = None,
+        aliases: Optional[List[str]] = None,
+    ) -> str:
+        """
+        Store user's personal terminology.
+
+        Args:
+            user_term: How user refers to something
+            canonical_term: Technical/proper term
+            context: Context category
+            session_id: Session ID
+            definition: What it means
+            aliases: Other ways user says this
+
+        Returns:
+            term_id
+        """
+
+    def translate_term(
+        self,
+        user_term: str,
+        session_id: str,
+    ) -> Optional[str]:
+        """
+        Translate user term to canonical term.
+
+        Returns canonical term or None if not found.
+        """
+
+    # ═══════════════════════════════════════════════════════════
+    # THREAD MANAGEMENT
+    # ═══════════════════════════════════════════════════════════
+
+    def create_thread(
+        self,
+        topic: str,
+        session_id: str,
+        project_id: Optional[str] = None,
+    ) -> str:
+        """
+        Create new conversation thread.
+
+        Returns:
+            thread_id
+        """
+
+    def continue_thread(
+        self,
+        thread_id: str,
+        memory_id: str,
+        session_id: str,
+    ) -> None:
+        """
+        Add memory to existing thread.
+        """
+
+    def get_active_threads(
+        self,
+        session_id: str,
+    ) -> List[Dict[str, Any]]:
+        """
+        Get all active (open/paused) threads.
+
+        Returns threads sorted by last_activity.
+        """
+
+    def update_thread_status(
+        self,
+        thread_id: str,
+        status: str,
+        session_id: str,
+        resolution: Optional[str] = None,
+    ) -> None:
+        """
+        Update thread status.
+
+        Args:
+            thread_id: Thread ID
+            status: open, paused, resolved, abandoned
+            session_id: Session ID
+            resolution: How it was resolved (if completed)
+        """
+
+    # ═══════════════════════════════════════════════════════════
+    # UNIFIED CONTEXT RETRIEVAL
+    # ═══════════════════════════════════════════════════════════
+
+    def get_user_context(
+        self,
+        query: str,
+        session_id: str,
+        include_preferences: bool = True,
+        include_lessons: bool = True,
+        include_tech_opinions: bool = True,
+        include_threads: bool = True,
+        project_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Get unified personal context for query.
+
+        This is the KEY method - returns everything relevant:
+        - Applicable preferences
+        - Related lessons
+        - Tech stack opinions
+        - Active threads
+        - Personal terminology
+
+        Returns:
+            {
+                "preferences": List[Dict],
+                "lessons": List[Dict],
+                "tech_opinions": List[Dict],
+                "active_threads": List[Dict],
+                "terminology": List[Dict],
+                "metadata": {
+                    "retrieval_time_ms": float,
+                    "sources_used": int
+                }
+            }
+        """
+```
+
+### TechEvolutionMonitor API
+
+```python
+class TechEvolutionMonitor:
+    """
+    Background service for monitoring tech evolution.
+
+    Runs periodically (configurable schedule) to:
+    - Search for tech updates
+    - Link to existing ADRs
+    - Create proactive suggestions
+    """
+
+    def __init__(self):
+        """Initialize with PersonalKnowledgeEngine."""
+        self.personal = PersonalKnowledgeEngine()
+        self.web_search = WebSearchClient()  # Wrapper for Claude's WebSearch
+
+    def monitor_session_startup(
+        self,
+        session_id: str,
+        user_id: str,
+    ) -> Dict[str, Any]:
+        """
+        Run on session startup.
+
+        Quick check (< 5 seconds) for critical updates:
+        - Security vulnerabilities in user's stack
+        - Breaking changes in used libraries
+        - Major deprecations
+
+        Returns:
+            {
+                "critical_updates": List[Dict],
+                "suggestions": List[str],
+                "tech_health_score": float  # 0-100
+            }
+        """
+
+    def monitor_user_tech_stack(
+        self,
+        user_id: str,
+        session_id: str,
+    ) -> Dict[str, Any]:
+        """
+        Full tech stack monitoring (background, ~5 minutes).
+
+        Comprehensive check:
+        - All tech in user's stack
+        - Alternatives for "avoid" tech
+        - New features addressing user's problems
+        - Ecosystem updates
+
+        Returns:
+            {
+                "updates_found": int,
+                "actionable_count": int,
+                "tech_updates": List[Dict],
+                "processing_time_ms": float
+            }
+        """
+
+    def search_tech_updates(
+        self,
+        tech_name: str,
+        user_problems: List[str],
+        session_id: str,
+    ) -> List[Dict[str, Any]]:
+        """
+        Search for updates about specific tech.
+
+        Args:
+            tech_name: Technology to search
+            user_problems: Known user problems with this tech
+            session_id: Session ID
+
+        Returns:
+            List of tech_update dicts
+        """
+
+    def link_updates_to_adrs(
+        self,
+        tech_update_id: str,
+        session_id: str,
+    ) -> List[str]:
+        """
+        Find ADRs affected by tech update.
+
+        Returns list of ADR IDs that should be reviewed.
+        """
+
+    def create_proactive_suggestion(
+        self,
+        tech_update_id: str,
+        session_id: str,
+    ) -> Optional[str]:
+        """
+        Create actionable suggestion from tech update.
+
+        Returns suggestion text or None if not actionable.
+        """
+```
+
+### KnowledgePortability API
+
+```python
+class KnowledgePortability:
+    """
+    Export/import personal knowledge graph.
+
+    Packages:
+    - Neo4j graph dump
+    - Qdrant collection snapshots
+    - Redis patterns (optional)
+    - Config files
+    """
+
+    def export_knowledge_graph(
+        self,
+        user_id: str,
+        output_path: str,
+        include_redis: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Export complete knowledge graph.
+
+        Args:
+            user_id: User identifier
+            output_path: Where to write tar.gz
+            include_redis: Include Redis cache patterns
+
+        Returns:
+            {
+                "export_path": str,
+                "size_mb": float,
+                "memories_exported": int,
+                "adrs_exported": int,
+                "preferences_exported": int,
+                "checksum": str
+            }
+        """
+
+    def import_knowledge_graph(
+        self,
+        import_path: str,
+        user_id: str,
+        merge_strategy: str = "keep_both",  # keep_both, overwrite, skip
+    ) -> Dict[str, Any]:
+        """
+        Import knowledge graph.
+
+        Args:
+            import_path: Path to tar.gz
+            user_id: Target user ID
+            merge_strategy: How to handle conflicts
+
+        Returns:
+            {
+                "memories_imported": int,
+                "conflicts_resolved": int,
+                "import_time_seconds": float
+            }
+        """
+
+    def validate_import(
+        self,
+        import_path: str,
+    ) -> Dict[str, Any]:
+        """
+        Validate export file before importing.
+
+        Returns:
+            {
+                "valid": bool,
+                "version": str,
+                "memories_count": int,
+                "errors": List[str]
+            }
+        """
+```
+
+---
+
+## HTTP API Endpoints
+
+Following existing FastAPI patterns in `http_api.py`.
+
+### Personal Knowledge Endpoints
+
+```python
+# Preferences
+POST   /api/personal/preferences/store
+GET    /api/personal/preferences/list
+POST   /api/personal/preferences/evidence  # Increment evidence count
+
+# Tech Opinions
+POST   /api/personal/tech-opinions/store
+GET    /api/personal/tech-opinions/stack
+
+# Lessons
+POST   /api/personal/lessons/store
+POST   /api/personal/lessons/query
+
+# Terminology
+POST   /api/personal/terms/store
+POST   /api/personal/terms/translate
+
+# Threads
+POST   /api/personal/threads/create
+POST   /api/personal/threads/continue
+GET    /api/personal/threads/active
+PUT    /api/personal/threads/{thread_id}/status
+
+# Unified Context
+POST   /api/personal/context  # Get full personal context
+```
+
+### Tech Monitoring Endpoints
+
+```python
+# Monitoring
+POST   /api/tech-monitor/session-startup  # Quick check on session start
+POST   /api/tech-monitor/full-scan        # Background full scan
+GET    /api/tech-monitor/updates          # Get recent updates
+POST   /api/tech-monitor/action           # Mark update as actioned
+
+# Suggestions
+GET    /api/tech-monitor/suggestions      # Get proactive suggestions
+```
+
+### Export/Import Endpoints
+
+```python
+# Portability
+POST   /api/export/knowledge-graph
+POST   /api/import/knowledge-graph
+POST   /api/import/validate
+```
+
+### Pydantic Models (Examples)
+
+```python
+class StorePreferenceRequest(BaseModel):
+    category: str = Field(..., description="Preference category")
+    scope: str = Field(..., description="Preference scope")
+    value: str = Field(..., description="Preference value")
+    reasoning: str = Field(..., description="Why this preference")
+    session_id: str = Field(..., description="Session ID")
+    confidence: float = Field(0.8, description="Confidence 0-1")
+    project_id: Optional[str] = None
+    supersedes: Optional[str] = None
+
+class GetPreferencesRequest(BaseModel):
+    session_id: str = Field(..., description="Session ID")
+    category: Optional[str] = None
+    scope: Optional[str] = None
+    project_id: Optional[str] = None
+
+class PreferenceResponse(BaseModel):
+    preference_id: str
+    category: str
+    scope: str
+    value: str
+    reasoning: str
+    confidence: float
+    evidence_count: int
+    last_used: str
+    created_at: str
+```
+
+---
+
+## Implementation Plan
+
+### Phase 1: Core Personal Knowledge (Week 1-2)
+
+**Goals:**
+- Personal preference tracking
+- Tech opinion storage
+- Lesson learned capture
+- Basic retrieval
+
+**Tasks:**
+1. Create `personal_knowledge_engine.py` extending PrismEngine
+2. Implement memory types (preference, tech_opinion, lesson_learned)
+3. Add Neo4j relationships (SUPERSEDES, EVOLVED_FROM, LEARNED_FROM)
+4. Write HTTP API endpoints
+5. Add MCP tools for preference management
+6. Unit tests for all engines
+7. Integration tests for API endpoints
+
+**Deliverables:**
+- `prism_mcp/core/personal_knowledge_engine.py` (~600 lines)
+- Updated `prism_mcp/interfaces/http_api.py` (+300 lines)
+- Updated `prism_mcp/interfaces/mcp_server.py` (+200 lines)
+- Tests: `tests/test_personal_knowledge_engine.py` (~400 lines)
+
+### Phase 2: Terminology & Threading (Week 2-3)
+
+**Goals:**
+- Personal dictionary
+- Conversation thread tracking
+- Unified context retrieval
+
+**Tasks:**
+1. Implement user_term storage and translation
+2. Implement thread creation and continuation
+3. Build unified context aggregator
+4. Hook integration for auto-threading
+5. Context injection in UserPromptSubmit hook
+6. Tests for threading and terminology
+
+**Deliverables:**
+- Thread tracking in PersonalKnowledgeEngine
+- Enhanced UserPromptEnricher with personal context
+- Tests: `tests/test_thread_tracking.py` (~300 lines)
+
+### Phase 3: Tech Evolution Monitor (Week 3-4)
+
+**Goals:**
+- Web search integration
+- Tech update detection
+- ADR linking
+- Proactive suggestions
+
+**Tasks:**
+1. Create `tech_evolution_monitor.py`
+2. Integrate WebSearch tool
+3. Implement update detection logic
+4. Link updates to ADRs and preferences
+5. Build suggestion generator
+6. Add scheduler for background monitoring
+7. Session startup quick-check
+8. Tests for monitoring
+
+**Deliverables:**
+- `prism_mcp/core/tech_evolution_monitor.py` (~500 lines)
+- Scheduler service
+- Tests: `tests/test_tech_monitor.py` (~400 lines)
+
+### Phase 4: Export/Import (Week 5)
+
+**Goals:**
+- Knowledge graph portability
+- Validation and merge strategies
+- CLI tools
+
+**Tasks:**
+1. Create `knowledge_portability.py`
+2. Implement Neo4j dump/restore
+3. Implement Qdrant snapshot/restore
+4. Build validation logic
+5. Add merge conflict resolution
+6. Create CLI commands
+7. Documentation for export/import
+8. Tests for portability
+
+**Deliverables:**
+- `prism_mcp/core/knowledge_portability.py` (~400 lines)
+- CLI: `prism export` and `prism import` commands
+- Documentation: `docs/EXPORT_IMPORT_GUIDE.md`
+- Tests: `tests/test_knowledge_portability.py` (~300 lines)
+
+### Phase 5: Integration & Polish (Week 6)
+
+**Goals:**
+- End-to-end testing
+- Performance optimization
+- Documentation
+- User guides
+
+**Tasks:**
+1. Full integration tests
+2. Performance benchmarks
+3. Optimize retrieval queries
+4. Write user documentation
+5. Create example workflows
+6. Update CLAUDE.md
+7. Update README.md
+
+**Deliverables:**
+- Integration tests: `tests/integration/test_personal_claude.py`
+- User guide: `docs/PERSONAL_CLAUDE_USER_GUIDE.md`
+- Updated documentation across the board
+
+---
+
+## Configuration
+
+Add to `config/config.yaml`:
+
+```yaml
+personal_knowledge:
+  enabled: true
+
+  # Preference management
+  preferences:
+    auto_detect: true              # Auto-detect from corrections
+    confidence_threshold: 0.7      # Min confidence for auto-approval
+    evidence_required: 3           # Evidence count before promotion
+
+  # Tech monitoring
+  tech_monitor:
+    enabled: true
+    schedule: "0 8 * * *"          # Daily at 8am (cron format)
+    session_startup_check: true     # Quick check on session start
+    session_startup_timeout_ms: 5000  # 5 second timeout
+    search_results_per_tech: 5      # Web search results per technology
+    relevance_threshold: 0.6        # Min relevance score to store
+
+  # Threading
+  threads:
+    auto_create: true               # Auto-create threads for long conversations
+    inactivity_hours: 168           # Auto-pause after 1 week
+
+  # Export/Import
+  export:
+    include_redis: false            # Include Redis cache in exports
+    compression_level: 6            # gzip compression (1-9)
+
+server:
+  # Add tech monitor endpoints
+  enable_tech_monitor: true
+```
+
+---
+
+## Testing Strategy
+
+### Unit Tests
+- Each PersonalKnowledgeEngine method
+- Each TechEvolutionMonitor method
+- Each KnowledgePortability method
+- Mock Neo4j/Qdrant/Redis
+
+### Integration Tests
+- End-to-end preference lifecycle
+- Tech monitoring full scan
+- Export → Import → Validate
+- Thread creation and continuation
+- Unified context retrieval
+
+### Performance Tests
+- Unified context retrieval (<100ms)
+- Session startup check (<5s)
+- Full tech scan (<5min for 50 technologies)
+- Export/Import speed (5MB in <1min)
+
+### Acceptance Tests
+- User corrects code → preference auto-created
+- User mentions tech → tech opinion captured
+- Session starts → critical updates surfaced
+- Export on machine A → import on machine B → all data intact
+
+---
+
+## Security & Privacy
+
+### Data Protection
+- All personal data stored locally (Tier 0/1 model support)
+- Encrypted exports (optional passphrase)
+- API key authentication for all endpoints
+- No telemetry to external services
+
+### User Control
+- Explicit opt-in for tech monitoring
+- View/edit/delete any personal data
+- Export audit logs
+- Clear personal data by category
+
+---
+
+## Success Criteria
+
+### Functional
+- ✅ Store and retrieve 1000+ preferences across 10+ projects
+- ✅ Track 100+ tech opinions with evolution history
+- ✅ Capture 500+ lessons learned with 90%+ retrieval accuracy
+- ✅ Export/import completes without data loss
+- ✅ Tech monitoring finds 10+ actionable updates per month
+
+### Performance
+- ✅ Unified context retrieval < 100ms (99th percentile)
+- ✅ Session startup check < 5 seconds
+- ✅ Full tech scan < 5 minutes (50 technologies)
+- ✅ Export 100MB knowledge base < 2 minutes
+- ✅ Import and validate < 3 minutes
+
+### Quality
+- ✅ 95%+ test coverage for new code
+- ✅ Zero data loss in export/import
+- ✅ 90%+ user satisfaction with suggestions
+- ✅ <5% false positive rate on tech updates
+
+---
+
+## Open Questions
+
+1. **User ID Management**: How to handle multiple users? Environment variable? Config file?
+2. **Tech Stack Extraction**: Auto-detect from dependencies.lock files or explicit declaration?
+3. **Conflict Resolution**: When importing contradictory preferences, how to merge?
+4. **Web Search Rate Limits**: How to handle API rate limits gracefully?
+5. **Cache Warming**: Should personal context be pre-warmed like task context?
+
+---
+
+## Future Enhancements (Post-V1)
+
+1. **Multi-User Support**: Share knowledge base across team
+2. **Knowledge Graphs Visualization**: D3.js graph of preference evolution
+3. **Preference Analytics**: "You used to prefer X but switched to Y on date Z"
+4. **Cross-Project Pattern Detection**: "This problem similar to project-A issue"
+5. **LLM-Powered Synthesis**: Generate new insights from knowledge base
+6. **Mobile Export**: Export optimized for mobile Claude app
+
+---
+
+## References
+
+- Existing PRISM architecture: `prism_mcp/CLAUDE.md`
+- PrismEngine implementation: `prism_mcp/core/prism_engine.py`
+- HTTP API patterns: `prism_mcp/interfaces/http_api.py`
+- Memory tier system: `prism_mcp/docs/IMPLEMENTATION_NOTES.md`
+
+---
+
+**Document Status**: Ready for review and implementation
+**Next Step**: Review with stakeholder, then begin Phase 1

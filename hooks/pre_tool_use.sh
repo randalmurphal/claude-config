@@ -10,7 +10,7 @@ SESSION_ID="$3"
 [[ ! "$FILE_PATH" =~ \.(py|js|ts|tsx|go|rs|java|cpp|c|h)$ ]] && exit 0
 
 # Query PRISM (lightning mode, <100ms)
-RESULT=$(curl -s -m 0.1 -X POST http://localhost:8090/api/hooks/pre-tool-use \
+RESULT=$(curl -s -m 0.1 -X POST http://localhost:8092/api/hooks/pre-tool-use \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer prism_development_key_2024" \
     -d "{

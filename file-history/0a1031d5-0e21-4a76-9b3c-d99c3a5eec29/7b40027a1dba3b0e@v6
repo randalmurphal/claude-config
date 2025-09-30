@@ -1,0 +1,449 @@
+# PRISM Configuration
+# NO DEFAULTS PHILOSOPHY: Every value MUST be explicitly set
+# System will crash if any required value is missing
+
+# Database connections - ALL REQUIRED
+# For containers: use hostnames (prism-neo4j, prism-qdrant, prism-redis)
+# For native: use localhost
+database:
+  neo4j_uri: "bolt://localhost:7687"
+  neo4j_user: "neo4j"
+  neo4j_password: "prism_neo4j_2024"
+  qdrant_url: "http://localhost:6333"
+  redis_url: "redis://localhost:6379"
+
+# Data storage paths - ALL REQUIRED
+# For containers: models at /models (volume mount), patterns at /data/patterns
+# For native: ~/.local/share/prism_mcp
+data:
+  # Base path for patterns (containers: /data, native: ~/.local/share/prism_mcp)
+  base_path: "~/.local/share/prism_mcp"
+  patterns_dir: "patterns"
+  # Models path - use local path for native installation
+  models_dir: "models"
+  repos_cache_dir: "repos_cache"
+  processed_patterns_dir: "processed_patterns"
+
+# Model configuration - RUNTIME DETECTION
+model:
+  # model_name, embedding_dim, and device are auto-detected at runtime
+  # GPU with 16GB+ → starcoder2-7b, 3584 dims, cuda
+  # Otherwise → starcoder2-3b, 3072 dims, cpu
+  use_quantization: true
+  load_in_8bit: true
+  max_sequence_length: 256  # Optimized: reduced from 512 since max tokens only ~176
+  dtype: "float16"  # Use float16 for GPU (14GB) instead of float32 (28GB)
+
+# Tier configuration (Phase 2) - ALL REQUIRED
+models:
+  # Tier strategy: auto | manual
+  tier_strategy: "manual"
+
+  # Manual tier override (0-5, only if strategy=manual)
+  manual_tier: 0  # 0=PREMIUM_API, 1=Full, 2=Dual, 3=Single, 4=CPU, 5=Keyword
+
+  # Tier requirements (used for auto-detection)
+  tier_requirements:
+    full:
+      min_vram_gb: 23
+      models: ["e5", "starcoder2", "bge"]
+    dual:
+      min_vram_gb: 16
+      models: ["e5", "starcoder2"]
+    single:
+      min_vram_gb: 8
+      models: ["e5"]
+    cpu:
+      min_vram_gb: 0
+      models: ["e5"]
+      device: "cpu"
+    keyword:
+      min_vram_gb: 0
+      models: []
+      bm25_only: true
+
+  # Model paths (system-agnostic)
+  base_path: "${PRISM_DATA_DIR}/models"
+  fallback_to_hf_cache: true
+
+  # OOM handling
+  oom_retry_enabled: true
+  oom_retry_max_attempts: 3
+  oom_downgrade_tier: true
+
+  # Hot tier upgrades
+  check_tier_upgrade_interval_seconds: 300  # Check every 5 min
+
+  # API Providers (Tier 0: PREMIUM_API)
+  # Set API keys via environment variables or here
+  # VOYAGE_API_KEY and JINA_API_KEY
+  api_providers:
+    voyage:
+      enabled: true  # Set to true to use Voyage AI embeddings
+      # api_key: ""  # Or use VOYAGE_API_KEY environment variable
+      code_model: "voyage-code-3"  # For code patterns
+      general_model: "voyage-3-large"  # For semantic text
+      # Free tier: 200M tokens
+      # Pricing: $0.00012/1K tokens after free tier
+
+    jina:
+      enabled: true  # Set to true to use Jina reranker
+      # api_key: ""  # Or use JINA_API_KEY environment variable
+      reranker_model: "jina-reranker-v2-base-multilingual"
+      # Free tier: 10M tokens
+      # Note: Reranking is optional, fallback to score-based sorting if disabled
+
+# Query augmentation configuration (Phase 3.1)
+query_augmentation:
+  enable_learned_negations: true  # Load learned negations from Neo4j
+  reload_interval_queries: 1000  # Reload learned negations every N queries (0 = never reload)
+  min_confidence: 0.3  # Minimum confidence to use learned negation
+  negation_decay_half_life_days: 90  # Phase 3.4: Half-life for confidence decay (0 = no decay)
+
+# Adaptive thresholds configuration (Phase 3.2)
+adaptive_thresholds:
+  enable_adaptive_thresholds: true  # Use learned thresholds from Neo4j
+  lookback_days: 30  # Days of feedback to analyze
+  min_samples: 50  # Minimum feedback samples before learning threshold
+  f_beta: 1.0  # F-score beta parameter (1.0 = F1, 0.5 = favor precision, 2.0 = favor recall)
+  default_threshold: 0.72  # Default threshold when no learned threshold available
+
+# Server configuration - ALL REQUIRED
+server:
+  http_host: "0.0.0.0"
+  http_port: 8090
+  # External port for hook scripts (containerized: 8092, native: 8090)
+  external_port: 8092
+  mcp_enabled: true
+  api_key: "prism_development_key_2024"
+
+# Thresholds - DEFAULT values that get improved by learning
+# These are reasonable starting points that learning will optimize
+thresholds:
+  # Pattern detection thresholds
+  confidence_threshold: 0.7  # Minimum confidence to report pattern
+  semantic_similarity_threshold: 0.85  # Minimum similarity for semantic match
+
+  # Weight balance for hybrid scoring
+  ast_confidence_weight: 0.7  # Weight for AST structural matches
+  semantic_only_confidence_weight: 0.5  # Weight for pure semantic matches
+  combined_confidence_weight: 1.0  # Weight when both AST and semantic match
+
+# Learning configuration - ALL REQUIRED
+learning:
+  observation_window_size: 1000
+  min_observations_required: 10
+  percentile_for_threshold: 90.0
+  z_score_multiplier: 2.0
+  significant_change_threshold: 0.7
+  universal_pattern_threshold: 3
+
+# Cache configuration - ALL REQUIRED
+cache:
+  default_ttl_seconds: 300
+  max_key_length: 256
+
+# Memory tiering configuration - ARCHITECTURAL DECISIONS (per LEARNING_VS_CONFIG_DECISIONS.md)
+memory:
+  # Importance weight factors - architectural decisions about what matters
+  importance_weights:
+    graph: 0.4       # PageRank/centrality weight
+    access: 0.3      # How often accessed (normalized)
+    frustration: 0.3 # Explicit user pain signals
+  # Promotion thresholds
+  to_anchors_frustration: 0.8
+  to_longterm_accesses: 5
+  to_episodic_age_hours: 24
+  working_ttl_hours: 72
+
+# MAPIE configuration - ALL REQUIRED
+mapie:
+  alpha: 0.1  # For 90% prediction intervals (1 - alpha)
+  method: "plus"  # MAPIE method: "plus", "base", or "minmax"
+  n_estimators: 100  # Random forest estimators
+  max_depth: 10  # Random forest max depth
+  cv_folds: 5  # Cross-validation folds for calibration
+
+# Drift detection configuration
+drift:
+  drift_threshold: 0.3  # Default threshold for drift detection
+  min_confidence_for_intervention: 0.8  # Minimum confidence to trigger intervention
+
+# Feature flags - ALL REQUIRED
+enable_learning: true
+enable_drift_detection: true
+enable_pattern_learning: true
+
+# Pattern loading configuration
+patterns:
+  # Warning threshold for memory usage (in GB)
+  memory_warning_threshold_gb: 5.0
+  # Maximum patterns to load (0 = unlimited)
+  max_patterns_to_load: 0  # Unlimited for GPU systems
+
+# Intelligent retrieval configuration - ALL REQUIRED
+intelligent_retrieval:
+  # Stage 1: Semantic Search - Qdrant with quality gate
+  semantic:
+    min_similarity_threshold: 0.72  # Optimal threshold from Phase 2.4 testing (was 0.01)
+    initial_candidate_pool: 50
+    distance_metric: "cosine"
+
+  # Stage 2: Graph Expansion - Neo4j BFS + PageRank
+  graph:
+    expansion_enabled: true
+    max_depth: 2
+    top_k_seeds: 10
+    relationship_types:
+      - RELATED_TO
+      - CORRECTS
+      - EXTENDS
+    pagerank_weight: 0.3
+
+  # Stage 3: Context Filtering - Redis dedup + compatibility
+  context:
+    enforce_role_compatibility: true
+    enforce_task_compatibility: true
+    enforce_phase_compatibility: false
+    deduplicate_by_session: true
+    deduplicate_by_task: true
+
+  # Stage 4: Temporal Ranking - Time-based relevance
+  temporal:
+    recency_weight: 0.2
+    decay_halflife_days: 90
+    boost_current_git_sha: true
+    sha_boost_factor: 1.5
+    anchor_tier_exempt: true
+
+  # Stage 5: Diversity Selection - MMR + Louvain communities
+  diversity:
+    enabled: true
+    mmr_lambda: 0.7
+    min_cluster_representation: 2
+    use_louvain_communities: true
+
+  # Stage 6: Final Scoring - Weighted combination
+  scoring:
+    weights:
+      semantic: 0.40
+      graph: 0.30
+      temporal: 0.20
+      utility: 0.10
+    final_limit: 10
+
+  # Utility Tracking - Feedback loop
+  utility:
+    track_feedback: true
+    feedback_ttl_days: 180
+    min_feedback_samples: 3
+
+  # Background Jobs - Cache refresh intervals
+  background:
+    pagerank_update_interval_seconds: 3600
+    louvain_update_interval_seconds: 21600
+    temporal_update_interval_seconds: 3600
+    cleanup_interval_seconds: 86400
+
+# Retrieval modes configuration (Phase 1)
+retrieval:
+  # Default mode when not specified
+  default_mode: "balanced"
+
+  # Mode definitions
+  modes:
+    lightning:
+      timeout_ms: 100
+      fallback_to_anchors: true
+      description: "Cache-only with ANCHORS fallback, <100ms, for hooks"
+
+    fast:
+      timeout_ms: 500
+      skip_stages: ["graph", "temporal"]  # Keep utility!
+      description: "3 stages + utility, <500ms, for real-time queries"
+
+    balanced:
+      timeout_ms: 2000
+      graph_depth: 1
+      description: "Full 6 stages, depth=1, <2s, standard quality"
+
+    comprehensive:
+      timeout_ms: 20000
+      graph_depth: 3
+      description: "Full 6 stages, depth=3, <20s, for planning"
+
+  # Phase-to-mode mapping (orchestration)
+  phase_mapping:
+    prepare: "comprehensive"
+    skeleton: "balanced"
+    implementation: "fast"
+    validation: "balanced"
+
+  # Cache configuration
+  cache:
+    query_ttl_seconds: 300  # 5 minutes
+    embedding_ttl_seconds: 3600  # 1 hour
+
+    # Mode-specific similarity thresholds
+    similarity_thresholds:
+      lightning: 0.97  # Very strict (nearly identical)
+      fast: 0.90       # Moderate (similar phrasing)
+      balanced: 0.85   # Relaxed (semantic similarity)
+      comprehensive: 0.85
+
+    # Distributed lock for cache stampede prevention
+    distributed_lock_ttl_seconds: 10
+
+    enabled: true
+
+# Phase 3: Preference Analytics Configuration - ALL REQUIRED
+analytics:
+  enabled: true
+
+  effectiveness:
+    min_samples_required: 3
+    signal_weights:
+      gate_outcomes: 0.40
+      session_completions: 0.25
+      file_changes: 0.15
+      interventions: 0.20
+    temporal_decay_factor: 0.95  # Per day
+
+  drift_detection:
+    enabled: true
+    embedding_similarity_threshold: 0.70
+    check_interval_days: 7
+
+  recommendations:
+    unused_threshold_days: 30
+    ineffective_threshold: 0.30
+    min_usage_for_recommendation: 5
+
+  storage:
+    backend: "neo4j"
+    retention_days: 365
+
+# Phase 4: Critical Integrations Configuration - ALL REQUIRED
+integrations:
+  # Sub-Phase 4A: CLAUDE.md bidirectional sync
+  claudemd:
+    enabled: true
+    auto_sync: false  # Manual approval
+    watched_sections:
+      - "## Code Standards"
+      - "## Common Gotchas"
+      - "## Project Conventions"
+      - "## PRISM Learned Patterns"
+    export_threshold:
+      min_effectiveness: 0.80
+      min_usage_count: 5
+    import_tier: "ANCHORS"
+
+  # Sub-Phase 4B: Hook integration with retrieval modes
+  hooks:
+    enabled: true
+
+    pre_tool_use:
+      retrieval_mode: "lightning"
+      timeout_ms: 100
+      block_on_critical: true
+      inject_context: true
+
+    post_tool_use:
+      async: true
+      pattern_detection: true
+      auto_preference_threshold: 0.85
+      log_file: "~/.local/share/prism_mcp/hook_detections.log"
+
+  # Sub-Phase 4C: Sub-agent discovery from Claude Code
+  subagents:
+    enabled: true
+    discovery_paths:
+      - "~/.claude/agents"
+      - "./.claude/agents"
+    reload_interval_seconds: 300
+
+  # Sub-Phase 4D: Phase-aware output styles
+  output_styles:
+    enabled: true
+    phase_mapping:
+      prepare: "default"
+      skeleton: "explanatory"
+      implementation: "default"
+      validation: "reviewer"
+    custom_styles_path: "~/.claude/output-styles"
+
+# Symbol deletion tracking configuration - ALL REQUIRED
+symbol_deletion:
+  # Enable/disable symbol deletion tracking
+  enable_deletion_tracking: true
+
+  # How long to retain deletion records for analytics (days)
+  deletion_retention_days: 90
+
+  # Window for reconciliation to detect renames vs true deletions (hours)
+  reconciliation_window_hours: 24
+
+  # Minimum confidence threshold to mark symbols as deleted
+  min_confidence_threshold: 0.7
+
+  # File watcher configuration
+  watcher:
+    enabled: true
+    debounce_ms: 500  # Debounce file events to avoid spam
+    watched_extensions: [".py", ".js", ".ts", ".go"]
+    ignore_patterns:
+      - "__pycache__"
+      - ".git"
+      - "node_modules"
+      - ".venv"
+      - "venv"
+
+  # Real-time deletion detection
+  realtime:
+    batch_size: 100  # Process deletions in batches
+    max_batch_wait_seconds: 30  # Maximum wait before processing partial batch
+
+# Performance metrics configuration - ALL REQUIRED
+metrics:
+  # Enable/disable metrics collection
+  enabled: true
+
+  # Data retention for time-series metrics (seconds)
+  retention_seconds: 86400  # 24 hours
+
+  # Maximum data points per metric (for memory control)
+  max_points_per_metric: 1000
+
+  # Background collection interval (seconds)
+  collection_interval_seconds: 60
+
+  # Metric collection configuration
+  collection:
+    # API endpoint metrics
+    api_latency: true
+    api_request_count: true
+
+    # Database operation metrics
+    database_latency: true
+    database_query_count: true
+
+    # Cache operation metrics
+    cache_hit_rate: true
+    cache_latency: true
+
+    # Memory tier access patterns
+    memory_tier_access: true
+
+    # Pattern detection performance
+    pattern_detection_latency: true
+
+    # Embedding generation metrics
+    embedding_latency: true
+
+  # Alerting thresholds (for future health check integration)
+  thresholds:
+    api_latency_p95_ms: 2000      # 95th percentile API latency
+    database_latency_p95_ms: 1000 # 95th percentile DB latency
+    cache_hit_rate_percent: 80.0  # Minimum cache hit rate
+    memory_usage_mb: 8192         # Maximum memory usage (8GB)

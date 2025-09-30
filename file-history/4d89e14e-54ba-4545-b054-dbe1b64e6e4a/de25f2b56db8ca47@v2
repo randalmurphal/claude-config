@@ -1,0 +1,290 @@
+#!/usr/bin/env python3
+"""
+Tech Scanner MCP Server.
+
+Provides vulnerability scanning for tech stacks via MCP protocol.
+"""
+
+import sys
+import json
+from typing import Any, Dict, List
+
+from scanner import (
+    GitHubClient,
+    PatternExtractor,
+    CodeScanner,
+    compare_versions
+)
+from integrations import PRISMClient
+
+
+class TechScannerMCP:
+    """MCP server for tech vulnerability scanning."""
+
+    def __init__(self):
+        """Initialize MCP server."""
+        self.github_client = GitHubClient()
+        self.pattern_extractor = PatternExtractor()
+        self.prism_client = None
+
+    def _initialize_prism(self, prism_url: str, prism_api_key: str) -> None:
+        """Initialize PRISM client if not already done."""
+        if not self.prism_client:
+            self.prism_client = PRISMClient(
+                base_url=prism_url,
+                api_key=prism_api_key
+            )
+
+    def scan_tech(
+        self,
+        tech_name: str,
+        github_owner: str,
+        github_repo: str,
+        project_path: str,
+        current_version: str = None,
+        prism_url: str = None,
+        prism_api_key: str = None,
+        filter_tests: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Scan for vulnerabilities in a specific technology.
+
+        Args:
+            tech_name: Technology name (e.g., 'FastAPI')
+            github_owner: GitHub repository owner
+            github_repo: GitHub repository name
+            project_path: Path to project to scan
+            current_version: Current version (optional, defaults to '0.0.0')
+            prism_url: PRISM API URL (optional)
+            prism_api_key: PRISM API key (optional)
+            filter_tests: Filter out test files
+
+        Returns:
+            Scan results dictionary
+        """
+        # Initialize PRISM if provided
+        if prism_url and prism_api_key:
+            self._initialize_prism(prism_url, prism_api_key)
+
+        # Default version
+        if not current_version:
+            current_version = '0.0.0'
+
+        # Step 1: Fetch releases
+        try:
+            releases = self.github_client.fetch_releases(
+                github_owner,
+                github_repo,
+                limit=30
+            )
+        except Exception as e:
+            return {
+                'success': False,
+                'error': str(e),
+                'step': 'fetch_releases'
+            }
+
+        # Step 2: Filter to newer security releases
+        security_releases = self.github_client.filter_security_releases(releases)
+
+        newer_security_releases = [
+            r for r in security_releases
+            if compare_versions(r.version, current_version) > 0
+        ]
+
+        if not newer_security_releases:
+            return {
+                'success': True,
+                'message': f'No security updates found newer than {current_version}',
+                'current_version': current_version,
+                'releases_checked': len(releases),
+                'security_releases': 0,
+                'matches': []
+            }
+
+        # Step 3: Extract patterns from release notes
+        all_patterns = []
+        for release in newer_security_releases:
+            patterns = self.pattern_extractor.extract_patterns(
+                release.body,
+                release.version
+            )
+            all_patterns.extend(patterns)
+
+        # Deduplicate patterns
+        unique_patterns = self.pattern_extractor.deduplicate_patterns(all_patterns)
+
+        if not unique_patterns:
+            return {
+                'success': True,
+                'message': 'Security releases found but no patterns extracted',
+                'current_version': current_version,
+                'security_releases': len(newer_security_releases),
+                'matches': [],
+                'note': 'Consider using LLM fallback for vague release notes'
+            }
+
+        # Step 4: Scan codebase for patterns
+        scanner = CodeScanner(tech_name)
+        all_matches = []
+
+        for pattern_str, pattern_obj in unique_patterns.items():
+            matches = scanner.scan_project(
+                project_path,
+                pattern_str,
+                pattern_obj.confidence,
+                filter_tests
+            )
+            all_matches.extend(matches)
+
+        # Step 5: Link to ADRs (if PRISM available)
+        adrs = []
+        if self.prism_client and self.prism_client.check_health():
+            adrs = self.prism_client.get_tech_adrs(tech_name, limit=5)
+
+        # Build result
+        return {
+            'success': True,
+            'tech_name': tech_name,
+            'current_version': current_version,
+            'releases_checked': len(releases),
+            'security_releases': len(newer_security_releases),
+            'patterns_found': len(unique_patterns),
+            'matches': [
+                {
+                    'file': m.file_path,
+                    'line': m.line_number,
+                    'content': m.line_content,
+                    'pattern': m.pattern,
+                    'confidence': m.confidence,
+                    'is_test': m.is_test_file
+                }
+                for m in all_matches
+            ],
+            'adrs': [
+                {
+                    'title': adr.title,
+                    'file': adr.file_path,
+                    'confidence': adr.confidence
+                }
+                for adr in adrs
+            ],
+            'patterns': [
+                {
+                    'pattern': pattern_str,
+                    'confidence': p.confidence,
+                    'reason': p.reason,
+                    'from_version': p.from_version
+                }
+                for pattern_str, p in unique_patterns.items()
+            ],
+            'newer_releases': [
+                {
+                    'version': r.version,
+                    'name': r.name,
+                    'url': r.url
+                }
+                for r in newer_security_releases
+            ]
+        }
+
+    def handle_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Handle MCP request.
+
+        Args:
+            request: MCP request dictionary
+
+        Returns:
+            MCP response dictionary
+        """
+        method = request.get('method', '')
+        params = request.get('params', {})
+
+        if method == 'tools/list':
+            return {
+                'tools': [
+                    {
+                        'name': 'scan_tech',
+                        'description': 'Scan for vulnerabilities in a specific technology',
+                        'inputSchema': {
+                            'type': 'object',
+                            'properties': {
+                                'tech_name': {
+                                    'type': 'string',
+                                    'description': 'Technology name (e.g., FastAPI)'
+                                },
+                                'github_owner': {
+                                    'type': 'string',
+                                    'description': 'GitHub repository owner'
+                                },
+                                'github_repo': {
+                                    'type': 'string',
+                                    'description': 'GitHub repository name'
+                                },
+                                'project_path': {
+                                    'type': 'string',
+                                    'description': 'Path to project to scan'
+                                },
+                                'current_version': {
+                                    'type': 'string',
+                                    'description': 'Current version (optional)'
+                                },
+                                'prism_url': {
+                                    'type': 'string',
+                                    'description': 'PRISM API URL (optional)'
+                                },
+                                'prism_api_key': {
+                                    'type': 'string',
+                                    'description': 'PRISM API key (optional)'
+                                },
+                                'filter_tests': {
+                                    'type': 'boolean',
+                                    'description': 'Filter test files (default: true)'
+                                }
+                            },
+                            'required': ['tech_name', 'github_owner', 'github_repo', 'project_path']
+                        }
+                    }
+                ]
+            }
+
+        elif method == 'tools/call':
+            tool_name = params.get('name', '')
+            args = params.get('arguments', {})
+
+            if tool_name == 'scan_tech':
+                result = self.scan_tech(**args)
+                return {
+                    'content': [
+                        {
+                            'type': 'text',
+                            'text': json.dumps(result, indent=2)
+                        }
+                    ]
+                }
+
+        return {'error': f'Unknown method: {method}'}
+
+
+def main():
+    """Run MCP server."""
+    server = TechScannerMCP()
+
+    # Read requests from stdin
+    for line in sys.stdin:
+        try:
+            request = json.loads(line)
+            response = server.handle_request(request)
+            print(json.dumps(response))
+            sys.stdout.flush()
+        except json.JSONDecodeError:
+            print(json.dumps({'error': 'Invalid JSON'}))
+            sys.stdout.flush()
+        except Exception as e:
+            print(json.dumps({'error': str(e)}))
+            sys.stdout.flush()
+
+
+if __name__ == '__main__':
+    main()

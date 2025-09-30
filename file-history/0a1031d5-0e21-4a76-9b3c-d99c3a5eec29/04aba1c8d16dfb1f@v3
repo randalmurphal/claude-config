@@ -1,0 +1,643 @@
+"""
+Preference Manager - Handles preference lifecycle.
+
+Responsibility: suggest → approve/reject → undo
+Single responsibility: Preference lifecycle, not detection logic.
+"""
+
+import logging
+import uuid
+import time
+from datetime import datetime
+from typing import Dict, List, Any, Optional
+
+from prism_mcp.storage.qdrant_manager import QdrantManager
+from prism_mcp.storage.neo4j_manager import Neo4jManager
+from prism_mcp.storage.redis_cache import RedisCache
+from prism_mcp.models.embedder import get_embedder
+from prism_mcp.core.code_linker import CodeLinker
+from prism_mcp.core.rejection_learner import RejectionLearner
+
+logger = logging.getLogger(__name__)
+
+SCOPE_PRIORITY = {
+    'project': 4,
+    'framework': 3,
+    'language': 2,
+    'global': 1,
+}
+
+
+class PreferenceManager:
+    """
+    Handles preference lifecycle: suggest → approve/reject → undo
+
+    Phase 4A: Core lifecycle operations
+    Phase 4B: Code example linking (link_to_code_examples)
+    """
+
+    def __init__(self):
+        """Initialize preference manager."""
+        self.qdrant = QdrantManager()
+        self.neo4j = Neo4jManager()
+        self.redis = RedisCache()
+        self.embedder = get_embedder()
+        self.code_linker = CodeLinker()
+        self.rejection_learner = RejectionLearner()
+
+        # Tier-aware collection name (memories_voyage for Tier 0, memories_e5 for Tier 1+)
+        self.collection_name = self.qdrant.get_collection_for_memory_type("preference")
+
+        logger.info(f'PreferenceManager initialized with rejection learning (collection: {self.collection_name})')
+
+    def _retrieve_with_retry(
+        self,
+        collection_name: str,
+        ids: List[str],
+        max_retries: int = 10,
+        initial_delay: float = 0.1
+    ) -> List:
+        """
+        Retrieve from Qdrant with exponential backoff for eventual consistency.
+
+        Args:
+            collection_name: Qdrant collection name
+            ids: Point IDs to retrieve (will be converted to int via QdrantManager)
+            max_retries: Maximum retry attempts
+            initial_delay: Initial delay in seconds (doubles each retry)
+
+        Returns:
+            List of retrieved points
+
+        Raises:
+            RuntimeError: If retrieval fails after all retries
+        """
+        # Use IDs directly - preferences use UUID strings, not integer conversion
+        delay = initial_delay
+        for attempt in range(max_retries):
+            try:
+                points = self.qdrant.client.retrieve(
+                    collection_name=collection_name,
+                    ids=ids  # Pass UUIDs as-is
+                )
+                if points:
+                    return points
+
+                # Empty result - might be eventual consistency
+                if attempt < max_retries - 1:
+                    logger.debug(
+                        f"Retrieve returned empty, retry {attempt + 1}/{max_retries} "
+                        f"after {delay*1000:.0f}ms"
+                    )
+                    time.sleep(delay)
+                    delay *= 2  # Exponential backoff
+                    continue
+
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    logger.warning(f"Retrieve failed, retry {attempt + 1}/{max_retries}: {e}")
+                    time.sleep(delay)
+                    delay *= 2
+                    continue
+                raise
+
+        raise RuntimeError(f"Failed to retrieve {ids} after {max_retries} attempts")
+
+    async def suggest_preference(
+        self,
+        content: str,
+        category: str,
+        detection_method: str,
+        confidence: float,
+        evidence: str,
+        scope_type: str,
+        scope_value: Optional[str],
+        session_id: str,
+        project_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Create preference candidate with rejection learning checks.
+        Auto-approves if explicit + confidence ≥0.85 (after rejection checks)
+
+        Args:
+            content: Preference description
+            category: Preference category (style, pattern, tool, quality)
+            detection_method: How detected (explicit, intervention, rejection_cluster)
+            confidence: 0.0-1.0
+            evidence: Supporting evidence
+            scope_type: Scope (global, project, language, framework)
+            scope_value: Optional scope value
+            session_id: Session ID
+            project_id: Optional project ID
+
+        Returns:
+            {
+                "preference_id": str,
+                "status": "approved" | "pending" | "rejected",
+                "message": str,
+                "rejection_check": Dict[str, Any] (if applicable)
+            }
+
+        Raises:
+            RuntimeError: If required fields missing
+        """
+        if not content:
+            raise RuntimeError('content required for preference')
+        if not session_id:
+            raise RuntimeError('session_id required for preference')
+
+        preference_id = str(uuid.uuid4())
+
+        # Check against rejection patterns before creating preference
+        rejection_check = await self.rejection_learner.check_against_rejections(
+            preference_content=content,
+            category=category,
+            scope_type=scope_type,
+            detection_method=detection_method
+        )
+
+        # Apply confidence adjustment from rejection learning
+        original_confidence = confidence
+        adjusted_confidence = max(0.0, confidence + rejection_check['confidence_adjustment'])
+
+        # Reject if strongly similar to previous rejections
+        if rejection_check['should_reject']:
+            logger.info(
+                f'Preference auto-rejected due to rejection patterns: {content[:100]}... '
+                f'(similar_rejections: {len(rejection_check["similar_rejections"])})'
+            )
+            return {
+                'preference_id': None,
+                'status': 'rejected',
+                'message': f'Preference rejected: similar to previously rejected preferences. '
+                          f'{rejection_check["message"]}',
+                'rejection_check': rejection_check,
+            }
+
+        # Auto-approve if explicit statement with high confidence (after adjustment)
+        auto_approve = detection_method == 'explicit' and adjusted_confidence >= 0.85
+        status = 'approved' if auto_approve else 'pending'
+        tier = 'anchors' if auto_approve else 'working'
+
+        # Generate E5 embedding with query augmentation
+        embedding = self.embedder.embed_with_e5(content, augment=True)
+
+        # Create memory payload
+        memory_payload = {
+            'memory_id': preference_id,
+            'content': content,
+            'memory_type': 'user_preference',
+            'collection': 'e5',
+            'tier': tier,
+            'created_at': datetime.now().isoformat(),
+            'last_accessed': datetime.now().isoformat(),
+            'access_count': 0,
+            'frustration_score': 0.0,
+            'session_id': session_id,
+            'project_id': project_id,
+            'related_memories': [],
+            # Preference-specific fields
+            'status': status,
+            'preference_category': category,
+            'confidence': adjusted_confidence,  # Use adjusted confidence
+            'original_confidence': original_confidence,  # Store original for transparency
+            'detection_method': detection_method,
+            'scope_type': scope_type,
+            'scope_value': scope_value,
+            'evidence_count': 1,
+            'evidence_ids': [],
+            'auto_approved': auto_approve,
+            'approved_at': datetime.now().isoformat() if auto_approve else None,
+            'rejected_at': None,
+            'rejection_reason': None,
+            # Rejection learning fields
+            'rejection_check_applied': True,
+            'confidence_adjustment': rejection_check['confidence_adjustment'],
+            'similar_rejections_found': len(rejection_check['similar_rejections']),
+            'patterns_matched': rejection_check['patterns_matched'],
+        }
+
+        # Store in Qdrant E5 collection (use UUID directly, not integer conversion)
+        from qdrant_client.models import PointStruct
+
+        point = PointStruct(
+            id=preference_id,  # UUID string - Qdrant supports this natively
+            vector=embedding.tolist(),
+            payload=memory_payload,
+        )
+        self.qdrant.client.upsert(
+            collection_name=self.collection_name,
+            points=[point],
+        )
+
+        # Store in Neo4j
+        from prism_mcp.storage.neo4j_manager import GraphNode
+        memory_node = GraphNode(
+            node_id=preference_id,
+            node_type="Memory",
+            properties={
+                "memory_id": preference_id,
+                "content": content[:200],
+                "type": "user_preference",
+                "tier": tier,
+                "project": project_id,
+                "session_id": session_id,
+                "access_count": 0,
+                "frustration_score": 0.0,
+                "created_at": memory_payload["created_at"],
+                "last_accessed": memory_payload["last_accessed"],
+                "status": status,
+                "preference_category": category,
+                "confidence": adjusted_confidence,
+                "original_confidence": original_confidence,
+                "detection_method": detection_method,
+                "scope_type": scope_type,
+                "scope_value": scope_value,
+                "rejection_check_applied": True,
+                "confidence_adjustment": rejection_check['confidence_adjustment'],
+                "similar_rejections_found": len(rejection_check['similar_rejections']),
+            }
+        )
+        self.neo4j.create_node(memory_node, unique_property="memory_id")
+
+        # Track auto-approval in Redis for undo
+        if auto_approve:
+            redis_key = f'auto_approvals:{session_id}'
+            self.redis.client.lpush(redis_key, preference_id)
+            self.redis.client.expire(redis_key, 86400)  # 24 hours
+
+        confidence_message = ""
+        if rejection_check['confidence_adjustment'] != 0:
+            confidence_message = f" (confidence adjusted: {original_confidence:.2f} -> {adjusted_confidence:.2f})"
+
+        logger.info(
+            f'Preference created: {preference_id} '
+            f'(status={status}, category={category}, confidence={adjusted_confidence:.2f}){confidence_message}'
+        )
+
+        return {
+            'preference_id': preference_id,
+            'status': status,
+            'message': f'{"Auto-approved" if auto_approve else "Pending review"}{confidence_message}',
+            'rejection_check': rejection_check if rejection_check['confidence_adjustment'] != 0 or rejection_check['similar_rejections'] else None,
+        }
+
+    async def approve_preference(
+        self,
+        preference_id: str,
+        session_id: str,
+        notes: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Approve preference:
+        1. Promote to ANCHORS tier
+        2. Update status to approved
+        3. Link to code examples (Phase 4B)
+        4. Detect conflicts (future)
+
+        Args:
+            preference_id: Preference ID
+            session_id: Session ID
+            notes: Optional approval notes
+
+        Returns:
+            {
+                "success": bool,
+                "message": str,
+                "code_examples_found": int,
+                "code_examples": [...]
+            }
+
+        Raises:
+            RuntimeError: If preference_id or session_id missing
+        """
+        if not preference_id:
+            raise RuntimeError('preference_id required')
+        if not session_id:
+            raise RuntimeError('session_id required')
+
+        # Get preference details for code linking (with retry for eventual consistency)
+        preference = self._retrieve_with_retry(
+            collection_name=self.collection_name, ids=[preference_id]
+        )
+
+        if not preference:
+            raise RuntimeError(f'Preference not found: {preference_id}')
+
+        pref_payload = preference[0].payload
+        preference_content = pref_payload['content']
+        preference_category = pref_payload.get('preference_category', 'unknown')
+        project_id = pref_payload.get('project_id')
+
+        # Update Qdrant
+        update_payload = {
+            'status': 'approved',
+            'tier': 'anchors',
+            'approved_at': datetime.now().isoformat(),
+        }
+        self.qdrant.client.set_payload(
+            collection_name=self.collection_name,
+            payload=update_payload,
+            points=[preference_id],
+        )
+
+        # Update Neo4j
+        cypher = """
+        MATCH (m:Memory {memory_id: $memory_id})
+        SET m.status = $status,
+            m.tier = $tier,
+            m.approved_at = $approved_at
+        """
+        self.neo4j.query(cypher, memory_id=preference_id, **update_payload)
+
+        # Phase 4B: Link to code examples
+        code_examples = []
+        if project_id:
+            try:
+                code_examples = await self.code_linker.link_preference_to_code_examples(
+                    preference_id=preference_id,
+                    project_id=project_id,
+                    preference_content=preference_content,
+                    preference_category=preference_category,
+                )
+                logger.info(
+                    f'Linked {len(code_examples)} code examples to preference {preference_id}'
+                )
+            except Exception as e:
+                logger.warning(
+                    f'Failed to link code examples for {preference_id}: {e}'
+                )
+
+        logger.info(f'Preference approved: {preference_id}')
+
+        return {
+            'success': True,
+            'message': 'Preference approved and promoted to ANCHORS',
+            'code_examples_found': len(code_examples),
+            'code_examples': code_examples,
+        }
+
+    async def reject_preference(
+        self,
+        preference_id: str,
+        reason: str,
+        session_id: str,
+        rejection_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Reject preference and learn from rejection.
+
+        Args:
+            preference_id: Preference ID
+            reason: Rejection reason
+            session_id: Session ID
+            rejection_context: Additional context (tool_name, project_id, etc.)
+
+        Returns:
+            {
+                "success": bool,
+                "message": str,
+                "rejection_learning": {
+                    "rejection_id": str,
+                    "similar_preferences_found": int,
+                    "confidence_adjustments": int,
+                    "patterns_detected": List[str]
+                }
+            }
+
+        Raises:
+            RuntimeError: If required fields missing or learning fails
+        """
+        if not preference_id:
+            raise RuntimeError('preference_id required')
+        if not reason:
+            raise RuntimeError('reason required')
+        if not session_id:
+            raise RuntimeError('session_id required')
+
+        try:
+            # NO DEFAULTS: Learn from rejection FIRST
+            # If learning fails, we don't want to record incomplete rejection
+            learning_result = await self.rejection_learner.learn_from_rejection(
+                preference_id=preference_id,
+                reason=reason,
+                session_id=session_id,
+                rejection_context=rejection_context
+            )
+
+            # Learning succeeded - now update preference status
+            import json
+            update_payload = {
+                'status': 'rejected',
+                'rejected_at': datetime.now().isoformat(),
+                'rejection_reason': reason,
+                'rejection_context': json.dumps(rejection_context or {}),  # JSON string for consistency
+            }
+
+            self.qdrant.client.set_payload(
+                collection_name=self.collection_name,
+                payload=update_payload,
+                points=[preference_id],
+            )
+
+            cypher = """
+            MATCH (m:Memory {memory_id: $memory_id})
+            SET m.status = $status,
+                m.rejected_at = $rejected_at,
+                m.rejection_reason = $rejection_reason,
+                m.rejection_context = $rejection_context
+            """
+            self.neo4j.query(cypher, memory_id=preference_id, **update_payload)
+
+            logger.info(
+                f'Preference rejected with learning: {preference_id} '
+                f'(reason: {reason}, similar_found: {learning_result["similar_preferences_found"]}, '
+                f'adjustments: {learning_result["confidence_adjustments"]})'
+            )
+
+            return {
+                'success': True,
+                'message': f'Preference rejected and learned from feedback: '
+                          f'{learning_result["message"]}',
+                'rejection_learning': learning_result,
+            }
+
+        except Exception as e:
+            logger.error(f'Rejection learning failed for {preference_id}: {e}')
+            # NO DEFAULTS: If learning fails, preference NOT marked as rejected
+            # This ensures we never have incomplete rejection state
+            raise RuntimeError(f'Rejection failed - preference NOT rejected due to learning error: {e}')
+
+    async def undo_last_approval(self, session_id: str) -> Dict[str, Any]:
+        """
+        Undo most recent auto-approval in session.
+        Session-based, no time limit (not 10-second window).
+
+        Args:
+            session_id: Session ID
+
+        Returns:
+            {
+                "success": bool,
+                "preference_id": str | None,
+                "message": str
+            }
+
+        Raises:
+            RuntimeError: If session_id missing
+        """
+        if not session_id:
+            raise RuntimeError('session_id required')
+
+        # Get most recent auto-approval from Redis
+        redis_key = f'auto_approvals:{session_id}'
+        preference_id = self.redis.client.lpop(redis_key)
+
+        if not preference_id:
+            return {
+                'success': False,
+                'preference_id': None,
+                'message': 'No auto-approved preferences to undo in this session',
+            }
+
+        # Reject it
+        result = await self.reject_preference(
+            preference_id=preference_id.decode('utf-8')
+            if isinstance(preference_id, bytes)
+            else preference_id,
+            reason='User undo',
+            session_id=session_id,
+        )
+
+        logger.info(f'Auto-approval undone: {preference_id}')
+
+        return {
+            'success': True,
+            'preference_id': preference_id.decode('utf-8')
+            if isinstance(preference_id, bytes)
+            else preference_id,
+            'message': 'Auto-approval undone, preference rejected',
+        }
+
+    async def list_preferences(
+        self,
+        session_id: str,
+        status: Optional[str] = None,
+        category: Optional[str] = None,
+        project_id: Optional[str] = None,
+        limit: int = 20,
+    ) -> Dict[str, Any]:
+        """
+        List preferences for review.
+
+        Args:
+            session_id: Session ID
+            status: Filter by status (pending, approved, rejected)
+            category: Filter by category
+            project_id: Filter by project
+            limit: Max results
+
+        Returns:
+            {
+                "preferences": [
+                    {
+                        "preference_id": str,
+                        "content": str,
+                        "category": str,
+                        "status": str,
+                        "confidence": float,
+                        "evidence": str,
+                        "scope_type": str,
+                        "scope_value": str,
+                        "created_at": str,
+                        "code_examples": []  # Phase 4B
+                    }
+                ]
+            }
+
+        Raises:
+            RuntimeError: If session_id missing
+        """
+        if not session_id:
+            raise RuntimeError('session_id required')
+
+        # Build Qdrant filter
+        must_conditions = [
+            {
+                'key': 'memory_type',
+                'match': {'value': 'user_preference'},
+            }
+        ]
+
+        if status:
+            must_conditions.append(
+                {
+                    'key': 'status',
+                    'match': {'value': status},
+                }
+            )
+
+        if category:
+            must_conditions.append(
+                {
+                    'key': 'preference_category',
+                    'match': {'value': category},
+                }
+            )
+
+        if project_id:
+            must_conditions.append(
+                {
+                    'key': 'project_id',
+                    'match': {'value': project_id},
+                }
+            )
+
+        # Query Qdrant (scroll to get all matching)
+        # Note: scroll uses search index which has better consistency than retrieve
+        from qdrant_client.models import Filter
+        results, _ = self.qdrant.client.scroll(
+            collection_name=self.collection_name,
+            scroll_filter=Filter(must=must_conditions),
+            limit=limit,
+            with_payload=True,
+            with_vectors=False,
+        )
+
+        # Format results
+        preferences = []
+        for result in results:
+            payload = result.payload
+            pref_id = payload['memory_id']
+
+            # Phase 4B: Get code examples if approved
+            code_examples = []
+            if payload.get('status') == 'approved':
+                try:
+                    code_examples = await self.code_linker.get_preference_examples(
+                        preference_id=pref_id, limit=5
+                    )
+                except Exception as e:
+                    logger.debug(f'No code examples for {pref_id}: {e}')
+
+            preferences.append(
+                {
+                    'preference_id': pref_id,
+                    'content': payload['content'],
+                    'category': payload.get('preference_category', 'unknown'),
+                    'status': payload.get('status', 'unknown'),
+                    'confidence': payload.get('confidence', 0.0),
+                    'evidence': f'{payload.get("evidence_count", 0)} supporting events',
+                    'scope_type': payload.get('scope_type', 'global'),
+                    'scope_value': payload.get('scope_value'),
+                    'created_at': payload.get('created_at'),
+                    'code_examples': code_examples,
+                }
+            )
+
+        logger.info(
+            f'Listed {len(preferences)} preferences '
+            f'(status={status}, category={category}, project={project_id})'
+        )
+
+        return {'preferences': preferences}

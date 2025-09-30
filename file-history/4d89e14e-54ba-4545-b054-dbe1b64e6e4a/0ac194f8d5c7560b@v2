@@ -1,0 +1,463 @@
+"""
+Tech Stack Tracker - Extract and track technologies from user's stack.
+
+Responsibilities:
+- Extract technologies from tech opinions (PersonalKnowledgeEngine)
+- Detect versions from project files (package.json, requirements.txt, etc.)
+- Prioritize technologies for monitoring
+- Maintain update check schedule
+
+NO DEFAULTS - crash loudly on missing required fields.
+"""
+
+import json
+import logging
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Dict, List, Optional
+
+from prism_mcp.core.personal_knowledge_engine import (
+    get_personal_knowledge_engine,
+)
+from prism_mcp.models.tech_update import Technology
+from prism_mcp.storage.redis_cache import RedisCache
+
+
+logger = logging.getLogger(__name__)
+
+
+# Technology category mappings
+TECH_CATEGORIES = {
+    # Frameworks
+    'fastapi': 'framework',
+    'flask': 'framework',
+    'django': 'framework',
+    'express': 'framework',
+    'react': 'framework',
+    'vue': 'framework',
+    'angular': 'framework',
+    'nextjs': 'framework',
+    'svelte': 'framework',
+    # Databases
+    'postgresql': 'database',
+    'mysql': 'database',
+    'mongodb': 'database',
+    'redis': 'database',
+    'neo4j': 'database',
+    'qdrant': 'database',
+    'elasticsearch': 'database',
+    # Languages
+    'python': 'language',
+    'javascript': 'language',
+    'typescript': 'language',
+    'rust': 'language',
+    'go': 'language',
+    'java': 'language',
+    # Tools
+    'docker': 'tool',
+    'kubernetes': 'tool',
+    'git': 'tool',
+    'github': 'tool',
+    'pytest': 'tool',
+    'ruff': 'tool',
+    'eslint': 'tool',
+}
+
+# Priority mappings based on sentiment
+SENTIMENT_PRIORITY = {
+    'prefer': 5,  # Critical - user actively prefers this
+    'neutral': 3,  # Medium - user is aware of it
+    'avoid': 2,  # Low - user wants to avoid, but still track deprecations
+}
+
+
+class TechStackTracker:
+    """
+    Track technologies in user's stack.
+
+    Extracts from tech opinions, detects versions, prioritizes monitoring.
+    """
+
+    def __init__(self):
+        """Initialize tech stack tracker."""
+        self.personal_engine = get_personal_knowledge_engine()
+        self.redis = RedisCache()
+
+        logger.info('TechStackTracker initialized')
+
+    def get_user_tech_stack(
+        self, session_id: str, user_id: str, project_id: Optional[str] = None
+    ) -> List[Technology]:
+        """
+        Get user's technology stack from tech opinions.
+
+        Extracts technologies from PersonalKnowledgeEngine tech opinions
+        and enriches with priority and category information.
+
+        Args:
+            session_id: Session ID (required)
+            user_id: User ID (required)
+            project_id: Optional project filter
+
+        Returns:
+            List of Technology objects sorted by priority
+
+        Raises:
+            RuntimeError: If session_id or user_id missing
+        """
+        if not session_id:
+            raise RuntimeError('session_id required')
+        if not user_id:
+            raise RuntimeError('user_id required')
+
+        # Check cache first
+        cache_key = f'tech_stack:{user_id}'
+        if project_id:
+            cache_key = f'tech_stack:{user_id}:{project_id}'
+
+        cached = self.redis.client.get(cache_key)
+        if cached:
+            try:
+                tech_list = json.loads(cached)
+                logger.info(f'Loaded {len(tech_list)} technologies from cache')
+                return [self._tech_from_dict(t) for t in tech_list]
+            except Exception as e:
+                logger.warning(f'Failed to parse cached tech stack: {e}')
+
+        # Get tech opinions from PersonalKnowledgeEngine
+        try:
+            tech_opinions = self.personal_engine.get_tech_stack(
+                session_id=session_id, user_id=user_id, project_id=project_id
+            )
+        except Exception as e:
+            logger.error(f'Failed to retrieve tech stack: {e}')
+            raise RuntimeError(f'Tech stack retrieval failed: {e}')
+
+        # Convert to Technology objects
+        technologies = []
+        for opinion in tech_opinions:
+            tech_name = opinion['tech_name']  # Crash if missing (NO DEFAULTS)
+            sentiment = opinion['sentiment']  # Crash if missing
+
+            # Determine category
+            tech_lower = tech_name.lower()
+            category = TECH_CATEGORIES.get(tech_lower, 'other')
+
+            # Determine priority from sentiment
+            priority = SENTIMENT_PRIORITY.get(sentiment, 3)
+
+            tech = Technology(
+                name=tech_name,
+                category=category,
+                sentiment=sentiment,
+                priority=priority,
+                source='tech_opinions',
+                user_id=user_id,
+                project_id=project_id,
+                last_checked=None,  # Will be set on first check
+                next_check=datetime.now(),  # Check immediately
+            )
+
+            technologies.append(tech)
+
+        # Sort by priority (highest first)
+        technologies.sort(key=lambda t: t.priority, reverse=True)
+
+        # Cache for 7 days
+        try:
+            tech_dicts = [t.to_dict() for t in technologies]
+            self.redis.client.setex(cache_key, 604800, json.dumps(tech_dicts))  # 7 days
+            logger.info(f'Cached {len(technologies)} technologies')
+        except Exception as e:
+            logger.warning(f'Failed to cache tech stack: {e}')
+
+        logger.info(
+            f'Retrieved {len(technologies)} technologies from tech opinions '
+            f'(user_id={user_id}, project_id={project_id})'
+        )
+
+        return technologies
+
+    def detect_versions(self, project_path: str) -> Dict[str, str]:
+        """
+        Detect technology versions from project files.
+
+        Supports:
+        - Python: requirements.txt, pyproject.toml, setup.py
+        - Node.js: package.json
+        - Go: go.mod
+        - Rust: Cargo.toml
+        - Java: pom.xml, build.gradle
+
+        Args:
+            project_path: Path to project root (required)
+
+        Returns:
+            Dict mapping technology name to version (e.g., {"fastapi": "0.104.1"})
+
+        Raises:
+            RuntimeError: If project_path missing
+        """
+        if not project_path:
+            raise RuntimeError('project_path required')
+
+        versions = {}
+        project_root = Path(project_path)
+
+        if not project_root.exists():
+            logger.warning(f'Project path does not exist: {project_path}')
+            return versions
+
+        # Python: requirements.txt
+        requirements_txt = project_root / 'requirements.txt'
+        if requirements_txt.exists():
+            try:
+                versions.update(self._parse_requirements_txt(requirements_txt))
+            except Exception as e:
+                logger.warning(f'Failed to parse requirements.txt: {e}')
+
+        # Python: pyproject.toml
+        pyproject_toml = project_root / 'pyproject.toml'
+        if pyproject_toml.exists():
+            try:
+                versions.update(self._parse_pyproject_toml(pyproject_toml))
+            except Exception as e:
+                logger.warning(f'Failed to parse pyproject.toml: {e}')
+
+        # Node.js: package.json
+        package_json = project_root / 'package.json'
+        if package_json.exists():
+            try:
+                versions.update(self._parse_package_json(package_json))
+            except Exception as e:
+                logger.warning(f'Failed to parse package.json: {e}')
+
+        logger.info(f'Detected {len(versions)} versions from {project_path}')
+
+        return versions
+
+    def prioritize_checks(
+        self, technologies: List[Technology], max_critical: int = 10
+    ) -> List[Technology]:
+        """
+        Prioritize technologies for monitoring.
+
+        Returns critical technologies first (max 10 for startup checks),
+        then remaining sorted by priority.
+
+        Args:
+            technologies: List of technologies
+            max_critical: Max number of critical techs for quick checks
+
+        Returns:
+            List of technologies with critical ones first
+
+        Raises:
+            RuntimeError: If technologies is empty
+        """
+        if not technologies:
+            raise RuntimeError('technologies list cannot be empty')
+
+        # Split into critical (priority >= 4) and rest
+        critical = [t for t in technologies if t.priority >= 4]
+        rest = [t for t in technologies if t.priority < 4]
+
+        # Limit critical to max_critical
+        if len(critical) > max_critical:
+            logger.info(
+                f'Limiting critical technologies from {len(critical)} to {max_critical}'
+            )
+            critical = critical[:max_critical]
+
+        # Combine: critical first, then rest
+        prioritized = critical + rest
+
+        logger.info(
+            f'Prioritized {len(prioritized)} technologies '
+            f'({len(critical)} critical, {len(rest)} normal)'
+        )
+
+        return prioritized
+
+    def update_check_schedule(
+        self,
+        user_id: str,
+        tech_name: str,
+        last_checked: datetime,
+        has_critical_update: bool = False,
+    ) -> datetime:
+        """
+        Update check schedule for technology.
+
+        - Critical updates: Check again in 12 hours
+        - No updates: Check again in 24 hours
+        - Stores in Redis cache
+
+        Args:
+            user_id: User ID (required)
+            tech_name: Technology name (required)
+            last_checked: Timestamp of last check (required)
+            has_critical_update: If critical update found
+
+        Returns:
+            Next check timestamp
+
+        Raises:
+            RuntimeError: If required params missing
+        """
+        if not user_id:
+            raise RuntimeError('user_id required')
+        if not tech_name:
+            raise RuntimeError('tech_name required')
+
+        # Calculate next check time
+        if has_critical_update:
+            # Check again in 12 hours if critical update exists
+            next_check = last_checked + timedelta(hours=12)
+        else:
+            # Check again in 24 hours for normal monitoring
+            next_check = last_checked + timedelta(hours=24)
+
+        # Store in Redis
+        schedule_key = f'tech_schedule:{user_id}:{tech_name}'
+        schedule_data = {'last_checked': last_checked.isoformat(), 'next_check': next_check.isoformat()}
+
+        try:
+            self.redis.client.setex(schedule_key, 86400, json.dumps(schedule_data))  # 24hr TTL
+            logger.debug(f'Updated check schedule for {tech_name}: next check at {next_check}')
+        except Exception as e:
+            logger.warning(f'Failed to update check schedule: {e}')
+
+        return next_check
+
+    def invalidate_cache(self, user_id: str, project_id: Optional[str] = None):
+        """
+        Invalidate tech stack cache.
+
+        Call when tech opinions change.
+
+        Args:
+            user_id: User ID (required)
+            project_id: Optional project filter
+
+        Raises:
+            RuntimeError: If user_id missing
+        """
+        if not user_id:
+            raise RuntimeError('user_id required')
+
+        cache_key = f'tech_stack:{user_id}'
+        if project_id:
+            cache_key = f'tech_stack:{user_id}:{project_id}'
+
+        try:
+            self.redis.client.delete(cache_key)
+            logger.info(f'Invalidated tech stack cache for user_id={user_id}')
+        except Exception as e:
+            logger.warning(f'Failed to invalidate cache: {e}')
+
+    # Helper methods for version detection
+
+    def _parse_requirements_txt(self, file_path: Path) -> Dict[str, str]:
+        """Parse requirements.txt for Python packages."""
+        versions = {}
+        content = file_path.read_text()
+
+        for line in content.split('\n'):
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+
+            # Parse lines like "fastapi==0.104.1" or "fastapi>=0.100.0"
+            if '==' in line:
+                package, version = line.split('==')
+                versions[package.strip().lower()] = version.strip()
+
+        return versions
+
+    def _parse_pyproject_toml(self, file_path: Path) -> Dict[str, str]:
+        """Parse pyproject.toml for Python packages."""
+        # Simplified parser - would need toml library for production
+        versions = {}
+        content = file_path.read_text()
+
+        # Look for lines like: fastapi = "^0.104.1"
+        for line in content.split('\n'):
+            if '=' in line and '"' in line:
+                parts = line.split('=')
+                if len(parts) == 2:
+                    package = parts[0].strip().lower()
+                    version_part = parts[1].strip().strip('"').lstrip('^~')
+                    if version_part and version_part[0].isdigit():
+                        versions[package] = version_part
+
+        return versions
+
+    def _parse_package_json(self, file_path: Path) -> Dict[str, str]:
+        """Parse package.json for Node.js packages."""
+        try:
+            data = json.loads(file_path.read_text())
+
+            versions = {}
+
+            # Get dependencies
+            deps = data.get('dependencies', {})
+            for package, version in deps.items():
+                # Remove ^, ~, >= prefixes
+                clean_version = version.lstrip('^~>=')
+                versions[package.lower()] = clean_version
+
+            # Get devDependencies
+            dev_deps = data.get('devDependencies', {})
+            for package, version in dev_deps.items():
+                clean_version = version.lstrip('^~>=')
+                versions[package.lower()] = clean_version
+
+            return versions
+
+        except Exception as e:
+            logger.warning(f'Failed to parse package.json: {e}')
+            return {}
+
+    def _tech_from_dict(self, data: Dict) -> Technology:
+        """Reconstruct Technology from cached dict."""
+        # Parse datetime fields
+        last_checked = None
+        if data.get('last_checked'):
+            last_checked = datetime.fromisoformat(data['last_checked'])
+
+        next_check = None
+        if data.get('next_check'):
+            next_check = datetime.fromisoformat(data['next_check'])
+
+        return Technology(
+            name=data['name'],
+            category=data['category'],
+            current_version=data.get('current_version'),
+            sentiment=data['sentiment'],
+            last_checked=last_checked,
+            next_check=next_check,
+            priority=data['priority'],
+            source=data['source'],
+            user_id=data.get('user_id'),
+            project_id=data.get('project_id'),
+        )
+
+
+# Singleton instance
+_tech_stack_tracker: Optional[TechStackTracker] = None
+
+
+def get_tech_stack_tracker() -> TechStackTracker:
+    """
+    Get global TechStackTracker instance (singleton).
+
+    Returns:
+        TechStackTracker instance
+    """
+    global _tech_stack_tracker
+
+    if _tech_stack_tracker is None:
+        _tech_stack_tracker = TechStackTracker()
+
+    return _tech_stack_tracker

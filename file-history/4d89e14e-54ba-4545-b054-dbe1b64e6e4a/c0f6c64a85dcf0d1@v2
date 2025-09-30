@@ -1,0 +1,262 @@
+#!/usr/bin/env python3
+"""
+End-to-end test of tech scanner.
+
+Tests actual implementation (not prototypes in /tmp).
+"""
+
+import sys
+import json
+from scanner import GitHubClient, PatternExtractor, CodeScanner, compare_versions
+from integrations import PRISMClient
+
+
+def test_version_comparison():
+    """Test version comparison."""
+    print("=" * 80)
+    print("TEST 1: Version Comparison")
+    print("=" * 80)
+
+    tests = [
+        ("0.104.1", "0.105.0", -1),
+        ("1.0.0", "0.9.9", 1),
+        ("1.2.3", "1.2.3", 0),
+    ]
+
+    passed = 0
+    for v1, v2, expected in tests:
+        result = compare_versions(v1, v2)
+        if result == expected:
+            print(f"✅ {v1} vs {v2} = {result}")
+            passed += 1
+        else:
+            print(f"❌ {v1} vs {v2} = {result} (expected {expected})")
+
+    print(f"\n{passed}/{len(tests)} tests passed\n")
+    return passed == len(tests)
+
+
+def test_github_client():
+    """Test GitHub API client."""
+    print("=" * 80)
+    print("TEST 2: GitHub Client")
+    print("=" * 80)
+
+    client = GitHubClient()
+
+    try:
+        releases = client.fetch_releases('tiangolo', 'fastapi', limit=10)
+        print(f"✅ Fetched {len(releases)} releases")
+
+        if releases:
+            print(f"Latest: {releases[0].version} - {releases[0].name}")
+
+        security = client.filter_security_releases(releases)
+        print(f"✅ Found {len(security)} security releases\n")
+
+        return True
+
+    except Exception as e:
+        print(f"❌ Failed: {e}\n")
+        return False
+
+
+def test_pattern_extraction():
+    """Test pattern extraction."""
+    print("=" * 80)
+    print("TEST 3: Pattern Extraction")
+    print("=" * 80)
+
+    extractor = PatternExtractor()
+
+    example_notes = """
+    ## Security Fixes
+
+    Fixed SQL injection vulnerability in Query() parameter handling.
+    The Body() method is deprecated in favor of BodyField().
+    """
+
+    patterns = extractor.extract_patterns(example_notes, "0.105.0")
+
+    print(f"✅ Extracted {len(patterns)} patterns:")
+    for p in patterns:
+        print(f"  - {p.pattern} (confidence: {p.confidence})")
+        print(f"    Reason: {p.reason}")
+
+    print()
+    return len(patterns) > 0
+
+
+def test_code_scanner():
+    """Test code scanner with import analysis."""
+    print("=" * 80)
+    print("TEST 4: Code Scanner with Import Analysis")
+    print("=" * 80)
+
+    project = '/home/randy/repos/claude_mcp/prism_mcp'
+    scanner = CodeScanner('fastapi')
+
+    # Scan for Query( pattern
+    matches = scanner.scan_project(
+        project,
+        'Query(',
+        0.8,
+        filter_tests=True
+    )
+
+    print(f"✅ Found {len(matches)} matches (test files filtered)")
+
+    # Show first few matches
+    for match in matches[:3]:
+        rel_path = match.file_path.replace(project, '.')
+        print(f"\n  📄 {rel_path}:{match.line_number}")
+        print(f"     Confidence: {match.confidence}")
+        print(f"     {match.line_content[:70]}")
+
+    print()
+    return True
+
+
+def test_prism_integration():
+    """Test PRISM integration."""
+    print("=" * 80)
+    print("TEST 5: PRISM Integration (optional)")
+    print("=" * 80)
+
+    prism = PRISMClient('http://localhost:8090', 'prism_development_key_2024')
+
+    if prism.check_health():
+        print("✅ PRISM is available")
+
+        adrs = prism.get_tech_adrs('FastAPI', limit=3)
+        print(f"✅ Found {len(adrs)} ADRs")
+
+        for adr in adrs:
+            print(f"  - {adr.title[:60]}")
+
+        print()
+        return True
+    else:
+        print("⚠️  PRISM not available (skipping - optional feature)")
+        print()
+        return True  # Not a failure
+
+
+def test_full_pipeline():
+    """Test complete scanning pipeline."""
+    print("=" * 80)
+    print("TEST 6: Full Pipeline Integration")
+    print("=" * 80)
+
+    project = '/home/randy/repos/claude_mcp/prism_mcp'
+    tech = {
+        'name': 'FastAPI',
+        'github_owner': 'tiangolo',
+        'github_repo': 'fastapi',
+        'current_version': '0.100.0'
+    }
+
+    print(f"Scanning {tech['name']} in {project}")
+    print(f"Current version: {tech['current_version']}\n")
+
+    # Step 1: Fetch releases
+    client = GitHubClient()
+    releases = client.fetch_releases(
+        tech['github_owner'],
+        tech['github_repo'],
+        limit=30
+    )
+    print(f"Step 1: Fetched {len(releases)} releases")
+
+    # Step 2: Filter security releases
+    security = client.filter_security_releases(releases)
+    newer = [
+        r for r in security
+        if compare_versions(r.version, tech['current_version']) > 0
+    ]
+    print(f"Step 2: Found {len(newer)} newer security releases")
+
+    if not newer:
+        print("✅ No security updates - version is current\n")
+        return True
+
+    # Step 3: Extract patterns
+    extractor = PatternExtractor()
+    all_patterns = []
+    for release in newer[:5]:  # Top 5
+        patterns = extractor.extract_patterns(release.body, release.version)
+        all_patterns.extend(patterns)
+
+    unique_patterns = extractor.deduplicate_patterns(all_patterns)
+    print(f"Step 3: Extracted {len(unique_patterns)} unique patterns")
+
+    # Step 4: Scan code
+    scanner = CodeScanner(tech['name'])
+    all_matches = []
+
+    for pattern_str, pattern_obj in list(unique_patterns.items())[:3]:
+        matches = scanner.scan_project(
+            project,
+            pattern_str,
+            pattern_obj.confidence,
+            filter_tests=True
+        )
+        all_matches.extend(matches)
+
+    print(f"Step 4: Found {len(all_matches)} code matches")
+
+    # Step 5: PRISM integration
+    prism = PRISMClient()
+    if prism.check_health():
+        adrs = prism.get_tech_adrs(tech['name'], limit=3)
+        print(f"Step 5: Found {len(adrs)} related ADRs")
+    else:
+        print("Step 5: PRISM unavailable (skipped)")
+
+    print("\n✅ Full pipeline completed successfully\n")
+    return True
+
+
+def main():
+    """Run all tests."""
+    print("\n🔍 Tech Scanner End-to-End Tests\n")
+
+    tests = [
+        ("Version Comparison", test_version_comparison),
+        ("GitHub Client", test_github_client),
+        ("Pattern Extraction", test_pattern_extraction),
+        ("Code Scanner", test_code_scanner),
+        ("PRISM Integration", test_prism_integration),
+        ("Full Pipeline", test_full_pipeline),
+    ]
+
+    passed = 0
+    failed = 0
+
+    for name, test_func in tests:
+        try:
+            if test_func():
+                passed += 1
+            else:
+                failed += 1
+                print(f"❌ {name} FAILED\n")
+        except Exception as e:
+            failed += 1
+            print(f"❌ {name} FAILED: {e}\n")
+
+    print("=" * 80)
+    print("FINAL RESULTS")
+    print("=" * 80)
+    print(f"✅ Passed: {passed}/{len(tests)}")
+    print(f"❌ Failed: {failed}/{len(tests)}")
+
+    if failed == 0:
+        print("\n🎉 All tests passed! Scanner is ready to use.\n")
+        sys.exit(0)
+    else:
+        print(f"\n⚠️  {failed} test(s) failed. Fix before deploying.\n")
+        sys.exit(1)
+
+
+if __name__ == '__main__':
+    main()

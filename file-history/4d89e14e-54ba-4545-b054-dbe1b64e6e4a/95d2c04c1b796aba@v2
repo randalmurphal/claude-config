@@ -1,0 +1,136 @@
+"""
+PRISM HTTP client for tech scanner integration.
+
+Provides ADR linking and tech stack detection via PRISM API.
+"""
+
+import json
+import urllib.request
+import urllib.error
+from dataclasses import dataclass
+from typing import List, Optional, Dict
+
+
+@dataclass
+class ADR:
+    """Architecture Decision Record."""
+    title: str
+    file_path: str
+    content: str
+    confidence: float
+
+
+class PRISMClient:
+    """HTTP client for PRISM API."""
+
+    def __init__(
+        self,
+        base_url: str = 'http://localhost:8090',
+        api_key: str = 'prism_development_key_2024',
+        timeout: int = 5
+    ):
+        """
+        Initialize PRISM client.
+
+        Args:
+            base_url: PRISM API base URL
+            api_key: API key for authentication
+            timeout: Request timeout in seconds
+        """
+        self.base_url = base_url.rstrip('/')
+        self.api_key = api_key
+        self.timeout = timeout
+
+    def check_health(self) -> bool:
+        """
+        Check if PRISM is available.
+
+        Returns:
+            True if PRISM is healthy, False otherwise
+        """
+        try:
+            url = f'{self.base_url}/health'
+            req = urllib.request.Request(url)
+            req.add_header('Authorization', f'Bearer {self.api_key}')
+
+            with urllib.request.urlopen(req, timeout=self.timeout) as response:
+                return response.getcode() == 200
+
+        except Exception:
+            return False
+
+    def get_tech_adrs(
+        self,
+        tech_name: str,
+        limit: int = 5
+    ) -> List[ADR]:
+        """
+        Get ADRs related to a technology.
+
+        Args:
+            tech_name: Technology name (e.g., 'FastAPI', 'Django')
+            limit: Maximum number of ADRs to return
+
+        Returns:
+            List of related ADRs, or empty list if PRISM unavailable
+        """
+        if not self.check_health():
+            return []
+
+        try:
+            url = f'{self.base_url}/api/memories/retrieve'
+
+            data = json.dumps({
+                'query': f'{tech_name} architecture decision',
+                'tier': 'anchors',
+                'limit': limit,
+                'mode': 'fast'
+            }).encode('utf-8')
+
+            req = urllib.request.Request(
+                url,
+                data=data,
+                method='POST'
+            )
+            req.add_header('Content-Type', 'application/json')
+            req.add_header('Authorization', f'Bearer {self.api_key}')
+
+            with urllib.request.urlopen(req, timeout=self.timeout) as response:
+                result = json.loads(response.read())
+
+                adrs = []
+                for memory in result.get('memories', []):
+                    adrs.append(ADR(
+                        title=memory.get('content', '')[:100],
+                        file_path=memory.get('metadata', {}).get('file', ''),
+                        content=memory.get('content', ''),
+                        confidence=memory.get('confidence', 0.5)
+                    ))
+
+                return adrs
+
+        except Exception:
+            # PRISM unavailable - graceful degradation
+            return []
+
+    def get_tech_stack(self) -> Optional[Dict[str, str]]:
+        """
+        Get user's current tech stack from PRISM.
+
+        Returns:
+            Dictionary of {tech_name: version}, or None if unavailable
+        """
+        if not self.check_health():
+            return None
+
+        try:
+            url = f'{self.base_url}/api/tech_stack'
+            req = urllib.request.Request(url)
+            req.add_header('Authorization', f'Bearer {self.api_key}')
+
+            with urllib.request.urlopen(req, timeout=self.timeout) as response:
+                result = json.loads(response.read())
+                return result.get('tech_stack', {})
+
+        except Exception:
+            return None

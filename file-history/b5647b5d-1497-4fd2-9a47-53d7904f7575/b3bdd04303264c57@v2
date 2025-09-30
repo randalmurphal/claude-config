@@ -1,0 +1,26 @@
+"""Core JSON validation logic."""
+
+from pathlib import Path
+from typing import Tuple, Optional
+
+
+class ValidationError:
+    """Represents a JSON validation error."""
+
+    def __init__(self, filepath: Path, line: int, column: int, message: str):
+        self.filepath = filepath
+        self.line = line
+        self.column = column
+        self.message = message
+
+
+def validate_file(filepath: Path) -> Tuple[bool, Optional[ValidationError]]:
+    """Validate a single JSON file."""
+    # TODO: Implementation
+    return True, None
+
+
+def validate_directory(dirpath: Path) -> list[Tuple[Path, bool, Optional[ValidationError]]]:
+    """Validate all JSON files in a directory."""
+    # TODO: Implementation
+    return []

@@ -1,0 +1,170 @@
+# Task Queue System - In-Memory Implementation
+
+## Problem Statement
+Need a simple, reliable in-memory task queue system for background job processing. Current approach uses ad-hoc threading without proper task management, leading to lost tasks and no visibility into queue state.
+
+## User Impact
+- Tasks get lost when processes restart (no persistence, but acceptable for now)
+- No way to monitor queue depth or worker status
+- Can't prioritize urgent tasks
+- No retry mechanism for failed tasks
+
+## Mission
+Build a production-ready in-memory task queue with worker pool, priority support, retry logic, and monitoring capabilities. Focus on reliability and simplicity over advanced features.
+
+## Requirements (IMMUTABLE)
+
+### Core Functionality
+1. ✅ MUST support task enqueueing with priority (high/normal/low)
+2. ✅ MUST have configurable worker pool (1-10 workers)
+3. ✅ MUST retry failed tasks up to 3 times
+4. ✅ MUST track task state (pending/running/completed/failed)
+5. ✅ MUST be thread-safe for concurrent access
+
+### Monitoring
+6. ✅ MUST expose queue depth metrics
+7. ✅ MUST expose worker status (idle/busy)
+8. ✅ MUST log task execution (start/complete/fail)
+
+### Quality
+9. ✅ MUST have 90%+ test coverage
+10. ✅ MUST pass ruff linting
+11. ✅ MUST handle edge cases (empty queue, all workers busy, etc.)
+
+## Proposed Approach (EVOLVABLE)
+
+### Architecture
+**3 main components:**
+1. **TaskQueue** - Priority queue with thread-safe operations
+2. **Worker** - Thread-based task executor with retry logic
+3. **QueueManager** - Orchestrates workers, exposes metrics
+
+### Data Flow
+```
+Client → TaskQueue.enqueue() → Priority Queue
+       ↓
+Workers poll queue → execute task → update state
+       ↓
+QueueManager monitors → exposes metrics
+```
+
+### Technology
+- Python 3.10+ (threading, queue.PriorityQueue)
+- No external dependencies (stdlib only)
+- pytest for testing
+
+## Success Criteria
+
+### Functional
+- [ ] Can enqueue 100 tasks and process all successfully
+- [ ] Tasks execute in priority order (high before normal before low)
+- [ ] Failed tasks retry up to 3 times
+- [ ] Worker pool scales from 1-10 workers
+- [ ] Metrics accurately reflect queue state
+
+### Quality
+- [ ] 90%+ test coverage on all modules
+- [ ] All code passes ruff linting
+- [ ] Thread-safety verified with concurrent test
+- [ ] All edge cases covered (empty queue, failures, etc.)
+
+### Performance
+- [ ] Process 1000 tasks in <10 seconds (with 5 workers)
+- [ ] Queue operations complete in <1ms
+- [ ] Worker startup/shutdown in <100ms
+
+## Implementation Phases
+
+### Phase 1: Architecture (1 hour)
+- Design module structure
+- Define interfaces (Task, TaskQueue, Worker, QueueManager)
+- Document threading model
+
+### Phase 2: Skeleton (2 hours)
+- Create all files with class definitions
+- Define all public methods (signatures only)
+- Add type hints throughout
+- Validate imports work
+
+### Phase 3: Implementation (4 hours)
+- Implement TaskQueue with PriorityQueue
+- Implement Worker with retry logic
+- Implement QueueManager with worker pool
+- Add logging and metrics
+
+### Phase 4: Testing (3 hours)
+- Unit tests for TaskQueue
+- Unit tests for Worker
+- Unit tests for QueueManager
+- Integration test for full workflow
+- Concurrent access test (thread-safety)
+
+## Known Gotchas
+
+### Threading Issues
+- PriorityQueue needs proper tuple format: (priority, counter, task)
+- Workers need daemon=False to finish tasks on shutdown
+- Need Event for graceful worker shutdown
+- Queue.get() needs timeout to avoid blocking forever
+
+### Testing Challenges
+- Need to test async behavior (use time.sleep with short intervals)
+- Mock time-based operations for speed
+- Use threading.Event to synchronize test assertions
+- Pytest needs thread-safe assertions
+
+### Python Specifics
+- Can't compare tasks directly in PriorityQueue (need counter)
+- Thread-local storage for worker IDs
+- Proper exception handling in threads (or they fail silently)
+
+## Quality Requirements
+
+### Testing
+- 90%+ coverage on all modules
+- Unit tests for each class
+- Integration test for full workflow
+- Thread-safety test with 10 concurrent clients
+
+### Code Quality
+- Pass ruff linting with default config
+- Type hints on all functions
+- Docstrings in Google style
+- No print statements (use logging)
+
+### Error Handling
+- All exceptions caught and logged
+- Tasks that fail 3 times marked as "failed" (not retried forever)
+- Worker failures don't crash the system
+- Queue overflow protection (max 10000 tasks)
+
+## Files to Create
+
+### Core Modules
+- `task_queue/task.py` (~50 lines) - Task dataclass
+- `task_queue/queue.py` (~150 lines) - TaskQueue with PriorityQueue
+- `task_queue/worker.py` (~200 lines) - Worker thread with retry logic
+- `task_queue/manager.py` (~250 lines) - QueueManager orchestration
+- `task_queue/__init__.py` (~20 lines) - Public API exports
+
+### Tests
+- `tests/test_task.py` (~100 lines)
+- `tests/test_queue.py` (~200 lines)
+- `tests/test_worker.py` (~250 lines)
+- `tests/test_manager.py` (~300 lines)
+- `tests/test_integration.py` (~150 lines)
+
+### Config
+- `pyproject.toml` (~30 lines) - Project metadata, ruff config
+- `pytest.ini` (~10 lines) - Pytest configuration
+
+## Files to Modify
+None (new project)
+
+## Evolution Log
+- 2025-09-29: Initial specification created for orchestration system test
+
+---
+
+**Estimated completion: 10 hours**
+**Complexity: Medium (4-10 files, multiple modules)**

@@ -1,0 +1,264 @@
+# PRISM MCP - Intelligent AI Memory System
+
+**P**attern **R**ecognition and **I**ntelligent **S**ystem **M**emory
+
+AI memory system that learns YOUR patterns, preferences, and code conventions through corrections and codebase indexing.
+
+## What It Does
+
+- **Learns YOUR patterns** - Indexes your actual codebases (not generic public patterns)
+- **Remembers corrections** - When you fix Claude's mistakes, PRISM learns from them
+- **Tracks preferences** - Your coding style, conventions, and architectural choices
+- **Retrieves intelligently** - 6-stage pipeline: semantic → graph → context → temporal → diversity → scoring
+- **Manages memory tiers** - Promotes frequently accessed patterns to faster storage
+- **Integrates with Claude Code** - Seamless MCP protocol integration
+
+## Why PRISM Over Generic Patterns
+
+Claude already trained on millions of lines of public code (Django, Flask, FastAPI, etc.). Loading generic patterns from public repos teaches Claude what it already knows.
+
+**PRISM's real value:**
+- YOUR private codebases (conventions Claude never saw)
+- YOUR corrections (stop making the same mistakes)
+- YOUR preferences (style choices that aren't in training data)
+
+## Quick Start
+
+### Prerequisites
+
+- **Python 3.10+** with pip
+- **nerdctl & containerd** (container runtime)
+- **8GB+ RAM** (16GB recommended)
+- **10GB disk space** for databases
+- **GPU optional**: Zero GPU required with API mode (Tier 0)
+
+### Tier Options
+
+**Tier 0 (PREMIUM_API)** - Recommended
+- Zero GPU memory required
+- SOTA embedding quality (Voyage AI)
+- ~200M free tokens (~2+ years of use)
+- Best for: Laptops, systems without GPU
+
+**Tier 1 (FULL)** - Local processing
+- Requires 24GB VRAM
+- E5-Mistral + StarCoder2 + BGE-Reranker
+- Best for: Privacy-critical environments
+
+### Installation (Tier 0 - API Mode)
+
+```bash
+# 1. Install Python packages
+pip install -r requirements.txt
+
+# 2. Get API keys (free tiers)
+# Voyage AI: https://www.voyageai.com/ (200M tokens free)
+# Jina AI: https://jina.ai/ (10M tokens free)
+export VOYAGE_API_KEY="your-key-here"
+export JINA_API_KEY="your-key-here"
+
+# 3. Start database containers
+nerdctl run -d --name prism-neo4j --network host \
+  -e NEO4J_AUTH=neo4j/prism_neo4j_2024 \
+  -e NEO4J_PLUGINS='["graph-data-science"]' \
+  neo4j:5.13-community
+
+nerdctl run -d --name prism-qdrant --network host \
+  qdrant/qdrant:v1.7.4
+
+nerdctl run -d --name prism-redis --network host \
+  redis:8-alpine redis-server --port 6379
+
+# 4. Configure Tier 0 (API mode)
+# Edit config/config.yaml:
+#   models:
+#     manual_tier: 0  # Tier 0 = API mode
+#     api_providers:
+#       voyage:
+#         enabled: true
+#       jina:
+#         enabled: true
+
+# 5. Start API server (no model loading!)
+VOYAGE_API_KEY="your-key" JINA_API_KEY="your-key" \
+  python -m prism_mcp.interfaces.http_api --port 8090
+```
+
+### Verify Setup
+
+```bash
+# Check system health
+curl http://localhost:8090/health
+
+# Should show: "tier": "Premium API"
+curl -H "Authorization: Bearer prism_development_key_2024" \
+  http://localhost:8090/api/health/detailed
+```
+
+## Configuration
+
+Key settings in `config/config.yaml`:
+
+```yaml
+# Database connections
+database:
+  neo4j_uri: "bolt://localhost:7688"  # Note: port 7688 (container mapping)
+  neo4j_password: "prism_neo4j_2024"
+  qdrant_url: "http://localhost:6333"
+  redis_url: "redis://localhost:6379"
+
+# Model tier
+models:
+  tier_strategy: "manual"
+  manual_tier: 0  # 0=API (no GPU), 1=Full (24GB), 2=Dual (16GB), 3=Single (8GB)
+
+  api_providers:
+    voyage:
+      enabled: true
+      code_model: "voyage-code-3"
+      general_model: "voyage-3-large"
+    jina:
+      enabled: true
+      reranker_model: "jina-reranker-v2-base-multilingual"
+
+# API authentication
+api:
+  api_key: "prism_development_key_2024"
+```
+
+## Usage
+
+### Add to Claude Code MCP Config
+
+Edit `~/.config/claude/mcp_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "prism": {
+      "command": "python",
+      "args": ["-m", "prism_mcp.interfaces.mcp_server"],
+      "cwd": "/path/to/prism_mcp",
+      "env": {
+        "VOYAGE_API_KEY": "your-key-here",
+        "JINA_API_KEY": "your-key-here"
+      }
+    }
+  }
+}
+```
+
+### Index Your Codebase
+
+```bash
+# Index your actual project
+python -m prism_mcp.core.index_manager /path/to/your/project
+
+# This creates patterns from YOUR code, not generic public repos
+```
+
+### Use in Claude Code
+
+PRISM tools available in Claude Code:
+- `prism_detect_patterns` - Find patterns in your code
+- `prism_store_memory` - Save important findings
+- `prism_retrieve_memories` - Recall past learnings
+- `prism_query_context` - Get context-aware suggestions
+
+### Learning from Corrections
+
+When Claude makes a mistake and you correct it, tell PRISM:
+
+```
+"Remember: In our codebase, we always use explicit error handling, not try/except pass"
+```
+
+PRISM stores this preference and Claude won't make that mistake again.
+
+## Architecture
+
+### 6-Stage Retrieval Pipeline
+1. **Semantic** - Vector similarity search (Voyage embeddings)
+2. **Graph** - PageRank + BFS expansion in Neo4j
+3. **Context** - Filter by role/task/project/branch
+4. **Temporal** - Boost recent + git commit recency
+5. **Diversity** - MMR + Louvain clustering (avoid redundancy)
+6. **Scoring** - Weighted: semantic(40%) + graph(30%) + temporal(20%) + utility(10%)
+
+### 4-Tier Memory System
+- **ANCHORS** - High-frustration corrections (never expires)
+- **LONGTERM** - Frequently accessed patterns (≥5 accesses)
+- **EPISODIC** - Recent discoveries (promotes from WORKING)
+- **WORKING** - Current session (72h TTL)
+
+### Storage
+- **Qdrant** - Vector embeddings (1024d with Voyage)
+- **Neo4j** - Graph relationships and memory tiers
+- **Redis** - Session cache (24h TTL)
+
+## API Endpoints
+
+Base URL: `http://localhost:8090`
+
+**Authentication**: Add header `Authorization: Bearer prism_development_key_2024`
+
+Key endpoints:
+- `GET /health` - Basic health check
+- `GET /api/health/detailed` - Full system status
+- `POST /api/patterns/detect` - Detect patterns in code
+- `POST /api/memories/store` - Store new memory
+- `POST /api/memories/retrieve` - Retrieve memories
+- `GET /api/preferences` - List learned preferences
+
+## Troubleshooting
+
+### Databases not connecting
+```bash
+# Check containers are running
+nerdctl ps | grep prism
+
+# Check Neo4j is on correct port (7688, not 7687)
+curl http://localhost:7474
+```
+
+### API server won't start
+```bash
+# Check environment variables
+echo $VOYAGE_API_KEY
+echo $JINA_API_KEY
+
+# Verify config.yaml has manual_tier: 0
+grep "manual_tier" config/config.yaml
+```
+
+### Out of API tokens
+```bash
+# Check usage via API
+curl -H "Authorization: Bearer prism_development_key_2024" \
+  http://localhost:8090/api/usage
+```
+
+Voyage free tier: 200M tokens (2+ years of heavy use)
+Jina free tier: 10M tokens
+
+## Development
+
+### System Architecture
+- Core: `prism_mcp/core/` - Orchestrator, memory engine, retrieval
+- Models: `prism_mcp/models/` - Embedders (API + local), tier detection
+- Storage: `prism_mcp/storage/` - Qdrant, Neo4j, Redis managers
+- Interfaces: `prism_mcp/interfaces/` - HTTP API, MCP server
+
+### Running Tests
+```bash
+pytest tests/
+```
+
+### Documentation
+- For AI agents: `CLAUDE.md` (technical architecture)
+- For users: This file
+- For developers: `docs/IMPLEMENTATION_NOTES.md`
+
+## License
+
+MIT License - see LICENSE file

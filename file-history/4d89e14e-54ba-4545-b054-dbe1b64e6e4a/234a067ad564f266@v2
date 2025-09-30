@@ -1,0 +1,295 @@
+"""
+Code scanner with import analysis for accurate pattern matching.
+
+Scans Python codebases for patterns while filtering false positives
+using import analysis and test file detection.
+"""
+
+import ast
+from dataclasses import dataclass
+from pathlib import Path
+from typing import List, Set, Dict, Tuple, Optional
+
+
+@dataclass
+class Match:
+    """Code pattern match."""
+    file_path: str
+    line_number: int
+    line_content: str
+    pattern: str
+    confidence: float
+    is_test_file: bool
+
+
+class ImportAnalyzer:
+    """Analyze imports in Python files."""
+
+    def __init__(self):
+        """Initialize import analyzer."""
+        self._cache: Dict[str, Dict] = {}
+
+    def analyze_imports(self, file_path: str) -> Optional[Dict]:
+        """
+        Extract all imports from a Python file.
+
+        Args:
+            file_path: Path to Python file
+
+        Returns:
+            Dictionary with 'modules' and 'from_imports', or None if parse fails
+        """
+        if file_path in self._cache:
+            return self._cache[file_path]
+
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            tree = ast.parse(content, filename=file_path)
+            imports = {
+                'modules': set(),
+                'from_imports': {}
+            }
+
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        imports['modules'].add(alias.name)
+
+                elif isinstance(node, ast.ImportFrom):
+                    module = node.module or ''
+                    if module not in imports['from_imports']:
+                        imports['from_imports'][module] = set()
+
+                    for alias in node.names:
+                        imports['from_imports'][module].add(alias.name)
+
+            self._cache[file_path] = imports
+            return imports
+
+        except Exception:
+            return None
+
+
+class TestFileFilter:
+    """Filter test files from scan results."""
+
+    def __init__(self):
+        """Initialize test file filter."""
+        self.test_frameworks = {'pytest', 'unittest', 'mock', 'testtools'}
+        self.test_path_patterns = ['/test/', '/tests/', '\\test\\', '\\tests\\']
+        self.test_name_patterns = ['test_', '_test.py']
+
+    def is_test_file(
+        self,
+        file_path: str,
+        imports: Optional[Dict] = None
+    ) -> Tuple[bool, str]:
+        """
+        Check if file is a test file.
+
+        Args:
+            file_path: Path to file
+            imports: Optional import data (avoids re-parsing)
+
+        Returns:
+            (is_test, reason)
+        """
+        path_lower = file_path.lower()
+
+        # Check path patterns
+        if any(pattern in path_lower for pattern in self.test_path_patterns):
+            return True, 'In test directory'
+
+        # Check filename patterns
+        basename = Path(file_path).name.lower()
+        if basename.startswith('test_'):
+            return True, 'Test filename pattern'
+        if basename.endswith('_test.py'):
+            return True, 'Test filename pattern'
+
+        # Check imports for test frameworks
+        if imports:
+            for module in imports.get('modules', set()):
+                if any(fw in module.lower() for fw in self.test_frameworks):
+                    return True, f'Imports test framework: {module}'
+
+            for module in imports.get('from_imports', {}).keys():
+                if any(fw in module.lower() for fw in self.test_frameworks):
+                    return True, f'Imports from test framework: {module}'
+
+        return False, 'Not a test file'
+
+
+class CodeScanner:
+    """
+    Scan codebase for patterns with smart filtering.
+
+    Uses import analysis to reduce false positives and filters test files.
+    """
+
+    def __init__(self, tech_name: str):
+        """
+        Initialize code scanner.
+
+        Args:
+            tech_name: Technology being scanned (e.g., 'fastapi', 'django')
+        """
+        self.tech_name = tech_name.lower()
+        self.import_analyzer = ImportAnalyzer()
+        self.test_filter = TestFileFilter()
+
+    def scan_project(
+        self,
+        project_path: str,
+        pattern: str,
+        pattern_confidence: float,
+        filter_tests: bool = True
+    ) -> List[Match]:
+        """
+        Scan project for pattern occurrences.
+
+        Args:
+            project_path: Root path of project to scan
+            pattern: Pattern to search for (e.g., 'Query(')
+            pattern_confidence: Confidence score for this pattern
+            filter_tests: Whether to filter out test files
+
+        Returns:
+            List of matches
+        """
+        matches = []
+        project_root = Path(project_path)
+
+        if not project_root.exists():
+            raise RuntimeError(
+                f'Project path does not exist: {project_path}\n'
+                f'Fix: Check path and try again'
+            )
+
+        # Scan all Python files
+        for py_file in project_root.rglob('*.py'):
+            file_matches = self._scan_file(
+                str(py_file),
+                pattern,
+                pattern_confidence,
+                filter_tests
+            )
+            matches.extend(file_matches)
+
+        return matches
+
+    def _scan_file(
+        self,
+        file_path: str,
+        pattern: str,
+        pattern_confidence: float,
+        filter_tests: bool
+    ) -> List[Match]:
+        """Scan single file for pattern."""
+        matches = []
+
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+
+            # Analyze imports once
+            imports = self.import_analyzer.analyze_imports(file_path)
+
+            # Check if test file
+            is_test, test_reason = self.test_filter.is_test_file(file_path, imports)
+
+            if filter_tests and is_test:
+                return matches
+
+            # Search for pattern in each line
+            for line_num, line in enumerate(lines, 1):
+                if pattern in line:
+                    # Apply import-based filtering
+                    should_include, confidence = self._check_pattern_validity(
+                        line,
+                        pattern,
+                        pattern_confidence,
+                        imports
+                    )
+
+                    if should_include:
+                        matches.append(Match(
+                            file_path=file_path,
+                            line_number=line_num,
+                            line_content=line.strip(),
+                            pattern=pattern,
+                            confidence=confidence,
+                            is_test_file=is_test
+                        ))
+
+        except Exception:
+            # Skip files that can't be read
+            pass
+
+        return matches
+
+    def _check_pattern_validity(
+        self,
+        line: str,
+        pattern: str,
+        base_confidence: float,
+        imports: Optional[Dict]
+    ) -> Tuple[bool, float]:
+        """
+        Check if pattern match is valid for this technology.
+
+        Uses import analysis to filter false positives.
+
+        Args:
+            line: Line of code containing pattern
+            pattern: Pattern being searched
+            base_confidence: Base confidence score
+            imports: Import data for file
+
+        Returns:
+            (should_include, adjusted_confidence)
+        """
+        if not imports:
+            # Can't analyze - include with lower confidence
+            return True, base_confidence * 0.7
+
+        # Extract function name from pattern (e.g., 'Query(' -> 'Query')
+        func_name = pattern.rstrip('(').strip()
+
+        # Check 1: Is it a qualified call? (e.g., tree_sitter.Query)
+        if f'.{func_name}' in line or f'_{func_name}' in line:
+            # This is module.Function() or some_other_Function()
+            # Check if it's explicitly NOT our tech
+            non_tech_qualifiers = ['tree_sitter.', 'os.', 'sys.', 're.']
+            if any(qual in line for qual in non_tech_qualifiers):
+                return False, 0.0
+
+        # Check 2: Is function imported from our tech?
+        tech_imports = imports.get('from_imports', {})
+
+        has_tech_import = False
+        for module, names in tech_imports.items():
+            if self.tech_name in module.lower():
+                if func_name in names or '*' in names:
+                    has_tech_import = True
+                    break
+
+        # Check 3: Is our tech's module imported?
+        tech_module_imported = any(
+            self.tech_name in mod.lower()
+            for mod in imports.get('modules', set())
+        )
+
+        # Decision logic
+        if has_tech_import:
+            # Definitely imported from our tech
+            return True, base_confidence
+
+        if not tech_module_imported and not has_tech_import:
+            # Tech not imported at all - likely false positive
+            return False, 0.0
+
+        # Ambiguous - include with lower confidence
+        return True, base_confidence * 0.6

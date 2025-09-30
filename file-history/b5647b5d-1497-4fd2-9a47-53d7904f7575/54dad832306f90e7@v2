@@ -1,0 +1,253 @@
+"""
+Dependency graph manager for task orchestration.
+
+Manages task dependencies and execution order using Neo4j graph database.
+"""
+
+from typing import List, Dict, Any, Optional
+from neo4j import GraphDatabase
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+class DependencyManager:
+    """
+    Manages task dependencies and execution order.
+
+    Capabilities:
+    - Extract dependencies from architecture spec
+    - Store as graph in Neo4j
+    - Query for ready tasks (deps satisfied)
+    - Query for blocked tasks
+    - Update graph as tasks complete
+    """
+
+    def __init__(self, neo4j_uri: str, neo4j_user: str, neo4j_password: str):
+        """
+        Initialize dependency manager.
+
+        Args:
+            neo4j_uri: Neo4j connection URI
+            neo4j_user: Neo4j username
+            neo4j_password: Neo4j password
+        """
+        self.driver = GraphDatabase.driver(
+            neo4j_uri, auth=(neo4j_user, neo4j_password)
+        )
+
+    def close(self):
+        """Close Neo4j connection."""
+        self.driver.close()
+
+    def store_dependency_graph(
+        self, task_id: str, dependencies: Dict[str, List[str]]
+    ) -> None:
+        """
+        Store dependency graph in Neo4j.
+
+        Args:
+            task_id: Orchestration task ID
+            dependencies: Dict mapping component to its dependencies
+        """
+        with self.driver.session() as session:
+            # Create nodes for each component
+            for component in dependencies.keys():
+                session.run(
+                    """
+                    MERGE (c:Component {name: $component, task_id: $task_id})
+                    SET c.status = 'pending'
+                    """,
+                    component=component,
+                    task_id=task_id,
+                )
+
+            # Create dependency relationships
+            for component, deps in dependencies.items():
+                for dep in deps:
+                    session.run(
+                        """
+                        MATCH (c:Component {name: $component, task_id: $task_id})
+                        MATCH (d:Component {name: $dep, task_id: $task_id})
+                        MERGE (c)-[:DEPENDS_ON]->(d)
+                        """,
+                        component=component,
+                        dep=dep,
+                        task_id=task_id,
+                    )
+
+        logger.info(
+            f"Stored dependency graph for task {task_id} with {len(dependencies)} components"
+        )
+
+    def get_ready_tasks(self, task_id: str) -> List[str]:
+        """
+        Get tasks that are ready to execute (all deps satisfied).
+
+        Args:
+            task_id: Orchestration task ID
+
+        Returns:
+            List of component names ready for execution
+        """
+        with self.driver.session() as session:
+            result = session.run(
+                """
+                MATCH (c:Component {task_id: $task_id, status: 'pending'})
+                WHERE NOT EXISTS {
+                    MATCH (c)-[:DEPENDS_ON]->(d:Component)
+                    WHERE d.status <> 'completed'
+                }
+                RETURN c.name AS name
+                """,
+                task_id=task_id,
+            )
+            return [record["name"] for record in result]
+
+    def get_blocked_tasks(self, task_id: str) -> List[Dict[str, Any]]:
+        """
+        Get tasks that are blocked by dependencies.
+
+        Args:
+            task_id: Orchestration task ID
+
+        Returns:
+            List of dicts with component name and blocking dependencies
+        """
+        with self.driver.session() as session:
+            result = session.run(
+                """
+                MATCH (c:Component {task_id: $task_id, status: 'pending'})
+                MATCH (c)-[:DEPENDS_ON]->(d:Component)
+                WHERE d.status <> 'completed'
+                RETURN c.name AS component, collect(d.name) AS blocked_by
+                """,
+                task_id=task_id,
+            )
+            return [
+                {"component": record["component"], "blocked_by": record["blocked_by"]}
+                for record in result
+            ]
+
+    def mark_task_complete(self, task_id: str, component: str) -> None:
+        """
+        Mark a task as complete, unblocking dependent tasks.
+
+        Args:
+            task_id: Orchestration task ID
+            component: Component name to mark complete
+        """
+        with self.driver.session() as session:
+            session.run(
+                """
+                MATCH (c:Component {name: $component, task_id: $task_id})
+                SET c.status = 'completed'
+                """,
+                component=component,
+                task_id=task_id,
+            )
+
+        logger.info(f"Marked {component} as complete for task {task_id}")
+
+        # Check what tasks are now unblocked
+        ready = self.get_ready_tasks(task_id)
+        if ready:
+            logger.info(f"Tasks now ready: {ready}")
+
+    def mark_task_in_progress(self, task_id: str, component: str) -> None:
+        """
+        Mark a task as in progress.
+
+        Args:
+            task_id: Orchestration task ID
+            component: Component name to mark in progress
+        """
+        with self.driver.session() as session:
+            session.run(
+                """
+                MATCH (c:Component {name: $component, task_id: $task_id})
+                SET c.status = 'in_progress'
+                """,
+                component=component,
+                task_id=task_id,
+            )
+
+        logger.info(f"Marked {component} as in progress for task {task_id}")
+
+    def has_circular_dependencies(self, task_id: str) -> bool:
+        """
+        Check for circular dependencies in the graph.
+
+        Args:
+            task_id: Orchestration task ID
+
+        Returns:
+            True if circular dependencies exist, False otherwise
+        """
+        with self.driver.session() as session:
+            result = session.run(
+                """
+                MATCH path = (c:Component {task_id: $task_id})-[:DEPENDS_ON*]->(c)
+                RETURN count(path) AS cycles
+                """,
+                task_id=task_id,
+            )
+            record = result.single()
+            return record["cycles"] > 0 if record else False
+
+    def get_dependency_graph(self, task_id: str) -> Dict[str, Any]:
+        """
+        Get the full dependency graph for visualization.
+
+        Args:
+            task_id: Orchestration task ID
+
+        Returns:
+            Dict with nodes and edges
+        """
+        with self.driver.session() as session:
+            # Get all components
+            nodes_result = session.run(
+                """
+                MATCH (c:Component {task_id: $task_id})
+                RETURN c.name AS name, c.status AS status
+                """,
+                task_id=task_id,
+            )
+            nodes = [
+                {"name": record["name"], "status": record["status"]}
+                for record in nodes_result
+            ]
+
+            # Get all dependencies
+            edges_result = session.run(
+                """
+                MATCH (c:Component {task_id: $task_id})-[:DEPENDS_ON]->(d:Component)
+                RETURN c.name AS from, d.name AS to
+                """,
+                task_id=task_id,
+            )
+            edges = [
+                {"from": record["from"], "to": record["to"]}
+                for record in edges_result
+            ]
+
+            return {"nodes": nodes, "edges": edges}
+
+    def clear_task_graph(self, task_id: str) -> None:
+        """
+        Clear all dependency data for a task.
+
+        Args:
+            task_id: Orchestration task ID
+        """
+        with self.driver.session() as session:
+            session.run(
+                """
+                MATCH (c:Component {task_id: $task_id})
+                DETACH DELETE c
+                """,
+                task_id=task_id,
+            )
+
+        logger.info(f"Cleared dependency graph for task {task_id}")

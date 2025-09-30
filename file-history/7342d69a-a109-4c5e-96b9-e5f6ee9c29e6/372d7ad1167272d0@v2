@@ -1,0 +1,49 @@
+"""Worker thread for executing tasks from queue."""
+
+import logging
+import threading
+from typing import Optional
+
+from task_queue.queue import TaskQueue
+from task_queue.task import Task, TaskState
+
+
+logger = logging.getLogger(__name__)
+
+
+class Worker(threading.Thread):
+    """Worker thread that processes tasks from the queue."""
+
+    def __init__(
+        self,
+        worker_id: int,
+        task_queue: TaskQueue,
+        stop_event: threading.Event,
+    ) -> None:
+        """Initialize the worker."""
+        super().__init__(daemon=False)
+        self.worker_id = worker_id
+        self.task_queue = task_queue
+        self.stop_event = stop_event
+        self.current_task: Optional[Task] = None
+        self.is_busy = False
+
+    def run(self) -> None:
+        """Main worker loop - polls queue and executes tasks."""
+        pass
+
+    def _execute_task(self, task: Task) -> None:
+        """Execute a task with retry logic."""
+        pass
+
+    def _handle_task_failure(self, task: Task, error: Exception) -> None:
+        """Handle task execution failure."""
+        pass
+
+    def stop(self) -> None:
+        """Signal worker to stop gracefully."""
+        pass
+
+    def get_status(self) -> dict[str, any]:
+        """Return worker status."""
+        pass

@@ -1,0 +1,924 @@
+"""
+Minimal orchestrator for coordinating PRISM services.
+
+Single coordination point - NO complex layers.
+Direct service calls - NO unnecessary abstractions.
+"""
+
+import logging
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional
+
+from prism_mcp.core.drift_detector import DriftDetector
+from prism_mcp.core.learning_engine import LearningEngine
+from prism_mcp.core.pattern_engine import PatternEngine
+from prism_mcp.core.pattern_evolution_engine import PatternEvolutionEngine
+from prism_mcp.core.pattern_feedback import get_feedback_system
+from prism_mcp.core.prism_engine import MemoryTier, PrismEngine
+from prism_mcp.core.session_coordinator import SessionCoordinator
+from prism_mcp.core.session_state_manager import SessionStateManager
+from prism_mcp.core.threshold_manager import ThresholdManager
+from prism_mcp.models.embedder import get_embedder
+from prism_mcp.storage.neo4j_manager import (
+    GraphNode,
+    GraphRelationship,
+    Neo4jManager,
+)
+from prism_mcp.storage.qdrant_manager import QdrantManager, VectorPoint
+from prism_mcp.storage.redis_cache import RedisCache
+from prism_mcp.utils.config import get_config
+
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class AnalysisRequest:
+    """Request for code analysis."""
+
+    code: str
+    language: str = 'python'
+    instruction: Optional[str] = None
+    project_id: Optional[str] = None
+    branch: Optional[str] = None
+
+
+@dataclass
+class AnalysisResult:
+    """Result of code analysis."""
+
+    patterns_detected: List[Dict[str, Any]]
+    drift_score: Optional[float]
+    suggestions: List[str]
+    confidence_scores: Dict[str, float]
+
+
+class Orchestrator:
+    """
+    Minimal orchestrator for PRISM services.
+
+    Single responsibility: Coordinate services for requests.
+    NO complex business logic - just routing and coordination.
+    """
+
+    def __init__(self):
+        """
+        Initialize orchestrator and all services.
+
+        Raises:
+            RuntimeError: If configuration missing or services fail to initialize
+        """
+        _ = get_config()  # Verify config loaded
+
+        # Initialize core services
+        logger.info('Initializing PRISM orchestrator...')
+
+        # Storage managers FIRST (needed for threshold loading)
+        self.qdrant = QdrantManager()
+        self.neo4j = Neo4jManager()
+        self.redis = RedisCache()
+
+        # Threshold manager - loads learned thresholds
+        self.threshold_manager = ThresholdManager()
+
+        # Embedder (singleton)
+        self.embedder = get_embedder()
+
+        # Initialize feedback system for pattern evolution
+        self.feedback_system = get_feedback_system()
+
+        # Get current project from config if available
+        self.current_project = None  # Will be set per request
+
+        # Pattern detection - requires threshold manager, qdrant, and project context
+        self.pattern_engine = PatternEngine(
+            threshold_manager=self.threshold_manager,
+            qdrant_manager=self.qdrant,
+            project_id=self.current_project,
+        )
+
+        # Learning system with pattern engine
+        self.learning_engine = LearningEngine(
+            pattern_engine=self.pattern_engine
+        )
+
+        # Drift detection - requires threshold manager
+        self.drift_detector = DriftDetector(
+            threshold_manager=self.threshold_manager
+        )
+
+        # Memory engine with tiering (uses databases directly)
+        self.memory_engine = PrismEngine()
+
+        # Session state management
+        self.session_manager = SessionStateManager()
+
+        # Session coordinator for session lifecycle and memory promotion
+        self.session_coordinator = SessionCoordinator(
+            session_manager=self.session_manager,
+            memory_engine=self.memory_engine,
+        )
+
+        # Pattern evolution engine for background evolution
+        self.pattern_evolution = PatternEvolutionEngine(
+            qdrant=self.qdrant, neo4j=self.neo4j
+        )
+
+        # Ensure collections exist
+        self._ensure_storage_initialized()
+
+        # Start background evolution loop
+        self.pattern_evolution.start()
+
+        logger.info('PRISM orchestrator initialized with background evolution')
+
+    def _ensure_storage_initialized(self):
+        """Ensure all storage systems are properly initialized."""
+        # Ensure Qdrant collections
+        self.qdrant.ensure_collection('code_patterns')
+        self.qdrant.ensure_collection('memories')
+        self.qdrant.ensure_collection('instructions')
+        self.qdrant.ensure_collection('learned_thresholds')
+
+        logger.info('Storage systems initialized')
+
+    def warm_up(self):
+        """
+        Warm up all services for fast runtime performance.
+
+        Should be called on server startup.
+
+        Returns:
+            Dict with warm-up statistics
+        """
+        logger.info('Warming up PRISM services...')
+
+        # Warm up embedder (loads model into memory)
+        embedder_time = self.embedder.warm_up()
+
+        return {'embedder_load_time': embedder_time, 'status': 'ready'}
+
+    def analyze_code(self, request: AnalysisRequest) -> AnalysisResult:
+        """
+        Analyze code for patterns and quality issues.
+
+        Args:
+            request: Analysis request
+
+        Returns:
+            Analysis results
+        """
+        # Check cache first
+        cache_key = f'analysis:{hash(request.code)}'
+        cached = self.redis.get(cache_key)
+        if cached:
+            logger.info('Returning cached analysis')
+            return AnalysisResult(**cached)
+
+        # Update project context for pattern engine if provided
+        if request.project_id:
+            self.pattern_engine.project_id = request.project_id
+
+        # Detect patterns
+        pattern_results = self.pattern_engine.detect_patterns(
+            request.code, request.language
+        )
+
+        # Track pattern detections in feedback system
+        # Note: This is automatic detection, not user validation
+        # Real validation happens through the HTTP API endpoints
+        # Generate deterministic session ID (same code always produces same ID)
+        code_hash = hash(request.code)
+        session_id = self._generate_session_id(
+            request.project_id, request.branch, code_hash
+        )
+
+        # Start session tracking if new session
+        self.session_coordinator.ensure_session_tracked(
+            session_id, request.project_id, request.branch
+        )
+
+        # Track detected patterns in WORKING memory
+        for pattern in pattern_results['combined_results']:
+            # NO DEFAULTS: patterns MUST have confidence, crash if missing
+            confidence = pattern.get('confidence')
+            if confidence is None:
+                raise ValueError(
+                    f"Pattern {pattern.get('pattern_id', 'unknown')} missing required 'confidence' field"
+                )
+
+            if confidence > 0.5:  # Only track high-confidence detections
+                # Record detection (neutral - not accepted/rejected yet)
+                # FAIL LOUD - feedback tracking is critical
+                self.feedback_system.on_pattern_detected(
+                    pattern_id=pattern['pattern_id'],
+                    confidence=confidence,
+                    accepted=True,  # Automatic detection assumes acceptance initially
+                    session_id=session_id,
+                    project_id=request.project_id,
+                )
+
+                # Add pattern to WORKING memory for this session
+                self.session_coordinator.add_pattern_to_working_memory(
+                    pattern=pattern,
+                    session_id=session_id,
+                    project_id=request.project_id,
+                    branch=request.branch,
+                )
+
+        # Check drift if instruction provided
+        drift_score = None
+        if request.instruction:
+            # Track instruction if not already tracked
+            # Reuse session_id generated earlier (already deterministic)
+            if session_id not in self.drift_detector.active_sessions:
+                self.drift_detector.track_instruction(
+                    session_id=session_id,
+                    instruction=request.instruction,
+                    project_id=request.project_id,
+                    branch=request.branch,
+                )
+
+            # Check drift against tracked instruction
+            drift_score = self.drift_detector.check_drift(
+                session_id=session_id, code=request.code
+            )
+
+        # Generate suggestions based on patterns
+        suggestions = self._generate_suggestions(pattern_results)
+
+        # Create result
+        result = AnalysisResult(
+            patterns_detected=pattern_results['combined_results'],
+            drift_score=drift_score,
+            suggestions=suggestions,
+            confidence_scores=pattern_results['confidence_scores'],
+        )
+
+        # Cache result
+        self.redis.set(cache_key, result.__dict__, ttl_seconds=300)
+
+        # Store analysis in graph for relationships
+        if request.project_id:
+            self._store_analysis_in_graph(request, result)
+
+        return result
+
+    def learn_from_correction(
+        self,
+        before_code: str,
+        after_code: str,
+        instruction: Optional[str] = None,
+        project_id: Optional[str] = None,
+        branch: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Learn from a code correction.
+
+        Args:
+            before_code: Code before correction
+            after_code: Code after correction
+            instruction: Original instruction
+            project_id: Project identifier
+            branch: Git branch
+
+        Returns:
+            Learning results
+        """
+        # Use learning engine
+        correction = self.learning_engine.learn_from_correction(
+            before_code=before_code,
+            after_code=after_code,
+            instruction=instruction,
+            project_id=project_id,
+            branch=branch,
+        )
+
+        # Store learned patterns in vector DB
+        for pattern_id in correction.patterns_removed:
+            self._store_pattern_in_qdrant(
+                pattern_id,
+                correction.before_embedding,
+                {'type': 'anti_pattern', 'project': project_id},
+            )
+
+        for pattern_id in correction.patterns_added:
+            self._store_pattern_in_qdrant(
+                pattern_id,
+                correction.after_embedding,
+                {'type': 'preference', 'project': project_id},
+            )
+
+        # Store relationship in graph
+        if project_id:
+            self._store_correction_in_graph(correction, project_id)
+
+        return {
+            'correction_id': correction.correction_id,
+            'patterns_removed': correction.patterns_removed,
+            'patterns_added': correction.patterns_added,
+            'similarity': correction.similarity,
+        }
+
+    def store_instruction(
+        self,
+        instruction: str,
+        session_id: str,
+        project_id: Optional[str] = None,
+    ):
+        """
+        Store instruction for drift detection.
+
+        Args:
+            instruction: User instruction
+            session_id: Session identifier
+            project_id: Project identifier
+        """
+        # Generate embedding for instruction (research note)
+        embedding = self.embedder.generate_embedding(
+            instruction, memory_type='research_note'
+        )
+
+        # Store in Qdrant
+        point = VectorPoint(
+            point_id=f'instruction_{session_id}',
+            vector=embedding,
+            payload={
+                'instruction': instruction,
+                'session_id': session_id,
+                'project_id': project_id,
+                'timestamp': self._get_timestamp(),
+            },
+        )
+
+        self.qdrant.upsert('instructions', [point])
+
+        # Cache for fast retrieval
+        cache_key = f'instruction:{session_id}'
+        self.redis.set(cache_key, instruction, ttl_seconds=3600)
+
+        logger.info(f'Stored instruction for session {session_id}')
+
+    def search_similar_patterns(
+        self, code: str, limit: int = 10
+    ) -> List[Dict[str, Any]]:
+        """
+        Search for similar patterns.
+
+        Args:
+            code: Code to find similar patterns for
+            limit: Maximum results
+
+        Returns:
+            Similar patterns with scores
+        """
+        # Generate embedding for code pattern
+        embedding = self.embedder.generate_embedding(
+            code, memory_type='code_pattern'
+        )
+
+        # Search in Qdrant
+        results = self.qdrant.search(
+            collection_name='code_patterns', query_vector=embedding, limit=limit
+        )
+
+        return results
+
+    def _generate_suggestions(
+        self, pattern_results: Dict[str, Any]
+    ) -> List[str]:
+        """
+        Generate suggestions based on detected patterns.
+
+        Args:
+            pattern_results: Pattern detection results
+
+        Returns:
+            List of suggestions
+        """
+        suggestions = []
+
+        for result in pattern_results['combined_results']:
+            if result['pattern_type'] == 'security_issue':
+                # description MUST be present for proper suggestions
+                if 'description' not in result:
+                    raise ValueError(
+                        f'Pattern {result["pattern_name"]} missing description'
+                    )
+                suggestions.append(
+                    f'CRITICAL: {result["pattern_name"]} - {result["description"]}'
+                )
+            elif result['pattern_type'] == 'anti_pattern':
+                if 'description' not in result:
+                    raise ValueError(
+                        f'Pattern {result["pattern_name"]} missing description'
+                    )
+                suggestions.append(
+                    f'Avoid: {result["pattern_name"]} - {result["description"]}'
+                )
+
+        if not suggestions:
+            suggestions.append('No significant issues detected')
+
+        return suggestions
+
+    def _store_pattern_in_qdrant(
+        self, pattern_id: str, embedding: Any, metadata: Dict[str, Any]
+    ):
+        """Store pattern in Qdrant."""
+        point = VectorPoint(
+            point_id=pattern_id, vector=embedding, payload=metadata
+        )
+        self.qdrant.upsert('code_patterns', [point])
+
+    def _store_analysis_in_graph(
+        self, request: AnalysisRequest, result: AnalysisResult
+    ):
+        """Store analysis in Neo4j for relationship tracking."""
+        # Create analysis node
+        analysis_node = GraphNode(
+            node_id=f'analysis_{self._get_timestamp()}',
+            node_type='Analysis',
+            properties={
+                'project_id': request.project_id,
+                'branch': request.branch,
+                'patterns_count': len(result.patterns_detected),
+                'drift_score': result.drift_score,
+            },
+        )
+        self.neo4j.create_node(analysis_node)
+
+        # Create relationships to detected patterns
+        for pattern in result.patterns_detected[:5]:  # Limit to top 5
+            pattern_node = GraphNode(
+                node_id=pattern['pattern_id'],
+                node_type='Pattern',
+                properties={
+                    'name': pattern['pattern_name'],
+                    'type': pattern['pattern_type'],
+                },
+            )
+            self.neo4j.create_node(pattern_node, unique_property='node_id')
+
+            # Create relationship
+            # confidence MUST be present
+            if 'confidence' not in pattern:
+                raise ValueError(
+                    f'Pattern {pattern["pattern_id"]} missing confidence score'
+                )
+
+            rel = GraphRelationship(
+                from_id=analysis_node.node_id,
+                to_id=pattern_node.node_id,
+                relationship_type='DETECTED',
+                properties={'confidence': pattern['confidence']},
+            )
+            self.neo4j.create_relationship(rel)
+
+    def _store_correction_in_graph(self, correction, project_id: str):
+        """Store correction in Neo4j."""
+        # Create correction node
+        correction_node = GraphNode(
+            node_id=correction.correction_id,
+            node_type='Correction',
+            properties={
+                'project_id': project_id,
+                'similarity': correction.similarity,
+                'patterns_removed': len(correction.patterns_removed),
+                'patterns_added': len(correction.patterns_added),
+            },
+        )
+        self.neo4j.create_node(correction_node)
+
+    def _generate_session_id(
+        self, project_id: str | None, branch: str | None, code_hash: int
+    ) -> str:
+        """
+        Generate deterministic session ID from available context.
+
+        Ensures idempotency - same inputs always produce same session ID.
+
+        Priority:
+        1. project_id + branch (most specific)
+        2. project_id only
+        3. code_hash (fallback - same code = same session)
+
+        Args:
+            project_id: Optional project identifier
+            branch: Optional branch name
+            code_hash: Hash of code being analyzed (for idempotent fallback)
+
+        Returns:
+            Deterministic session ID
+
+        Note:
+            NO DEFAULTS - uses code hash instead of timestamp for idempotency.
+            Same code always produces same session ID.
+        """
+        if project_id and branch:
+            return f'session_{project_id}_{branch}'
+        if project_id:
+            return f'session_{project_id}'
+        # NO DEFAULTS: Use code hash for idempotent fallback
+        # Same code always gets same session ID (no timestamp randomness)
+        return f'session_code_{code_hash}'
+
+    def _get_timestamp(self) -> int:
+        """Get current timestamp."""
+        import time
+
+        return int(time.time())
+
+    def end_session(self, session_id: str) -> None:
+        """
+        End a session and promote valuable memories.
+
+        Args:
+            session_id: Session to end
+        """
+        # Delegate to session coordinator
+        self.session_coordinator.end_session(session_id)
+
+    def store_memory(
+        self,
+        content: str,
+        memory_type: str,
+        tier: Optional[str] = None,
+        frustration_score: float = 0.0,
+        project_id: Optional[str] = None,
+        branch: Optional[str] = None,
+        session_id: Optional[str] = None,
+        related_to: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Store a memory directly with explicit parameters.
+
+        Args:
+            content: Memory content
+            memory_type: Type (pattern, correction, decision, etc.)
+            tier: Explicit tier (anchors, longterm, episodic, working)
+            frustration_score: Frustration level 0-1
+            project_id: Project context
+            branch: Branch context
+            session_id: Session context
+            related_to: Related memory IDs
+
+        Returns:
+            Memory metadata
+        """
+
+        # Convert tier string to enum if provided
+        tier_enum = None
+        if tier:
+            tier_enum = MemoryTier(tier.lower())
+
+        memory = self.memory_engine.store_memory(
+            content=content,
+            memory_type=memory_type,
+            tier=tier_enum,
+            frustration_score=frustration_score,
+            project_id=project_id,
+            branch=branch,
+            session_id=session_id,
+            related_to=related_to,
+        )
+
+        return memory.to_dict()
+
+    def retrieve_memories(
+        self,
+        query: str,
+        memory_type: str = 'research_note',
+        limit: int = 10,
+        tier: Optional[str] = None,
+        project_id: Optional[str] = None,
+        branch: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Retrieve relevant memories by semantic search.
+
+        Args:
+            query: Search query
+            memory_type: Type of memory to retrieve (defaults to research_note)
+            limit: Max results
+            tier: Filter by tier (anchors, longterm, episodic, working)
+            project_id: Filter by project
+            branch: Filter by branch
+
+        Returns:
+            List of relevant memories
+        """
+
+        # Convert tier string to enum if provided
+        tier_filter = None
+        if tier:
+            tier_filter = MemoryTier(tier.lower())
+
+        memories = self.memory_engine.retrieve_relevant(
+            query=query,
+            memory_type=memory_type,
+            limit=limit,
+            tier_filter=tier_filter,
+            project_id=project_id,
+            branch=branch,
+        )
+
+        return [m.to_dict() for m in memories]
+
+    async def retrieve_intelligent(
+        self,
+        query: str,
+        session_id: str,
+        role: Optional[str] = None,
+        task_type: Optional[str] = None,
+        task_id: Optional[str] = None,
+        phase: Optional[str] = None,
+        project_id: Optional[str] = None,
+        branch: Optional[str] = None,
+        git_sha: Optional[str] = None,
+        limit: int = 10,
+        tier: Optional[str] = None,
+        exclude_memory_ids: Optional[List[str]] = None,
+        return_scores: bool = False,
+        enable_augmentation: bool = True,
+        enable_reranking: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Intelligent memory retrieval with 6-stage pipeline.
+
+        Phase 2.3: Now supports query augmentation and BGE reranking.
+
+        Args:
+            query: Search query
+            session_id: REQUIRED for deduplication
+            role: Optional role context (architect, implementer, reviewer, debugger)
+            task_type: Optional task type (skeleton, implementation, testing)
+            task_id: Optional specific task identifier
+            phase: Optional phase (prepare, execute, validate)
+            project_id: Optional project filter
+            branch: Optional branch filter
+            git_sha: Optional current git SHA for recency boost
+            limit: Maximum number of results
+            tier: Optional memory tier filter
+            exclude_memory_ids: Optional list of memory IDs to exclude
+            return_scores: If True, return scores for debugging
+            enable_augmentation: Use query augmentation for E5 queries (default: True, +33% precision)
+            enable_reranking: Use BGE cross-encoder reranking (default: False, slower but more precise)
+
+        Returns:
+            Dictionary with memories list and optional scores
+        """
+        from prism_mcp.core.retrieval_coordinator import RetrievalCoordinator
+
+        tier_filter = None
+        if tier:
+            tier_filter = MemoryTier(tier.lower())
+
+        coordinator = RetrievalCoordinator()
+
+        memories, retrieval_id = await coordinator.retrieve_intelligent(
+            query=query,
+            session_id=session_id,
+            role=role,
+            task_type=task_type,
+            task_id=task_id,
+            phase=phase,
+            project_id=project_id,
+            branch=branch,
+            git_sha=git_sha,
+            limit=limit,
+            tier_filter=tier_filter,
+            exclude_memory_ids=exclude_memory_ids,
+            return_scores=return_scores,
+            enable_augmentation=enable_augmentation,
+            enable_reranking=enable_reranking,
+        )
+
+        if return_scores:
+            # When return_scores is True, include both similarity_score and detailed scores
+            result_memories = []
+            for m, s in memories:
+                # Set the similarity score from the semantic score
+                m.similarity_score = s.semantic if s else 0.0
+                result_memories.append(
+                    {
+                        **m.to_dict(),
+                        'scores': (
+                            {
+                                'semantic': s.semantic,
+                                'graph': s.graph,
+                                'temporal': s.temporal,
+                                'utility': s.utility,
+                                'diversity': s.diversity,
+                                'combined': s.combined,
+                            }
+                            if s
+                            else None
+                        ),
+                    }
+                )
+            return {
+                'memories': result_memories,
+                'retrieval_id': retrieval_id,
+            }
+        # When return_scores=False, memories is List[Memory] (not tuples)
+        result_memories = []
+        for m in memories:
+            # Set default similarity score
+            m.similarity_score = 0.0
+            result_memories.append(m.to_dict())
+
+        return {
+            'memories': result_memories,
+            'retrieval_id': retrieval_id,
+        }
+
+    def record_feedback(
+        self,
+        retrieval_id: str,
+        memory_id: str,
+        used: bool,
+        helpful: Optional[bool] = None,
+        reason: Optional[str] = None,
+    ) -> Dict[str, str]:
+        """
+        Record feedback about memory utility.
+
+        Args:
+            retrieval_id: UUID of the retrieval event
+            memory_id: Memory that was retrieved
+            used: Whether the memory was actually used
+            helpful: Optional explicit helpfulness rating
+            reason: Optional explanation
+
+        Returns:
+            Status dictionary
+        """
+        from prism_mcp.core.utility_tracker import UtilityTracker
+
+        tracker = UtilityTracker()
+        tracker.record_feedback(
+            retrieval_id=retrieval_id,
+            memory_id=memory_id,
+            used=used,
+            helpful=helpful,
+            reason=reason,
+        )
+
+        return {'status': 'recorded'}
+
+    def verify_patterns(self, language: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Verify pattern database health.
+
+        Args:
+            language: Optional language filter
+
+        Returns:
+            Pattern counts and health stats
+        """
+        if language:
+            # Count patterns for specific language
+            from prism_mcp.storage.qdrant_manager import QdrantManager
+
+            qdrant = QdrantManager()
+            results = qdrant.search(
+                collection_name='code_patterns',
+                query_vector=[0.0] * 384,  # Dummy vector
+                limit=10000,  # High limit to count
+                filter_conditions={'language': language},
+            )
+            count = len(results)
+            return {
+                'language': language,
+                'pattern_count': count,
+                'status': 'healthy' if count > 0 else 'no_patterns',
+            }
+        # Count all patterns
+        total = self.pattern_engine.verify_patterns_loaded()
+        return {
+            'total_patterns': total,
+            'status': 'healthy' if total > 0 else 'no_patterns',
+        }
+
+    def query_patterns(
+        self, query: str, language: Optional[str] = None, limit: int = 10
+    ) -> List[Dict[str, Any]]:
+        """
+        Search patterns by name or description.
+
+        Args:
+            query: Search query
+            language: Optional language filter
+            limit: Max results
+
+        Returns:
+            Matching patterns
+        """
+        # Generate embedding for semantic search of code patterns
+        query_embedding = self.embedder.generate_embedding(
+            query, memory_type='code_pattern'
+        )
+
+        # Build filter
+        filter_conditions = None
+        if language:
+            filter_conditions = {'language': language}
+
+        # Search in Qdrant
+        results = self.qdrant.search(
+            collection_name='code_patterns',
+            query_vector=query_embedding,
+            limit=limit,
+            filter_conditions=filter_conditions,
+        )
+
+        # Return pattern data
+        patterns = []
+        for result in results:
+            pattern = result['payload']
+            pattern['score'] = result.get('score', 0.0)
+            patterns.append(pattern)
+
+        return patterns
+
+    def force_evolution(self) -> Dict[str, Any]:
+        """
+        Trigger immediate pattern evolution.
+
+        Returns:
+            Evolution statistics
+        """
+        logger.info('Forcing pattern evolution...')
+        stats = self.feedback_system.evolve_patterns(dry_run=False)
+        logger.info(f'Evolution complete: {stats}')
+        return stats
+
+    def get_pattern_metrics(self, pattern_id: str) -> Dict[str, Any]:
+        """
+        Get evolution metrics for a specific pattern.
+
+        Args:
+            pattern_id: Pattern identifier
+
+        Returns:
+            Pattern metrics (weight, usage, success rate, etc.)
+        """
+        # Query pattern from Qdrant
+        results = self.qdrant.search(
+            collection_name='code_patterns',
+            query_vector=[0.0] * 384,  # Dummy vector
+            limit=1,
+            filter_conditions={'pattern_id': pattern_id},
+        )
+
+        if not results:
+            raise RuntimeError(f'Pattern not found: {pattern_id}')
+
+        pattern = results[0]['payload']
+
+        # Extract evolution metadata
+        metrics = {
+            'pattern_id': pattern_id,
+            'name': pattern.get('name', 'unknown'),
+            'language': pattern.get('language', 'unknown'),
+            'base_weight': pattern.get('base_weight', 0.0),
+            'usage_count': pattern.get('usage_count', 0),
+            'success_rate': pattern.get('success_rate', 0.0),
+            'last_used': pattern.get('last_used'),
+            'project_affinity': pattern.get('project_affinity', {}),
+        }
+
+        return metrics
+
+    def shutdown(self):
+        """Gracefully shutdown all services."""
+        logger.info('Shutting down PRISM orchestrator...')
+
+        # Stop evolution loop
+        self.pattern_evolution.stop()
+
+        # Close connections
+        self.neo4j.close()
+        self.redis.close()
+
+        logger.info('PRISM orchestrator shutdown complete')
+
+
+# Singleton instance
+_orchestrator: Optional[Orchestrator] = None
+
+
+def get_orchestrator() -> Orchestrator:
+    """
+    Get global Orchestrator instance (singleton).
+
+    Returns:
+        Orchestrator instance
+    """
+    global _orchestrator
+
+    if _orchestrator is None:
+        _orchestrator = Orchestrator()
+
+    return _orchestrator

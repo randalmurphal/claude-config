@@ -1,0 +1,52 @@
+"""Task dataclass for queue system."""
+
+from dataclasses import dataclass
+from enum import Enum
+from typing import Any, Callable
+
+
+class TaskPriority(Enum):
+    """Task priority levels."""
+
+    HIGH = 1
+    NORMAL = 2
+    LOW = 3
+
+
+class TaskState(Enum):
+    """Task execution states."""
+
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+@dataclass
+class Task:
+    """Represents a task to be executed by the queue."""
+
+    func: Callable[..., Any]
+    args: tuple = ()
+    kwargs: dict[str, Any] = None
+    priority: TaskPriority = TaskPriority.NORMAL
+    task_id: str = ""
+    state: TaskState = TaskState.PENDING
+    retry_count: int = 0
+    max_retries: int = 3
+
+    def __post_init__(self) -> None:
+        """Initialize kwargs and task_id if not provided."""
+        pass
+
+    def __lt__(self, other: "Task") -> bool:
+        """Compare tasks for priority queue ordering."""
+        pass
+
+    def execute(self) -> Any:
+        """Execute the task function with args/kwargs."""
+        pass
+
+    def should_retry(self) -> bool:
+        """Check if task should be retried."""
+        pass

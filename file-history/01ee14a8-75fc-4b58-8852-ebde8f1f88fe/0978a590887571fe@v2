@@ -1,0 +1,28 @@
+# Orchestration MCP Configuration
+# NO DEFAULTS PHILOSOPHY: Every value MUST be explicitly set
+
+# Database connections - ALL REQUIRED
+database:
+  redis_url: "redis://localhost:6382"
+  neo4j_uri: "bolt://localhost:7688"
+  neo4j_user: "neo4j"
+  neo4j_password: "prism_neo4j_2024"
+
+# PRISM integration - OPTIONAL
+# Comment out this entire section to disable PRISM
+# prism:
+#   host: "localhost"
+#   http_port: 8090
+
+# Server configuration
+server:
+  name: "orchestration-mcp"
+  version: "0.3.0"
+  log_level: "INFO"
+
+# Workflow configuration
+workflow:
+  max_concurrent_agents: 10
+  agent_timeout_seconds: 600
+  enable_checkpoints: true
+  default_model: sonnet  # Force all agents to use Sonnet 4.5 by default

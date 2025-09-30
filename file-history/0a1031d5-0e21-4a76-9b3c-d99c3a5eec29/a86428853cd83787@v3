@@ -1,0 +1,277 @@
+"""
+Unified embedder supporting both API and local model modes.
+
+Provides clean abstraction over:
+- PREMIUM_API: Voyage AI + Jina (no GPU)
+- LOCAL: E5-Mistral + StarCoder2 + BGE (GPU-based)
+
+Automatically selects mode based on tier configuration.
+"""
+
+import logging
+import os
+from typing import Optional, List, Tuple
+import numpy as np
+
+from prism_mcp.models.tier_detector import SystemTier
+from prism_mcp.utils.config import get_config
+
+logger = logging.getLogger(__name__)
+
+
+class UnifiedEmbedder:
+    """
+    Unified embedder supporting both API and local modes.
+
+    Architecture:
+    - PREMIUM_API tier → delegates to API embedders (Voyage, Jina)
+    - Other tiers → delegates to local model embedder
+
+    Provides consistent interface regardless of underlying implementation.
+    """
+
+    def __init__(self, config: dict = None, tier: SystemTier = None):
+        """
+        Initialize unified embedder
+
+        Args:
+            config: System configuration dict (or None to auto-load)
+            tier: Detected system tier (or None to detect from config)
+        """
+        # Load config if not provided
+        if config is None:
+            config = get_config()
+
+        self.config = config
+
+        # Detect tier if not provided
+        if tier is None:
+            manual_tier = config.get("models", {}).get("manual_tier", 1)
+            tier = SystemTier(manual_tier) if isinstance(manual_tier, int) else SystemTier.FULL
+
+        self.tier = tier
+        self.mode = "api" if tier == SystemTier.PREMIUM_API else "local"
+
+        logger.info(f"Initializing UnifiedEmbedder (tier: {tier.value}, mode: {self.mode})")
+
+        # Initialize appropriate backend
+        if self.mode == "api":
+            self._init_api_mode()
+        else:
+            self._init_local_mode()
+
+    def _init_api_mode(self):
+        """Initialize API-based embedders (Voyage + Jina)"""
+        from prism_mcp.models.api_embedders import VoyageEmbedder
+        from prism_mcp.models.api_reranker import JinaReranker
+
+        # Get API keys from environment (config access is complex with Pydantic)
+        voyage_key = os.getenv("VOYAGE_API_KEY")
+        jina_key = os.getenv("JINA_API_KEY")
+
+        if not voyage_key:
+            raise RuntimeError(
+                "PREMIUM_API tier requires VOYAGE_API_KEY environment variable. "
+                "Set with: export VOYAGE_API_KEY='pa-xxx'"
+            )
+
+        # Initialize Voyage embedder (use defaults for models)
+        code_model = "voyage-code-3"
+        general_model = "voyage-3-large"
+
+        self.voyage = VoyageEmbedder(
+            api_key=voyage_key,
+            code_model=code_model,
+            general_model=general_model
+        )
+
+        # Initialize Jina reranker (optional)
+        self.jina = None
+        if jina_key:
+            jina_model = "jina-reranker-v2-base-multilingual"
+            try:
+                self.jina = JinaReranker(api_key=jina_key, model=jina_model)
+                logger.info("Jina reranker initialized")
+            except Exception as e:
+                logger.warning(f"Jina reranker initialization failed: {e}. Reranking disabled.")
+
+        # API dimensions
+        self.code_dim = 1024
+        self.semantic_dim = 1024
+
+        logger.info(f"✓ API mode initialized (Voyage: {code_model}, {general_model})")
+
+    def _init_local_mode(self):
+        """Initialize local model embedder"""
+        from prism_mcp.models.embedder import DualModelEmbedder
+
+        self.local_embedder = DualModelEmbedder(config=self.config)
+
+        # Get dimensions from loaded models
+        self.code_dim = self.local_embedder.starcoder_dim if hasattr(self.local_embedder, 'starcoder_dim') else 4608
+        self.semantic_dim = self.local_embedder.e5_dim if hasattr(self.local_embedder, 'e5_dim') else 4096
+
+        logger.info(f"✓ Local mode initialized (E5: {self.semantic_dim}d, StarCoder: {self.code_dim}d)")
+
+    # ========== Public Interface ==========
+
+    def embed_code(self, code: str) -> np.ndarray:
+        """
+        Embed a single code snippet
+
+        Args:
+            code: Code to embed
+
+        Returns:
+            Embedding vector (1024d for API, 4608d for local)
+        """
+        if self.mode == "api":
+            embedding, _ = self.voyage.embed_code([code])
+            return embedding[0]
+        else:
+            return self.local_embedder.embed_with_starcoder(code)
+
+    def embed_code_batch(self, codes: List[str], batch_size: int = 128) -> np.ndarray:
+        """
+        Embed multiple code snippets
+
+        Args:
+            codes: List of code to embed
+            batch_size: Batch size for processing
+
+        Returns:
+            Array of embeddings
+        """
+        if self.mode == "api":
+            embeddings, _ = self.voyage.embed_code(codes, batch_size=batch_size)
+            return embeddings
+        else:
+            # Local mode processes one at a time
+            return np.array([self.local_embedder.embed_with_starcoder(code) for code in codes])
+
+    def embed_text(self, text: str) -> np.ndarray:
+        """
+        Embed semantic text (memories, preferences, queries)
+
+        Args:
+            text: Text to embed
+
+        Returns:
+            Embedding vector (1024d for API, 4096d for local)
+        """
+        if self.mode == "api":
+            embedding, _ = self.voyage.embed_semantic([text])
+            return embedding[0]
+        else:
+            return self.local_embedder.embed_with_e5(text)
+
+    def embed_text_batch(self, texts: List[str], batch_size: int = 128) -> np.ndarray:
+        """
+        Embed multiple text items
+
+        Args:
+            texts: List of texts to embed
+            batch_size: Batch size for processing
+
+        Returns:
+            Array of embeddings
+        """
+        if self.mode == "api":
+            embeddings, _ = self.voyage.embed_semantic(texts, batch_size=batch_size)
+            return embeddings
+        else:
+            # Local mode processes one at a time
+            return np.array([self.local_embedder.embed_with_e5(text) for text in texts])
+
+    def embed_query(self, query: str, query_type: str = "semantic") -> np.ndarray:
+        """
+        Embed a search query (optimized for retrieval)
+
+        Args:
+            query: Query text
+            query_type: 'code' or 'semantic'
+
+        Returns:
+            Query embedding
+        """
+        if self.mode == "api":
+            # API mode: use input_type="query" for better retrieval
+            embedding, _ = self.voyage.embed_query(query, query_type=query_type)
+            return embedding
+        else:
+            # Local mode: same as regular embedding
+            if query_type == "code":
+                return self.local_embedder.embed_with_starcoder(query)
+            else:
+                return self.local_embedder.embed_with_e5(query)
+
+    def rerank(
+        self,
+        query: str,
+        documents: List[str],
+        top_n: int = 10
+    ) -> List[Tuple[int, float]]:
+        """
+        Rerank documents by relevance to query
+
+        Args:
+            query: Query text
+            documents: List of documents to rerank
+            top_n: Number of top results
+
+        Returns:
+            List of (index, score) tuples
+        """
+        if self.mode == "api" and self.jina is not None:
+            # Use Jina reranker
+            return self.jina.rerank(query, documents, top_n=top_n)
+        elif hasattr(self, 'local_embedder') and hasattr(self.local_embedder, 'bge_model') and self.local_embedder.bge_model is not None:
+            # Use local BGE reranker
+            from prism_mcp.models.embedder import rerank_with_bge
+            ranked = rerank_with_bge(
+                query=query,
+                candidates=documents,
+                model=self.local_embedder.bge_model,
+                tokenizer=self.local_embedder.bge_tokenizer,
+                device=self.local_embedder.device
+            )
+            # Convert to (index, score) format
+            return [(idx, score) for idx, score in ranked[:top_n]]
+        else:
+            # No reranking available - return original order with decreasing scores
+            return [(i, 1.0 / (i + 1)) for i in range(min(top_n, len(documents)))]
+
+    # ========== Metadata & Stats ==========
+
+    def get_dimensions(self) -> dict:
+        """Get embedding dimensions for each type"""
+        return {
+            'code': self.code_dim,
+            'semantic': self.semantic_dim,
+            'mode': self.mode,
+            'tier': self.tier.value,
+        }
+
+    def get_usage_stats(self) -> dict:
+        """Get usage statistics"""
+        if self.mode == "api":
+            voyage_stats = self.voyage.get_usage_stats()
+            jina_stats = self.jina.get_usage_stats() if self.jina else {}
+
+            return {
+                'mode': 'api',
+                'voyage': voyage_stats,
+                'jina': jina_stats,
+            }
+        else:
+            return {
+                'mode': 'local',
+                'tier': self.tier.value,
+            }
+
+    def supports_reranking(self) -> bool:
+        """Check if reranking is available"""
+        if self.mode == "api":
+            return self.jina is not None
+        else:
+            return hasattr(self, 'local_embedder') and hasattr(self.local_embedder, 'bge_model') and self.local_embedder.bge_model is not None

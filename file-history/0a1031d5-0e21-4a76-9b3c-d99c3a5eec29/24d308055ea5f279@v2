@@ -1,0 +1,402 @@
+"""
+Query Translator - Translate vague queries to technical terms.
+
+Maps natural language queries to:
+- Technical concepts (authentication, async, etc)
+- Code symbols (MemoryEngine, promote_to_longterm)
+- Documentation sections (CLAUDE.md sections)
+- Relevant files
+
+Used for exploration queries ("how does X work?", "what is Y?")
+
+NO DEFAULTS - fail loud on errors.
+"""
+
+import logging
+from typing import List, Dict, Optional, Any
+from dataclasses import dataclass
+
+from prism_mcp.utils.concept_extractor import ConceptExtractor
+from prism_mcp.core.orchestrator import get_orchestrator
+from prism_mcp.storage.neo4j_manager import Neo4jManager
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class TranslationResult:
+    """Result of query translation."""
+    # Extracted concepts from query
+    concepts: List[str]
+
+    # Technical terms matched from concepts
+    technical_terms: List[str]
+
+    # Code symbols matching query
+    symbols: List[Dict[str, str]]  # [{name, file_path, symbol_type, description}]
+
+    # Documentation sections matching query
+    docs: List[Dict[str, Any]]  # [{content, file_path, section}]
+
+    # Concept mapping (vague → technical)
+    concept_map: str
+
+    # Confidence score (0.0-1.0)
+    confidence: float
+
+
+class QueryTranslator:
+    """
+    Translate vague queries to technical terms and relevant code/docs.
+
+    Uses:
+    - ConceptExtractor for keyword extraction
+    - PRISM semantic search for documentation
+    - Neo4j for code symbol lookup
+
+    Workflow:
+    1. Extract concepts from query (ConceptExtractor)
+    2. Search documentation semantically (PRISM)
+    3. Find matching code symbols (Neo4j)
+    4. Rank by relevance
+    5. Build concept map
+    """
+
+    def __init__(self):
+        """Initialize query translator."""
+        self.concept_extractor = ConceptExtractor()
+        self.orchestrator = get_orchestrator()
+        self.neo4j = Neo4jManager()
+
+        logger.info("QueryTranslator initialized")
+
+    def translate(
+        self,
+        query: str,
+        session_id: str,
+        project_id: Optional[str] = None,
+        limit: int = 5
+    ) -> TranslationResult:
+        """
+        Translate vague query to technical terms and relevant code/docs.
+
+        Args:
+            query: Natural language query (e.g., "how does memory promotion work?")
+            session_id: Session ID for context
+            project_id: Optional project filter
+            limit: Max results per category
+
+        Returns:
+            TranslationResult with concepts, symbols, docs, concept map
+
+        Raises:
+            RuntimeError: If query empty or translation fails
+        """
+        if not query:
+            raise RuntimeError("query required for translate")
+        if not session_id:
+            raise RuntimeError("session_id required for translate")
+
+        logger.info(f"Translating query: {query}")
+
+        # Step 1: Extract concepts using ConceptExtractor
+        concepts = self.concept_extractor.extract_concepts(query, max_concepts=5)
+        logger.debug(f"Extracted concepts: {concepts}")
+
+        if not concepts:
+            # No technical concepts found - likely conversational query
+            logger.debug("No technical concepts found in query")
+            return TranslationResult(
+                concepts=[],
+                technical_terms=[],
+                symbols=[],
+                docs=[],
+                concept_map="",
+                confidence=0.0
+            )
+
+        # Step 2: Search documentation semantically (use PRISM)
+        docs = self._search_documentation(query, session_id, project_id, limit)
+        logger.debug(f"Found {len(docs)} documentation matches")
+
+        # Step 3: Find matching code symbols (use Neo4j)
+        symbols = self._search_symbols(concepts, project_id, limit)
+        logger.debug(f"Found {len(symbols)} symbol matches")
+
+        # Step 4: Extract technical terms from results
+        technical_terms = self._extract_technical_terms(symbols, docs)
+        logger.debug(f"Technical terms: {technical_terms}")
+
+        # Step 5: Build concept map
+        concept_map = self._build_concept_map(query, concepts, technical_terms)
+
+        # Step 6: Calculate confidence
+        confidence = self._calculate_confidence(concepts, technical_terms, symbols, docs)
+
+        result = TranslationResult(
+            concepts=concepts,
+            technical_terms=technical_terms,
+            symbols=symbols,
+            docs=docs,
+            concept_map=concept_map,
+            confidence=confidence
+        )
+
+        logger.info(
+            f"Translation complete: {len(technical_terms)} terms, "
+            f"{len(symbols)} symbols, {len(docs)} docs, "
+            f"confidence={confidence:.2f}"
+        )
+
+        return result
+
+    def _search_documentation(
+        self,
+        query: str,
+        session_id: str,
+        project_id: Optional[str],
+        limit: int
+    ) -> List[Dict[str, Any]]:
+        """
+        Search documentation using PRISM semantic retrieval.
+
+        Args:
+            query: Search query
+            session_id: Session ID
+            project_id: Optional project filter
+            limit: Max results
+
+        Returns:
+            List of documentation matches with content and metadata
+        """
+        try:
+            # Use PRISM's intelligent retrieval
+            memories = self.orchestrator.retrieve_intelligent(
+                query=query,
+                session_id=session_id,
+                retrieval_mode="fast",  # 500ms budget for exploration
+                tier="ANCHORS",  # Documentation is in ANCHORS
+                memory_types=["research_note", "documentation"],
+                limit=limit,
+                project_id=project_id
+            )
+
+            docs = []
+            for memory in memories:
+                docs.append({
+                    "content": memory.content,
+                    "file_path": memory.metadata.get("file_path", "unknown"),
+                    "section": memory.metadata.get("section", ""),
+                    "memory_id": memory.memory_id
+                })
+
+            return docs
+
+        except Exception as e:
+            logger.error(f"Error searching documentation: {e}")
+            return []
+
+    def _search_symbols(
+        self,
+        concepts: List[str],
+        project_id: Optional[str],
+        limit: int
+    ) -> List[Dict[str, str]]:
+        """
+        Search code symbols in Neo4j matching concepts.
+
+        Args:
+            concepts: Technical concepts from query
+            project_id: Optional project filter
+            limit: Max results
+
+        Returns:
+            List of symbols with name, file_path, symbol_type, description
+        """
+        if not concepts:
+            return []
+
+        try:
+            # Build Cypher query to find symbols matching concepts
+            # Match by name, docstring, or file path
+            concept_pattern = "|".join(concepts)
+
+            query = """
+            MATCH (s:CodeSymbol)
+            WHERE (s.name =~ $pattern OR s.docstring =~ $pattern)
+            """
+
+            if project_id:
+                query += " AND s.project_id = $project_id"
+
+            query += """
+            OPTIONAL MATCH (s)-[:DEFINED_IN]->(f:CodeFile)
+            RETURN s.name as name,
+                   s.symbol_type as symbol_type,
+                   f.file_path as file_path,
+                   s.docstring as description,
+                   s.line_start as line_start,
+                   s.line_end as line_end
+            LIMIT $limit
+            """
+
+            # Case-insensitive pattern matching
+            pattern = f"(?i).*({concept_pattern}).*"
+
+            params = {
+                "pattern": pattern,
+                "limit": limit
+            }
+            if project_id:
+                params["project_id"] = project_id
+
+            results = self.neo4j.query(query, **params)
+
+            symbols = []
+            for record in results:
+                symbols.append({
+                    "name": record.get("name", "unknown"),
+                    "file_path": record.get("file_path", "unknown"),
+                    "symbol_type": record.get("symbol_type", "unknown"),
+                    "description": record.get("description", "")[:200],  # Truncate long descriptions
+                    "line_start": record.get("line_start"),
+                    "line_end": record.get("line_end")
+                })
+
+            return symbols
+
+        except Exception as e:
+            logger.error(f"Error searching symbols: {e}")
+            return []
+
+    def _extract_technical_terms(
+        self,
+        symbols: List[Dict[str, str]],
+        docs: List[Dict[str, Any]]
+    ) -> List[str]:
+        """
+        Extract technical terms from symbol names and doc content.
+
+        Args:
+            symbols: List of code symbols
+            docs: List of documentation matches
+
+        Returns:
+            List of unique technical terms (symbol names, class names)
+        """
+        terms = set()
+
+        # Extract from symbol names
+        for symbol in symbols:
+            terms.add(symbol["name"])
+
+        # Extract from documentation (look for code references)
+        import re
+        code_pattern = re.compile(r'`([^`]+)`')  # Match `backtick` code
+
+        for doc in docs:
+            # Find all code references in backticks
+            matches = code_pattern.findall(doc["content"])
+            for match in matches:
+                # Only keep if it looks like a symbol (CamelCase or snake_case)
+                if re.match(r'^[A-Z][a-zA-Z0-9]*$', match) or '_' in match:
+                    terms.add(match)
+
+        # Return sorted list (top 10)
+        return sorted(terms)[:10]
+
+    def _build_concept_map(
+        self,
+        query: str,
+        concepts: List[str],
+        technical_terms: List[str]
+    ) -> str:
+        """
+        Build human-readable concept map.
+
+        Args:
+            query: Original query
+            concepts: Extracted concepts
+            technical_terms: Matched technical terms
+
+        Returns:
+            String like: "memory promotion" → MemoryEngine.promote_to_longterm()
+        """
+        if not concepts or not technical_terms:
+            return ""
+
+        # Extract key phrase from query (first concept)
+        key_phrase = concepts[0] if concepts else "query"
+
+        # Find most relevant technical term
+        # Prefer terms that contain concept words
+        best_term = technical_terms[0] if technical_terms else "unknown"
+
+        for term in technical_terms:
+            if any(concept in term.lower() for concept in concepts):
+                best_term = term
+                break
+
+        return f'"{key_phrase}" → {best_term}'
+
+    def _calculate_confidence(
+        self,
+        concepts: List[str],
+        technical_terms: List[str],
+        symbols: List[Dict[str, str]],
+        docs: List[Dict[str, Any]]
+    ) -> float:
+        """
+        Calculate confidence score for translation.
+
+        High confidence if:
+        - Multiple concepts extracted
+        - Technical terms found
+        - Both symbols AND docs found
+
+        Args:
+            concepts: Extracted concepts
+            technical_terms: Matched terms
+            symbols: Found symbols
+            docs: Found documentation
+
+        Returns:
+            Confidence score 0.0-1.0
+        """
+        score = 0.0
+
+        # Concept extraction (0-0.3)
+        if len(concepts) >= 2:
+            score += 0.3
+        elif len(concepts) == 1:
+            score += 0.15
+
+        # Technical terms found (0-0.3)
+        if len(technical_terms) >= 3:
+            score += 0.3
+        elif len(technical_terms) >= 1:
+            score += 0.15
+
+        # Symbols found (0-0.2)
+        if len(symbols) >= 2:
+            score += 0.2
+        elif len(symbols) == 1:
+            score += 0.1
+
+        # Documentation found (0-0.2)
+        if len(docs) >= 2:
+            score += 0.2
+        elif len(docs) == 1:
+            score += 0.1
+
+        return min(score, 1.0)
+
+
+def get_query_translator() -> QueryTranslator:
+    """
+    Get singleton query translator instance.
+
+    Returns:
+        QueryTranslator instance
+    """
+    return QueryTranslator()

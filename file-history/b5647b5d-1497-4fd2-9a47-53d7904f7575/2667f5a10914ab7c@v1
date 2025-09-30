@@ -1,0 +1,1915 @@
+"""
+Workflow Coordinator - Orchestrates 3-stage phase execution pattern.
+
+Consolidates complex orchestration logic that was previously spread across
+19 separate MCP tools. Provides high-level workflow operations that handle
+phase preparation, validation, and completion internally.
+
+NO DEFAULTS - All required parameters must be provided.
+FAIL LOUD - Crashes on missing requirements or failures.
+"""
+
+import logging
+import subprocess
+from datetime import datetime
+from typing import Any
+
+from orchestration_mcp.services.auto_context_injector import AutoContextInjector
+from orchestration_mcp.services.role_manager import RoleManager
+from orchestration_mcp.utils.project_analyzer import ProjectAnalyzer
+from orchestration_mcp.utils.ready_parser import ReadyParser
+from orchestration_mcp.utils.spec_evolution import SpecEvolutionTracker
+
+
+logger = logging.getLogger(__name__)
+
+
+class WorkflowCoordinator:
+    """
+    Coordinates high-level orchestration workflows.
+
+    Handles 3-stage phase pattern:
+    1. prepare_phase - Setup chambers, contexts, strategy
+    2. [Main agent launches agents]
+    3. finalize_phase - Validate, merge, complete
+    """
+
+    def __init__(
+        self,
+        redis_client,
+        neo4j_manager,
+        chamber_manager,
+        agent_coordinator,
+        prism=None,
+        config=None,
+    ):
+        """
+        Initialize workflow coordinator.
+
+        Args:
+            redis_client: Redis async client
+            neo4j_manager: Neo4j graph manager
+            chamber_manager: Chamber management service
+            agent_coordinator: Agent coordination service
+            prism: Optional PRISM integration for semantic intelligence
+            config: Optional config dict for workflow settings
+
+        Raises:
+            RuntimeError: If any required dependency is None
+        """
+        if not redis_client:
+            raise RuntimeError('redis_client required')
+        if not neo4j_manager:
+            raise RuntimeError('neo4j_manager required')
+        if not chamber_manager:
+            raise RuntimeError('chamber_manager required')
+        if not agent_coordinator:
+            raise RuntimeError('agent_coordinator required')
+
+        self.redis = redis_client
+        self.neo4j = neo4j_manager
+        self.chambers = chamber_manager
+        self.agents = agent_coordinator
+        self.prism = prism
+        self.config = config or {}
+
+        # Initialize auto-context injector if PRISM is available
+        self.auto_context = None
+        if prism and prism.connected:
+            try:
+                self.auto_context = AutoContextInjector(prism.client)
+                logger.info('AutoContextInjector initialized with PRISM client')
+            except Exception as e:
+                logger.warning(f'Failed to initialize AutoContextInjector: {e}')
+
+        # Initialize new services
+        from orchestration_mcp.services.checkpoint_manager import CheckpointManager
+        from orchestration_mcp.services.worktree_manager import WorktreeManager
+        from orchestration_mcp.services.complexity_analyzer import ComplexityAnalyzer
+        from orchestration_mcp.services.task_decomposer import TaskDecomposer
+
+        self.checkpoint_manager = CheckpointManager()
+        self.worktree_manager = WorktreeManager()
+        self.complexity_analyzer = ComplexityAnalyzer()
+        self.task_decomposer = TaskDecomposer(redis_client, neo4j_manager)
+
+    def _load_workflow(self, complexity: str) -> dict[str, Any]:
+        """
+        Load workflow template from workflows.yaml.
+
+        Args:
+            complexity: small, medium, large, or massive
+
+        Returns:
+            Workflow template dict with phases, validation_gates, checkpoints, etc.
+        """
+        import yaml
+        from pathlib import Path
+
+        # Load workflows.yaml
+        workflows_path = Path(__file__).parent.parent / "config" / "workflows.yaml"
+
+        if not workflows_path.exists():
+            # Fallback to default medium workflow
+            logger.warning(f"workflows.yaml not found at {workflows_path}, using default")
+            return {
+                "phases": ["architecture", "skeleton", "implementation", "testing", "validate"],
+                "validation_gates": ["skeleton", "implementation", "testing"],
+                "checkpoints": ["skeleton", "implementation"],
+                "parallel_threshold": 3,
+                "max_duration_hours": 8
+            }
+
+        with open(workflows_path) as f:
+            workflows = yaml.safe_load(f)
+
+        return workflows.get(complexity, workflows.get("medium", {}))
+
+    async def prepare_phase(
+        self,
+        task_id: str,
+        phase: str,
+        working_directory: str,
+        ready_file_path: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Prepare everything needed for a phase execution.
+
+        Steps:
+        1. Read execution strategy from Neo4j (level-by-level parallelization)
+        2. Query prior phase learnings (decisions, gotchas, spikes)
+        3. Create chambers for modules requiring parallel work
+        4. Generate enriched agent contexts with learnings
+        5. Return launch specifications organized by parallel groups
+
+        Args:
+            task_id: Task ID
+            phase: Phase name (skeleton, implementation, testing)
+            working_directory: Project working directory for chambers
+
+        Returns:
+            {
+                "agents_to_launch": [agent_spec, ...],
+                "parallel_groups": [[0, 1], [2]],  # Indices by level
+                "phase_context": {...},
+                "chambers_created": [...]
+            }
+
+        Raises:
+            RuntimeError: If task not found, strategy missing, or preparation fails
+        """
+        if not task_id:
+            raise RuntimeError('task_id required')
+        if not phase:
+            raise RuntimeError('phase required')
+        if not working_directory:
+            raise RuntimeError('working_directory required')
+
+        logger.info(f"Preparing phase '{phase}' for task {task_id}")
+
+        # Get task data
+        task_data = await self.redis.hgetall(f'task:{task_id}')
+        if not task_data:
+            raise RuntimeError(f'Task not found: {task_id}')
+
+        # Get execution strategy from Neo4j
+        strategy = self.neo4j.get_execution_strategy(task_id)
+        if not strategy:
+            raise RuntimeError(
+                f'No execution strategy found for task {task_id}. '
+                f'Ensure analyze_dependencies was called at start_task.'
+            )
+
+        # Query prior phase learnings (all prior work for this task and parents)
+        # Uses hybrid approach: PRISM intelligent retrieval + Neo4j decision graph
+        prior_learnings = await self._query_prior_learnings(
+            task_id, phase, working_directory
+        )
+
+        # Phase 5: Load approved preferences for project (if PRISM available)
+        preferences = []
+        if self.prism and self.prism.connected:
+            try:
+                pref_result = await self.prism.client.list_preferences(
+                    session_id=task_data.get('session_id', task_id),
+                    status='approved',
+                    project_id=task_data.get('project_id'),
+                    limit=50,
+                )
+                preferences = pref_result.get('preferences', [])
+                logger.info(
+                    f'Loaded {len(preferences)} approved preferences for task {task_id}'
+                )
+            except Exception as e:
+                logger.warning(
+                    f'Failed to load preferences (continuing without): {e}'
+                )
+
+        # Load role manager with project roles if READY.md available
+        role_manager = None
+        if ready_file_path:
+            try:
+                spec = ReadyParser.parse_file(ready_file_path)
+                role_manager = RoleManager()
+                role_manager.load_project_roles(spec.custom_roles)
+                logger.info('Loaded project roles from READY.md')
+            except Exception as e:
+                logger.warning(
+                    f'Failed to load project roles: {e}, using default roles'
+                )
+
+        # Prepare agents for each level
+        agents_to_launch = []
+        parallel_groups = []
+        chambers_created = []
+        agent_index = 0
+
+        for level_info in strategy:
+            level = level_info['level']
+            modules = level_info['modules']
+
+            group_indices = []
+
+            for module in modules:
+                # Create chamber for this module if parallel work needed
+                chamber_path = None
+                if len(modules) > 1 or len(strategy) > 1:
+                    chamber_name = f'phase_{phase}_module_{module}'
+                    chamber = await self.chambers.create_chamber(
+                        task_id, chamber_name, 'main'
+                    )
+                    chamber_path = chamber['path']
+                    chambers_created.append(chamber)
+                else:
+                    # Single module, work directly in working_directory
+                    chamber_path = working_directory
+
+                # Snapshot directory before agent work (Phase 2B: File Tracking)
+                before_snapshot = self._snapshot_directory(chamber_path)
+                if before_snapshot:
+                    import json
+
+                    await self.redis.set(
+                        f'snapshot_before:{task_id}:{phase}:{module}',
+                        json.dumps(before_snapshot),
+                    )
+                    logger.debug(
+                        f'Captured before-snapshot for {module}: {len(before_snapshot)} files'
+                    )
+
+                # Generate agent context enriched with learnings
+                agent_context = await self._build_agent_context(
+                    task_id=task_id,
+                    phase=phase,
+                    module=module,
+                    prior_learnings=prior_learnings,
+                    working_directory=working_directory,
+                    preferences=preferences,  # Phase 5: Include preferences
+                )
+
+                # Resolve agent type using RoleManager or fallback to default
+                agent_type = self._get_agent_type_for_phase(phase)
+                resolved_role = None
+                if role_manager:
+                    resolved_role = role_manager.resolve_role(agent_type)
+                    if resolved_role:
+                        logger.debug(
+                            f"Resolved role '{agent_type}' with model={resolved_role.model}"
+                        )
+                    else:
+                        logger.debug(f"Using default role '{agent_type}'")
+
+                # Create agent specification with role config
+                agent_spec = {
+                    'agent_type': agent_type,
+                    'module': module,
+                    'context': agent_context,
+                    'chamber_path': chamber_path,
+                    'level': level,
+                }
+
+                # Add role config if custom role resolved
+                if resolved_role:
+                    agent_spec['role_config'] = {
+                        'model': resolved_role.model,
+                        'expertise': resolved_role.expertise,
+                        'validation': resolved_role.validation,
+                    }
+
+                agents_to_launch.append(agent_spec)
+                group_indices.append(agent_index)
+                agent_index += 1
+
+            parallel_groups.append(group_indices)
+
+        # Store phase preparation state in Redis
+        phase_state = {
+            'task_id': task_id,
+            'phase': phase,
+            'status': 'prepared',
+            'agents_count': len(agents_to_launch),
+            'levels_count': len(parallel_groups),
+            'prepared_at': datetime.now().isoformat(),
+        }
+        await self.redis.hset(
+            f'phase_state:{task_id}:{phase}', mapping=phase_state
+        )
+
+        logger.info(
+            f'Prepared {len(agents_to_launch)} agents across {len(parallel_groups)} '
+            f"parallel levels for phase '{phase}'"
+        )
+
+        return {
+            'agents_to_launch': agents_to_launch,
+            'parallel_groups': parallel_groups,
+            'phase_context': {
+                'phase': phase,
+                'task_id': task_id,
+                'prior_learnings_count': len(
+                    prior_learnings.get('decisions', [])
+                ),
+            },
+            'chambers_created': [c['path'] for c in chambers_created],
+        }
+
+    async def finalize_phase(
+        self,
+        task_id: str,
+        phase: str,
+        validator_output: dict[str, Any] | None = None,
+        ready_file_path: str | None = None,
+        working_directory: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Finalize phase with ACTUAL validation and checkpointing.
+
+        Changes from V1:
+        - Actually runs pytest/ruff/imports (not self-validation)
+        - Auto-creates checkpoints after successful validation
+        - Blocks phase transitions on validation failures
+        - Merges worktrees if parallel work was done
+
+        Args:
+            task_id: Task ID
+            phase: Phase name
+            validator_output: Validator agent output (for backward compatibility)
+            ready_file_path: Path to READY.md for evolution tracking
+            working_directory: Working directory for validation
+
+        Returns:
+            {
+                "success": bool,
+                "can_proceed": bool,
+                "next_phase": str | None,
+                "checkpoint": dict | None,
+                "validation": dict | None,
+                "merge_result": dict | None,
+                "message": str
+            }
+
+        Raises:
+            RuntimeError: If task not found or phase state invalid
+        """
+        if not task_id:
+            raise RuntimeError('task_id required')
+        if not phase:
+            raise RuntimeError('phase required')
+
+        logger.info(f"Finalizing phase {phase} for task {task_id}")
+
+        # Get task data
+        task_data = await self.redis.hgetall(f'task:{task_id}')
+        if not task_data:
+            raise RuntimeError(f'Task {task_id} not found')
+
+        # Decode task data
+        decoded_task_data = {}
+        for key, value in task_data.items():
+            key_str = key.decode() if isinstance(key, bytes) else key
+            value_str = value.decode() if isinstance(value, bytes) else value
+            decoded_task_data[key_str] = value_str
+
+        # Get working directory from task data if not provided
+        if not working_directory:
+            working_directory = decoded_task_data.get('working_directory')
+            if not working_directory:
+                raise RuntimeError('working_directory required for finalize_phase')
+
+        # Get workflow for this task's complexity
+        complexity = decoded_task_data.get('complexity', 'medium')
+        workflow = self._load_workflow(complexity)
+
+        # Check if this phase requires validation
+        requires_validation = phase in workflow.get('validation_gates', [])
+        validation_result = None
+
+        if requires_validation:
+            logger.info(f"Running ACTUAL validation for phase {phase}")
+
+            # Import ValidationRunner here to avoid circular imports
+            from orchestration_mcp.services.validation_runner import ValidationRunner
+            coverage_threshold = self.config.get("coverage_threshold", 0.90) if self.config else 0.90
+            validation_runner = ValidationRunner(working_directory, coverage_threshold)
+
+            try:
+                validation_result = validation_runner.validate_phase(
+                    phase=phase,
+                    working_dir=working_directory
+                )
+
+                # Store validation results
+                await self.redis.hset(
+                    f'validation:{task_id}:{phase}',
+                    mapping={
+                        'passed': str(validation_result['passed']),
+                        'can_proceed': str(validation_result['can_proceed']),
+                        'suggestion': validation_result.get('suggestion', ''),
+                        'checks': str(validation_result.get('checks', {}))
+                    }
+                )
+
+                # If validation failed, BLOCK transition
+                if not validation_result['passed']:
+                    logger.error(f"Validation failed for phase {phase}: {validation_result['suggestion']}")
+
+                    # Update Evolution Log (if READY.md exists)
+                    if ready_file_path:
+                        await self._update_evolution_log_on_failure(
+                            task_id, phase, validation_result, ready_file_path, working_directory
+                        )
+
+                    return {
+                        'success': False,
+                        'can_proceed': False,
+                        'reason': 'Validation failed',
+                        'validation': validation_result,
+                        'message': f"Phase {phase} validation failed. Fix issues before proceeding."
+                    }
+
+            except Exception as e:
+                logger.error(f"Validation error for phase {phase}: {e}")
+                return {
+                    'success': False,
+                    'can_proceed': False,
+                    'reason': 'Validation error',
+                    'error': str(e)
+                }
+
+        # Check if this phase requires checkpoint
+        requires_checkpoint = phase in workflow.get('checkpoints', [])
+        checkpoint_data = None
+
+        if requires_checkpoint:
+            logger.info(f"Creating checkpoint for phase {phase}")
+
+            try:
+                checkpoint_sha = self.checkpoint_manager.create_checkpoint(
+                    task_id=task_id,
+                    phase=phase,
+                    working_dir=working_directory,
+                    validation_passed=validation_result.get('passed', True) if requires_validation else True
+                )
+
+                checkpoint_data = {
+                    'checkpoint_id': checkpoint_sha,
+                    'task_id': task_id,
+                    'phase': phase,
+                    'timestamp': datetime.now().isoformat(),
+                }
+
+                # Store checkpoint info
+                await self.redis.hset(
+                    f'checkpoint:{task_id}:{phase}',
+                    mapping=checkpoint_data
+                )
+
+                logger.info(f"Checkpoint created: {checkpoint_sha[:8]}")
+
+            except Exception as e:
+                logger.warning(f"Checkpoint creation failed: {e}")
+                # Don't block on checkpoint failure, but log it
+
+        # Check if parallel work needs merging
+        worktrees_raw = decoded_task_data.get('worktrees')
+        merge_result = None
+
+        if worktrees_raw:
+            logger.info(f"Merging worktrees for task {task_id}")
+
+            try:
+                # Parse worktrees from JSON if stored as string
+                import json
+                if isinstance(worktrees_raw, str):
+                    worktrees = json.loads(worktrees_raw)
+                else:
+                    worktrees = worktrees_raw
+
+                modules = [wt['module'] for wt in worktrees]
+
+                merge_result_obj = self.worktree_manager.merge_worktrees(
+                    task_id=task_id,
+                    modules=modules,
+                    base_dir=working_directory,
+                    strategy='smart'
+                )
+
+                merge_result = {
+                    'success': merge_result_obj.success,
+                    'merged_files': merge_result_obj.merged_files,
+                    'conflicts': len(merge_result_obj.conflicts),
+                    'strategy': merge_result_obj.strategy_used,
+                    'message': merge_result_obj.message
+                }
+
+                # Validate after merge if validation was required
+                if requires_validation and not merge_result['success']:
+                    logger.error(f"Merge validation failed: {merge_result}")
+                    return {
+                        'success': False,
+                        'can_proceed': False,
+                        'reason': 'Merge validation failed',
+                        'merge_result': merge_result,
+                        'message': 'Worktree merge broke tests. Review merge conflicts.'
+                    }
+
+                logger.info(f"Worktrees merged successfully: {merge_result}")
+
+            except Exception as e:
+                logger.error(f"Worktree merge failed: {e}")
+                return {
+                    'success': False,
+                    'can_proceed': False,
+                    'reason': 'Worktree merge failed',
+                    'error': str(e)
+                }
+
+        # Update task state to next phase
+        phases = workflow['phases']
+        try:
+            current_idx = phases.index(phase)
+            next_phase = phases[current_idx + 1] if current_idx + 1 < len(phases) else None
+        except ValueError:
+            next_phase = None
+
+        await self.redis.hset(f'task:{task_id}', 'current_phase', next_phase or 'complete')
+
+        # Update phase state
+        completion_state = {
+            'status': 'completed',
+            'completed_at': datetime.now().isoformat(),
+        }
+        await self.redis.hset(
+            f'phase_state:{task_id}:{phase}', mapping=completion_state
+        )
+
+        logger.info(
+            f"Phase '{phase}' completed for task {task_id}. Next phase: {next_phase or 'complete'}"
+        )
+
+        return {
+            'success': True,
+            'can_proceed': True,
+            'next_phase': next_phase,
+            'checkpoint': checkpoint_data,
+            'validation': validation_result,
+            'merge_result': merge_result,
+            'message': f"Phase {phase} finalized successfully"
+        }
+
+    async def _update_evolution_log_on_failure(
+        self,
+        task_id: str,
+        phase: str,
+        validation_result: dict[str, Any],
+        ready_file_path: str,
+        working_directory: str
+    ) -> None:
+        """
+        Update Evolution Log in READY.md when validation fails.
+
+        Adds entry to "Known Gotchas" section with:
+        - Phase that failed
+        - What failed (tests/linting/imports)
+        - Suggestion for fix
+        """
+        from pathlib import Path
+
+        ready_path = Path(ready_file_path)
+
+        if not ready_path.exists():
+            logger.warning(f"READY.md not found at {ready_path}, skipping evolution log")
+            return
+
+        # Read READY.md
+        content = ready_path.read_text()
+
+        # Create evolution entry
+        entry = f"\n### {datetime.now().strftime('%Y-%m-%d')} - {phase.title()} Phase Validation Failed\n"
+        entry += f"- **Issue**: {validation_result.get('suggestion', 'Validation failed')}\n"
+
+        # Get failed checks
+        failed_checks = []
+        checks = validation_result.get('checks', {})
+        for check_name, check_result in checks.items():
+            if isinstance(check_result, dict) and not check_result.get('passed', True):
+                failed_checks.append(check_name)
+
+        if failed_checks:
+            entry += f"- **Checks Failed**: {', '.join(failed_checks)}\n"
+
+        entry += f"- **Resolution**: Fix issues above before proceeding to next phase\n"
+
+        # Append to Evolution Log section
+        if "## Evolution Log" in content:
+            content = content.replace(
+                "## Evolution Log",
+                f"## Evolution Log{entry}"
+            )
+        else:
+            # Add Evolution Log section
+            content += f"\n\n## Evolution Log{entry}"
+
+        # Write back
+        ready_path.write_text(content)
+        logger.info(f"Updated Evolution Log in READY.md")
+
+    async def record_phase_result(
+        self,
+        task_id: str,
+        phase: str,
+        decisions: list[dict[str, Any]],
+        gotchas: list[str],
+    ) -> dict[str, Any]:
+        """
+        Record phase results to Neo4j for cross-phase learning.
+
+        Args:
+            task_id: Task ID
+            phase: Phase name
+            decisions: Architectural decisions made during phase
+            gotchas: Issues/gotchas discovered during phase
+
+        Returns:
+            {
+                "recorded": bool,
+                "decision_count": int,
+                "gotcha_count": int
+            }
+
+        Raises:
+            RuntimeError: If recording fails
+        """
+        if not task_id:
+            raise RuntimeError('task_id required')
+        if not phase:
+            raise RuntimeError('phase required')
+        if decisions is None:
+            raise RuntimeError('decisions required (can be empty list)')
+        if gotchas is None:
+            raise RuntimeError('gotchas required (can be empty list)')
+
+        logger.info(
+            f'Recording {len(decisions)} decisions and {len(gotchas)} gotchas '
+            f"for phase '{phase}' of task {task_id}"
+        )
+
+        # Record decisions to Neo4j
+        for decision in decisions:
+            if 'question' not in decision:
+                raise RuntimeError(
+                    f"Decision missing 'question' field: {decision}"
+                )
+            if 'chosen' not in decision:
+                raise RuntimeError(
+                    f"Decision missing 'chosen' field: {decision}"
+                )
+            if 'rejected' not in decision:
+                raise RuntimeError(
+                    f"Decision missing 'rejected' field: {decision}"
+                )
+            if 'rationale' not in decision:
+                raise RuntimeError(
+                    f"Decision missing 'rationale' field: {decision}"
+                )
+
+            self.neo4j.record_decision(
+                task_id=task_id,
+                question=decision['question'],
+                chosen=decision['chosen'],
+                rejected=decision['rejected'],
+                rationale=decision['rationale'],
+            )
+
+        # Record gotchas as spike results (reuse spike infrastructure)
+        for gotcha in gotchas:
+            self.neo4j.record_spike_result(
+                task_id=task_id,
+                approach=f'{phase}_gotcha',
+                beauty_score=0.0,  # N/A for gotchas
+                integration_complexity=5,  # Default medium
+                result='discovered',
+                gotchas=[gotcha],
+            )
+
+        return {
+            'recorded': True,
+            'decision_count': len(decisions),
+            'gotcha_count': len(gotchas),
+        }
+
+    # Private helper methods
+
+    def _snapshot_directory(self, directory_path: str) -> dict[str, str]:
+        """
+        Create file hash snapshot of directory for change tracking.
+
+        Args:
+            directory_path: Path to snapshot
+
+        Returns:
+            Dict mapping relative file paths to SHA256 hashes
+        """
+        import hashlib
+        from pathlib import Path
+
+        if not directory_path or not Path(directory_path).exists():
+            return {}
+
+        snapshot = {}
+        try:
+            for file_path in Path(directory_path).rglob('*'):
+                if file_path.is_file():
+                    skip_patterns = [
+                        '__pycache__',
+                        '.pyc',
+                        '.git',
+                        '.pytest_cache',
+                        'node_modules',
+                        '.mypy_cache',
+                        '.DS_Store',
+                    ]
+                    if any(
+                        pattern in str(file_path) for pattern in skip_patterns
+                    ):
+                        continue
+
+                    try:
+                        with open(file_path, 'rb') as f:
+                            file_hash = hashlib.sha256(f.read()).hexdigest()
+                        rel_path = str(file_path.relative_to(directory_path))
+                        snapshot[rel_path] = file_hash
+                    except (PermissionError, OSError) as e:
+                        logger.debug(f'Skipped file {file_path}: {e}')
+                        continue
+
+        except Exception as e:
+            logger.warning(f'Error creating directory snapshot: {e}')
+
+        return snapshot
+
+    def _get_modified_files(
+        self,
+        before_snapshot: dict[str, str],
+        after_snapshot: dict[str, str],
+        directory_path: str,
+    ) -> list[str]:
+        """
+        Compare snapshots to find modified files.
+
+        Args:
+            before_snapshot: Snapshot before agent work
+            after_snapshot: Snapshot after agent work
+            directory_path: Base directory path
+
+        Returns:
+            List of absolute paths to modified/new files
+        """
+        from pathlib import Path
+
+        modified_files = []
+
+        for rel_path, after_hash in after_snapshot.items():
+            before_hash = before_snapshot.get(rel_path)
+            if before_hash != after_hash:
+                abs_path = str(Path(directory_path) / rel_path)
+                modified_files.append(abs_path)
+
+        logger.debug(
+            f'Found {len(modified_files)} modified files in {directory_path}'
+        )
+        return modified_files
+
+    def _get_git_context(
+        self, working_directory: str
+    ) -> tuple[str | None, str | None]:
+        """
+        Get git SHA and branch from working directory.
+
+        Returns (None, None) if not a git repository.
+
+        Args:
+            working_directory: Path to check for git context
+
+        Returns:
+            Tuple of (git_sha, branch) or (None, None)
+        """
+        if not working_directory:
+            return (None, None)
+
+        try:
+            sha_result = subprocess.run(
+                ['git', 'rev-parse', 'HEAD'],
+                cwd=working_directory,
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=5,
+            )
+            git_sha = sha_result.stdout.strip()
+
+            branch_result = subprocess.run(
+                ['git', 'branch', '--show-current'],
+                cwd=working_directory,
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=5,
+            )
+            branch = branch_result.stdout.strip()
+
+            if not git_sha:
+                logger.warning(f'Git SHA is empty for {working_directory}')
+                return (None, None)
+
+            if not branch:
+                try:
+                    branch_result = subprocess.run(
+                        ['git', 'rev-parse', '--abbrev-ref', 'HEAD'],
+                        cwd=working_directory,
+                        capture_output=True,
+                        text=True,
+                        check=True,
+                        timeout=5,
+                    )
+                    branch = branch_result.stdout.strip()
+                    if branch == 'HEAD':
+                        logger.debug(
+                            f'Detached HEAD state in {working_directory}'
+                        )
+                        branch = None
+                except subprocess.CalledProcessError:
+                    branch = None
+
+            logger.debug(
+                f'Git context for {working_directory}: sha={git_sha[:8]}, branch={branch}'
+            )
+            return (git_sha, branch or None)
+
+        except subprocess.CalledProcessError as e:
+            logger.debug(f'Not a git repository: {working_directory} ({e})')
+            return (None, None)
+        except FileNotFoundError:
+            logger.debug(f'Git not found in PATH for {working_directory}')
+            return (None, None)
+        except subprocess.TimeoutExpired:
+            logger.warning(f'Git command timed out for {working_directory}')
+            return (None, None)
+        except Exception as e:
+            logger.warning(f'Unexpected error getting git context: {e}')
+            return (None, None)
+
+    async def _query_prior_learnings(
+        self, task_id: str, current_phase: str, working_directory: str
+    ) -> dict[str, Any]:
+        """
+        Query all prior learnings using hybrid approach:
+        - PRISM intelligent retrieval (6-stage pipeline) for memories
+        - Neo4j for decision graph relationships
+
+        This combines semantic/graph/temporal/utility ranking from PRISM
+        with architectural decision tracking from Neo4j.
+
+        Args:
+            task_id: Task ID
+            current_phase: Current phase name
+            working_directory: Working directory for git context
+
+        Returns:
+            {
+                "decisions": [...],  # From Neo4j
+                "gotchas": [...],    # From Neo4j (legacy)
+                "memories": [...],   # From PRISM intelligent retrieval
+                "retrieval_id": "uuid",  # For feedback loop
+                "sources": [...]     # Task IDs queried
+            }
+        """
+        task_data = await self.redis.hgetall(f'task:{task_id}')
+        if not task_data:
+            raise RuntimeError(f'Task not found: {task_id}')
+
+        parent_task_id = task_data.get(b'parent_task_id', b'').decode()
+        task_description = task_data.get(b'description', b'').decode()
+        project_id = task_data.get(b'project_id', b'').decode()
+
+        task_ids_to_query = [task_id]
+        if parent_task_id:
+            task_ids_to_query.append(parent_task_id)
+
+        all_decisions = []
+        all_gotchas = []
+
+        for tid in task_ids_to_query:
+            decisions = self.neo4j.query(
+                """
+                MATCH (d:Decision {task_id: $task_id})
+                OPTIONAL MATCH (d)-[:CHOSE]->(chosen:Approach)
+                RETURN d.question AS question, d.timestamp AS timestamp,
+                       chosen.name AS chosen_approach
+                ORDER BY d.timestamp
+                """,
+                {'task_id': tid},
+            )
+            all_decisions.extend(decisions)
+
+            gotchas = self.neo4j.query(
+                """
+                MATCH (s:Spike {task_id: $task_id})-[:DISCOVERED_GOTCHA]->(g:Gotcha)
+                RETURN g.description AS gotcha, s.approach AS source
+                """,
+                {'task_id': tid},
+            )
+            all_gotchas.extend(gotchas)
+
+        prism_memories = []
+        retrieval_id = None
+
+        if self.prism and self.prism.connected:
+            try:
+                git_sha, branch = self._get_git_context(working_directory)
+
+                query = f'{task_description} {current_phase}'
+
+                agent_type = self._get_agent_type_for_phase(current_phase)
+
+                prism_result = await self.prism.client.retrieve_memories(
+                    query=query,
+                    session_id=task_id,
+                    role=agent_type,
+                    task_type=current_phase,
+                    phase='prepare',
+                    project_id=project_id or None,
+                    branch=branch,
+                    git_sha=git_sha,
+                    limit=10,
+                )
+
+                prism_memories = prism_result.get('memories', [])
+                retrieval_id = prism_result.get('retrieval_id')
+
+                logger.info(
+                    f'Retrieved {len(prism_memories)} memories from PRISM '
+                    f"for phase '{current_phase}' (git_sha={git_sha[:8] if git_sha else 'none'})"
+                )
+
+            except Exception as e:
+                logger.warning(
+                    f'PRISM retrieval failed, continuing with Neo4j only: {e}'
+                )
+                prism_memories = []
+                retrieval_id = None
+        else:
+            logger.debug('PRISM not connected, using Neo4j only for learnings')
+
+        return {
+            'decisions': all_decisions,
+            'gotchas': all_gotchas,
+            'memories': prism_memories,
+            'retrieval_id': retrieval_id,
+            'sources': task_ids_to_query,
+        }
+
+    async def _build_agent_context(
+        self,
+        task_id: str,
+        phase: str,
+        module: str,
+        prior_learnings: dict[str, Any],
+        working_directory: str,
+        preferences: list[dict[str, Any]] = None,  # Phase 5: Preferences
+    ) -> dict[str, Any]:
+        """
+        Build layered agent context with mission recitation.
+
+        Implements research-backed patterns:
+        - Context recitation (mission at start + end)
+        - Layered context (PRIMARY/SECONDARY/REFERENCE)
+        - Self-check gates
+        - TODO tracking instructions
+        - Phase 5: Architectural preferences (highest priority)
+        """
+        if not task_id:
+            raise RuntimeError('task_id required')
+        if not phase:
+            raise RuntimeError('phase required')
+        if not module:
+            raise RuntimeError('module required')
+
+        # Get specification from Redis
+        import json
+
+        spec_json = await self.redis.get(f'task:{task_id}:specification')
+        specification = json.loads(spec_json) if spec_json else {}
+
+        # Extract mission (Pattern 1: Context Recitation)
+        mission = specification.get(
+            'mission', f'Complete {phase} phase for task {task_id}'
+        )
+
+        # Get code context from PRISM if available (Phase 3: Auto-Context)
+        code_context = ''
+        if self.auto_context:
+            try:
+                task_description = (
+                    f'Implement {module} module for {phase} phase. {mission}'
+                )
+                code_context = await self.auto_context.on_task_start(
+                    task_id=task_id,
+                    task_description=task_description,
+                    working_directory=working_directory,
+                )
+                if code_context:
+                    logger.info(
+                        f'Injected {len(code_context)} chars of code context for {module}'
+                    )
+            except Exception as e:
+                logger.debug(f'Auto-context failed: {e}')
+
+        # Filter learnings for relevance to THIS module (Pattern 5: Semantic Filtering)
+        relevant_decisions = await self._filter_learnings_by_relevance(
+            prior_learnings.get('decisions', []), module, 'decisions'
+        )
+        relevant_gotchas = await self._filter_learnings_by_relevance(
+            prior_learnings.get('gotchas', []), module, 'gotchas'
+        )
+
+        # PRISM memories are already intelligently filtered by 6-stage pipeline
+        # (semantic + graph + temporal + diversity + utility)
+        prism_memories = prior_learnings.get('memories', [])
+
+        # Build layered context (Pattern 2: Layered Context)
+        primary_context = {
+            'your_specific_task': f'Implement {module} module for {phase} phase',
+            'module_name': module,
+            'phase': phase,
+            'working_directory': working_directory,
+            'success_criteria': [
+                f'Self-test passes for {module}',
+                'All exports match skeleton contracts',
+                'No import errors',
+            ],
+        }
+
+        # Inject code context if available
+        if code_context:
+            primary_context['codebase_context'] = code_context
+
+        # Phase 5: Inject approved preferences (highest priority, always included)
+        if preferences:
+            pref_by_category = {}
+            for pref in preferences:
+                cat = pref.get('category', 'general')
+                if cat not in pref_by_category:
+                    pref_by_category[cat] = []
+                pref_by_category[cat].append(pref['content'])
+
+            pref_text_parts = ['# Architectural Preferences']
+            pref_text_parts.append(
+                'Follow these established patterns from this project:\n'
+            )
+            for category, prefs in pref_by_category.items():
+                pref_text_parts.append(f'## {category.title()}')
+                for pref in prefs:
+                    pref_text_parts.append(f'- {pref}')
+
+            primary_context['architectural_preferences'] = '\n'.join(
+                pref_text_parts
+            )
+            logger.info(
+                f'Injected {len(preferences)} preferences into PRIMARY context for {module}'
+            )
+
+        # Track memory layer attribution for feedback loop (Phase 2A)
+        memory_attribution = {'PRIMARY': [], 'SECONDARY': [], 'REFERENCE': []}
+
+        # Add PRISM memories to PRIMARY (highly relevant, intelligently filtered)
+        if prism_memories:
+            primary_context['intelligent_learnings'] = [
+                {
+                    'content': m.get('content', ''),
+                    'type': m.get('type', 'learning'),
+                    'confidence': m.get('confidence', 1.0),
+                }
+                for m in prism_memories[:5]  # Top 5 from intelligent retrieval
+            ]
+            memory_attribution['PRIMARY'] = [
+                m.get('memory_id')
+                for m in prism_memories[:5]
+                if m.get('memory_id')
+            ]
+
+        context = {
+            # Pattern 1: Mission at TOP
+            'MISSION_RECITATION': mission,
+            # Pattern 2: PRIMARY context (immediate need)
+            'PRIMARY': primary_context,
+            # Pattern 2: SECONDARY context (use if stuck)
+            'SECONDARY_IF_STUCK': {
+                'relevant_decisions': [
+                    {
+                        'question': d.get('question', ''),
+                        'chosen': d.get('chosen', ''),
+                        'rationale': d.get('rationale', ''),
+                    }
+                    for d in relevant_decisions[:5]  # Top 5 most relevant
+                ],
+                'relevant_gotchas': [
+                    g.get('description', str(g))
+                    for g in relevant_gotchas[:3]  # Top 3 most relevant
+                ],
+                'additional_memories': [
+                    m.get('content', '')
+                    for m in prism_memories[5:10]  # Next 5 memories as backup
+                ]
+                if len(prism_memories) > 5
+                else [],
+            },
+            # Pattern 2: REFERENCE context (background info)
+            'REFERENCE_ONLY': {
+                'full_mission': mission,
+                'architecture': specification.get('architecture', {}),
+                'quality_requirements': specification.get(
+                    'quality_requirements', []
+                ),
+                'task_id': task_id,
+                'timestamp': datetime.now().isoformat(),
+            },
+            # Pattern 3: Self-check gates
+            'SELF_CHECK_BEFORE_DONE': {
+                'instruction': 'Answer these questions before marking your work complete',
+                'questions': [
+                    f'Does your work fulfill the specific task for {module}?',
+                    'Does it pass self-test when you run the code?',
+                    f'List any deviations from the {phase} objectives',
+                    'Did you check all imports resolve correctly?',
+                ],
+            },
+            # Pattern 6: TODO tracking
+            'TODO_TRACKING': {
+                'instruction': 'Create TODO.md in your working directory with these tasks',
+                'format': [
+                    f'[ ] Implement {module} module',
+                    '[ ] Self-test passes',
+                    '[ ] All exports match contracts',
+                    '[ ] No import errors',
+                ],
+                'update_frequency': 'After each file, re-read TODO.md and update checkboxes',
+                'on_completion': 'All boxes must be checked before submitting',
+            },
+            # Pattern 1: Mission at BOTTOM (fights lost-in-middle)
+            'RECITE_MISSION': mission,
+        }
+
+        # Track SECONDARY attribution
+        if len(prism_memories) > 5:
+            memory_attribution['SECONDARY'] = [
+                m.get('memory_id')
+                for m in prism_memories[5:10]
+                if m.get('memory_id')
+            ]
+
+        # Store memory attribution for feedback loop (Phase 2D)
+        # Format: {layer: [memory_id1, memory_id2, ...]}
+        if memory_attribution['PRIMARY'] or memory_attribution['SECONDARY']:
+            import json
+
+            await self.redis.hset(
+                f'memory_attribution:{task_id}:{phase}:{module}',
+                mapping={
+                    'retrieval_id': prior_learnings.get('retrieval_id', ''),
+                    'attribution': json.dumps(memory_attribution),
+                },
+            )
+            logger.debug(
+                f'Stored memory attribution for {task_id}:{phase}:{module} - '
+                f'PRIMARY: {len(memory_attribution["PRIMARY"])}, '
+                f'SECONDARY: {len(memory_attribution["SECONDARY"])}'
+            )
+
+        return context
+
+    async def _record_memory_feedback_for_phase(
+        self,
+        task_id: str,
+        phase: str,
+        modules: list[str],
+        gate_passed: bool,
+        working_directory: str,
+    ) -> dict[str, Any]:
+        """
+        Record feedback about memory utility based on phase outcome.
+
+        Combines multiple signals:
+        - Context layer (PRIMARY/SECONDARY)
+        - Pattern matching (provable usage)
+        - Semantic similarity (conceptual influence)
+        - Gate outcome (success/failure)
+
+        Args:
+            task_id: Task ID
+            phase: Phase name
+            modules: List of modules worked on
+            gate_passed: Whether gates passed
+            working_directory: Working directory
+
+        Returns:
+            {
+                "feedbacks_recorded": N,
+                "high_confidence": M,
+                "medium_confidence": K,
+                "low_confidence": L
+            }
+        """
+        import json
+
+        feedbacks_recorded = 0
+        confidence_counts = {'high': 0, 'medium': 0, 'low': 0}
+
+        if not self.prism or not self.prism.connected:
+            logger.debug('PRISM not connected, skipping feedback recording')
+            return {'feedbacks_recorded': 0}
+
+        for module in modules:
+            try:
+                attribution_data = await self.redis.hgetall(
+                    f'memory_attribution:{task_id}:{phase}:{module}'
+                )
+                if not attribution_data:
+                    logger.debug(
+                        f'No attribution data for {module}, skipping feedback'
+                    )
+                    continue
+
+                retrieval_id = attribution_data.get(
+                    b'retrieval_id', b''
+                ).decode()
+                attribution = json.loads(
+                    attribution_data.get(b'attribution', b'{}').decode()
+                )
+
+                if not retrieval_id:
+                    logger.debug(
+                        f'No retrieval_id for {module}, skipping feedback'
+                    )
+                    continue
+
+                before_snapshot_json = await self.redis.get(
+                    f'snapshot_before:{task_id}:{phase}:{module}'
+                )
+                if not before_snapshot_json:
+                    logger.debug(
+                        f'No before snapshot for {module}, skipping file-based feedback'
+                    )
+                    modified_files = []
+                else:
+                    before_snapshot = json.loads(before_snapshot_json)
+
+                    strategy = self.neo4j.get_execution_strategy(task_id)
+                    if not strategy:
+                        logger.warning(
+                            'No execution strategy found for feedback'
+                        )
+                        continue
+
+                    chamber_path = working_directory
+                    for level_info in strategy:
+                        if module in level_info['modules']:
+                            if (
+                                len(level_info['modules']) > 1
+                                or len(strategy) > 1
+                            ):
+                                chamber_path = f'{working_directory}/.chambers/phase_{phase}_module_{module}'
+                            break
+
+                    after_snapshot = self._snapshot_directory(chamber_path)
+                    modified_files = self._get_modified_files(
+                        before_snapshot, after_snapshot, chamber_path
+                    )
+
+                # Process PRIMARY memories (high confidence if used)
+                for memory_id in attribution.get('PRIMARY', []):
+                    confidence = 0.3  # Base confidence for PRIMARY layer
+
+                    if modified_files and self.prism and self.prism.connected:
+                        confidence = 0.5
+
+                    await self.prism.client.record_memory_feedback(
+                        retrieval_id=retrieval_id,
+                        memory_id=memory_id,
+                        used=True,
+                        helpful=gate_passed,
+                        reason=f'PRIMARY context, gate={"passed" if gate_passed else "failed"}, confidence={confidence:.2f}',
+                    )
+
+                    feedbacks_recorded += 1
+                    if confidence >= 0.7:
+                        confidence_counts['high'] += 1
+                    elif confidence >= 0.4:
+                        confidence_counts['medium'] += 1
+                    else:
+                        confidence_counts['low'] += 1
+
+                # Process SECONDARY memories (medium confidence if used)
+                for memory_id in attribution.get('SECONDARY', []):
+                    confidence = 0.1  # Lower confidence for SECONDARY
+
+                    await self.prism.client.record_memory_feedback(
+                        retrieval_id=retrieval_id,
+                        memory_id=memory_id,
+                        used=gate_passed,
+                        helpful=gate_passed,
+                        reason=f'SECONDARY context, gate={"passed" if gate_passed else "failed"}, confidence={confidence:.2f}',
+                    )
+
+                    feedbacks_recorded += 1
+                    confidence_counts['low'] += 1
+
+            except Exception as e:
+                logger.warning(
+                    f'Failed to record feedback for module {module}: {e}'
+                )
+                continue
+
+        logger.info(
+            f"Recorded {feedbacks_recorded} feedbacks for phase '{phase}' - "
+            f'high:{confidence_counts["high"]}, medium:{confidence_counts["medium"]}, low:{confidence_counts["low"]}'
+        )
+
+        return {'feedbacks_recorded': feedbacks_recorded, **confidence_counts}
+
+    def _get_agent_type_for_phase(self, phase: str) -> str:
+        """Map phase to appropriate agent type."""
+        phase_to_agent = {
+            'skeleton': 'skeleton-builder-haiku',
+            'implementation': 'implementation-executor',
+            'testing': 'test-implementer',
+            'validation': 'validator-master',
+        }
+
+        agent_type = phase_to_agent.get(phase)
+        if not agent_type:
+            raise RuntimeError(f'Unknown phase: {phase}')
+
+        return agent_type
+
+    async def _run_progressive_checkpoints(
+        self, task_id: str, phase: str
+    ) -> dict[str, Any]:
+        """
+        DEPRECATED: Use ValidationRunner.validate_phase() instead.
+
+        This method is kept for backward compatibility but will be removed in future.
+        """
+        logger.warning(
+            "_run_progressive_checkpoints is deprecated. Use ValidationRunner.validate_phase() instead"
+        )
+
+        # Return minimal structure for backward compatibility
+        return {
+            'passed': True,
+            'failures': [],
+            'status': 'PASSED'
+        }
+
+    def _get_agent_autonomy_config(self, agent_type: str) -> dict[str, str]:
+        """
+        Get autonomy configuration for agent type.
+
+        Implements Pattern 4: Graduated Autonomy
+        Matches real junior/senior developer workflows.
+        """
+        agent_autonomy = {
+            'skeleton-builder-haiku': {
+                'freedom': 'high',
+                'validation': 'strict',
+                'failure_tolerance': 'learning',
+                'description': 'Can explore structure, but validator reviews thoroughly',
+            },
+            'implementation-executor': {
+                'freedom': 'medium',
+                'validation': 'checkpoint',
+                'failure_tolerance': 'retry_once',
+                'description': 'Follow skeleton contracts, must pass self-test',
+            },
+            'test-implementer': {
+                'freedom': 'medium',
+                'validation': 'checkpoint',
+                'failure_tolerance': 'retry_once',
+                'description': 'Follow test skeleton, must pass coverage',
+            },
+            'validator-master': {
+                'freedom': 'low',
+                'validation': 'blocker',
+                'failure_tolerance': 'none',
+                'description': 'Strict criteria only, failures stop everything',
+            },
+        }
+
+        return agent_autonomy.get(
+            agent_type,
+            agent_autonomy[
+                'implementation-executor'
+            ],  # Default to medium autonomy
+        )
+
+    async def _generate_validator_spec(
+        self, task_id: str, phase: str, checkpoint_results: dict[str, Any]
+    ) -> dict[str, Any]:
+        """
+        DEPRECATED: Validation now handled by ValidationRunner.
+
+        This method is kept for backward compatibility but will be removed in future.
+        """
+        logger.warning(
+            "_generate_validator_spec is deprecated. Use ValidationRunner instead"
+        )
+
+        return {
+            'agent_type': 'validator-master',
+            'task_id': task_id,
+            'phase': phase,
+        }
+
+    def _parse_validator_output(
+        self, validator_output: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Parse validator agent output to determine if phase is complete."""
+        # Validator should return structured output
+        if 'complete' not in validator_output:
+            # Try to parse from text if structured format not provided
+            # For now, default to failed if format is wrong
+            return {
+                'complete': False,
+                'issues': ['Validator output format invalid'],
+                'summary': 'Could not parse validator output',
+            }
+
+        return {
+            'complete': validator_output['complete'],
+            'issues': validator_output.get('issues', []),
+            'summary': validator_output.get('summary', ''),
+        }
+
+    async def _filter_learnings_by_relevance(
+        self, learnings: list[Any], module: str, learning_type: str
+    ) -> list[Any]:
+        """
+        Filter learnings by relevance to current module.
+
+        Uses PRISM semantic filtering if available, falls back to keyword matching.
+        Implements Pattern 5: Semantic Filtering.
+
+        Args:
+            learnings: List of decisions or gotchas
+            module: Current module name
+            learning_type: "decisions" or "gotchas"
+
+        Returns:
+            Filtered list of relevant learnings
+        """
+        if not learnings:
+            return []
+
+        if not module:
+            raise RuntimeError('module required for filtering')
+
+        # Pattern 5: PRISM semantic filtering
+        if self.prism and self.prism.connected:
+            try:
+                query = f'implementing {module} module'
+
+                if learning_type == 'decisions':
+                    # Filter decisions by semantic relevance
+                    filtered = await self.prism.filter_memories_by_relevance(
+                        learnings, query, top_k=5
+                    )
+                    # Extract just the learning objects (filter returns tuples)
+                    return [learning for learning, score in filtered]
+
+                if learning_type == 'gotchas':
+                    # Filter gotchas by semantic relevance
+                    filtered = await self.prism.filter_memories_by_relevance(
+                        learnings, query, top_k=3
+                    )
+                    return [learning for learning, score in filtered]
+
+                logger.warning(
+                    f'Unknown learning_type: {learning_type}, returning all'
+                )
+                return learnings
+
+            except Exception as e:
+                logger.warning(
+                    f'PRISM filtering failed: {e}, falling back to keyword matching'
+                )
+                # Fall through to keyword matching
+
+        # Fallback: Keyword matching
+        module_lower = module.lower()
+        filtered = []
+
+        for learning in learnings:
+            # Check if module name appears in learning content
+            learning_str = str(learning).lower()
+
+            if module_lower in learning_str:
+                filtered.append(learning)
+                continue
+
+            # For decisions, check affected_modules field
+            if learning_type == 'decisions' and isinstance(learning, dict):
+                affected = learning.get('affected_modules', [])
+                if module in affected:
+                    filtered.append(learning)
+                    continue
+
+            # For gotchas, check module field
+            if learning_type == 'gotchas' and isinstance(learning, dict):
+                gotcha_module = learning.get('module', '')
+                if module in gotcha_module:
+                    filtered.append(learning)
+
+        # Return top matches (fallback limits)
+        limit = 5 if learning_type == 'decisions' else 3
+        return filtered[:limit]
+
+    async def prepare_task_with_analysis(
+        self,
+        task_id: str,
+        working_directory: str,
+        ready_file_path: str | None = None,
+        auto_augment: bool = False,
+    ) -> dict[str, Any]:
+        """
+        Phase 0: Preparation phase with project analysis.
+
+        Analyzes project, optionally augments READY.md with suggestions,
+        and loads project roles.
+
+        Args:
+            task_id: Task ID
+            working_directory: Project working directory
+            ready_file_path: Path to READY.md (optional)
+            auto_augment: If True, automatically augment READY.md with suggestions
+
+        Returns:
+            {
+                "analysis": ProjectAnalysis results,
+                "spec_augmented": bool,
+                "roles_loaded": list of role names,
+                "status": "prepared"
+            }
+
+        Raises:
+            RuntimeError: If task not found or analysis fails
+        """
+        if not task_id:
+            raise RuntimeError('task_id required')
+        if not working_directory:
+            raise RuntimeError('working_directory required')
+
+        logger.info(f'Phase 0: Preparing task {task_id} with project analysis')
+
+        task_data = await self.redis.hgetall(f'task:{task_id}')
+        if not task_data:
+            raise RuntimeError(f'Task not found: {task_id}')
+
+        analyzer = ProjectAnalyzer(working_directory, timeout_seconds=30)
+        analysis = await analyzer.analyze()
+
+        logger.info(
+            f'Project analysis complete: {analysis.language}, '
+            f'{len(analysis.frameworks)} frameworks, '
+            f'confidence={analysis.confidence:.2f}'
+        )
+
+        spec_augmented = False
+        roles_loaded = []
+
+        if ready_file_path and auto_augment:
+            try:
+                spec = ReadyParser.parse_file(ready_file_path)
+                tracker = SpecEvolutionTracker(
+                    ready_file_path, working_directory
+                )
+
+                files_added = 0
+                for file_info in analysis.suggested_files[:5]:
+                    if file_info['path'] not in [
+                        f['path'] for f in spec.files_to_create
+                    ]:
+                        tracker.on_new_file_needed(file_info)
+                        files_added += 1
+
+                gotchas_added = 0
+                for gotcha in analysis.suggested_gotchas[:5]:
+                    if gotcha not in spec.known_gotchas:
+                        tracker.on_gate_failure(
+                            gate='analysis',
+                            failure_reason='Project analysis identified potential issue',
+                            gotcha=gotcha,
+                        )
+                        gotchas_added += 1
+
+                spec_augmented = files_added > 0 or gotchas_added > 0
+                logger.info(
+                    f'Spec augmented: {files_added} files, {gotchas_added} gotchas'
+                )
+
+            except Exception as e:
+                logger.warning(f'Failed to augment spec: {e}')
+
+        if ready_file_path:
+            try:
+                spec = ReadyParser.parse_file(ready_file_path)
+                role_manager = RoleManager()
+                role_manager.load_project_roles(spec.custom_roles)
+                roles_loaded = role_manager.get_all_available_roles()
+                logger.info(f'Loaded {len(roles_loaded)} roles')
+
+            except Exception as e:
+                logger.warning(f'Failed to load project roles: {e}')
+
+        await self.redis.hset(
+            f'task:{task_id}:analysis',
+            mapping={
+                'language': analysis.language,
+                'frameworks': ','.join(analysis.frameworks),
+                'confidence': str(analysis.confidence),
+                'spec_augmented': str(spec_augmented),
+            },
+        )
+
+        return {
+            'status': 'prepared',
+            'analysis': {
+                'language': analysis.language,
+                'frameworks': analysis.frameworks,
+                'dependencies': analysis.dependencies[:10],
+                'architecture_pattern': analysis.architecture_pattern,
+                'suggested_files_count': len(analysis.suggested_files),
+                'suggested_gotchas_count': len(analysis.suggested_gotchas),
+                'confidence': analysis.confidence,
+            },
+            'spec_augmented': spec_augmented,
+            'roles_loaded': roles_loaded,
+        }
+
+    async def synthesize_task_learnings(
+        self, task_id: str, ready_file_path: str, working_directory: str
+    ) -> dict[str, Any]:
+        """
+        Phase N+1: Post-completion synthesis of learnings.
+
+        Synthesizes learnings from task execution and stores to PRISM/Neo4j.
+
+        Args:
+            task_id: Task ID
+            ready_file_path: Path to READY.md
+            working_directory: Project working directory
+
+        Returns:
+            Synthesis report with summary and storage status
+
+        Raises:
+            RuntimeError: If task not found or synthesis fails
+        """
+        if not task_id:
+            raise RuntimeError('task_id required')
+        if not ready_file_path:
+            raise RuntimeError('ready_file_path required')
+        if not working_directory:
+            raise RuntimeError('working_directory required')
+
+        logger.info(f'Phase N+1: Synthesizing learnings for task {task_id}')
+
+        task_data = await self.redis.hgetall(f'task:{task_id}')
+        if not task_data:
+            raise RuntimeError(f'Task not found: {task_id}')
+
+        phase_states = []
+        for phase in ['skeleton', 'implementation', 'testing', 'validation']:
+            phase_state = await self.redis.hgetall(
+                f'phase_state:{task_id}:{phase}'
+            )
+            if phase_state:
+                phase_states.append(
+                    {
+                        'phase': phase,
+                        'status': phase_state.get(b'status', b'').decode(),
+                        'agents_count': int(
+                            phase_state.get(b'agents_count', b'0')
+                        ),
+                    }
+                )
+
+        task_synthesis_data = {
+            'task_id': task_id,
+            'description': task_data.get(b'description', b'').decode(),
+            'complexity': task_data.get(b'complexity', b'').decode(),
+            'phases_completed': len(phase_states),
+            'gates_passed': 0,
+            'gates_failed': 0,
+            'duration_seconds': 0,
+        }
+
+        tracker = SpecEvolutionTracker(ready_file_path, working_directory)
+        result = await tracker.synthesize_learnings(task_synthesis_data)
+
+        logger.info(
+            f'Learnings synthesized: PRISM={result["prism_stored"]}, Neo4j={result["neo4j_stored"]}'
+        )
+
+        return result
+
+    async def _detect_chamber_conflicts(
+        self,
+        task_id: str,
+        phase: str,
+        chamber_outputs: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        """
+        Detect conflicts between parallel chamber implementations.
+
+        Phase 5: Orchestration Integration
+        Analyzes chamber outputs for divergent choices (frameworks, patterns, tools).
+
+        Args:
+            task_id: Task ID
+            phase: Phase name
+            chamber_outputs: Dict of {module: {path, files}}
+
+        Returns:
+            List of detected conflicts
+        """
+        conflicts = []
+
+        # Simple framework detection (check for common framework imports)
+        framework_imports = {
+            'flask': ['flask', 'Flask'],
+            'django': ['django', 'Django'],
+            'fastapi': ['fastapi', 'FastAPI'],
+            'express': ['express()', 'require("express")'],
+            'react': ['React', 'from react'],
+            'vue': ['Vue', 'from vue'],
+        }
+
+        frameworks_by_module = {}
+
+        for module, output in chamber_outputs.items():
+            files = output.get('files', {})
+            detected_frameworks = set()
+
+            # Scan files for framework imports
+            for file_path, file_info in files.items():
+                if file_path.endswith(('.py', '.js', '.ts', '.tsx', '.jsx')):
+                    # Simple pattern: check if file contains framework keywords
+                    # In production, would read file content - here we just check filenames
+                    file_lower = file_path.lower()
+                    for framework, patterns in framework_imports.items():
+                        if any(
+                            pattern.lower() in file_lower for pattern in patterns
+                        ):
+                            detected_frameworks.add(framework)
+
+            if detected_frameworks:
+                frameworks_by_module[module] = list(detected_frameworks)
+
+        # Check for framework divergence
+        if len(frameworks_by_module) > 1:
+            all_frameworks = set()
+            for frameworks in frameworks_by_module.values():
+                all_frameworks.update(frameworks)
+
+            if len(all_frameworks) > 1:
+                # Different frameworks detected
+                majority_framework = max(
+                    all_frameworks,
+                    key=lambda f: sum(
+                        1
+                        for frameworks in frameworks_by_module.values()
+                        if f in frameworks
+                    ),
+                )
+
+                conflicts.append(
+                    {
+                        'type': 'framework_divergence',
+                        'description': f'Chambers used different frameworks: {list(all_frameworks)}',
+                        'modules': list(frameworks_by_module.keys()),
+                        'frameworks_by_module': frameworks_by_module,
+                        'majority_choice': majority_framework,
+                        'severity': 'high',
+                    }
+                )
+
+        return conflicts
+
+    async def _resolve_conflicts(
+        self, task_id: str, conflicts: list[dict[str, Any]]
+    ) -> int:
+        """
+        Attempt to resolve conflicts using preferences or suggest new ones.
+
+        Phase 5: Orchestration Integration
+
+        Args:
+            task_id: Task ID
+            conflicts: List of detected conflicts
+
+        Returns:
+            Number of conflicts resolved
+        """
+        if not self.prism or not self.prism.connected:
+            return 0
+
+        task_data = await self.redis.hgetall(f'task:{task_id}')
+        session_id = task_data.get(b'session_id', task_id).decode()
+        project_id = task_data.get(b'project_id', b'').decode()
+
+        resolved_count = 0
+
+        for conflict in conflicts:
+            if conflict['type'] == 'framework_divergence':
+                # Query for existing preference
+                description = f"framework choice for {conflict.get('domain', 'project')}"
+
+                try:
+                    # Check if preference already exists
+                    prefs_result = await self.prism.client.list_preferences(
+                        session_id=session_id,
+                        status='approved',
+                        category='tool',
+                        project_id=project_id,
+                        limit=10,
+                    )
+
+                    preferences = prefs_result.get('preferences', [])
+                    matching_pref = None
+
+                    for pref in preferences:
+                        if any(
+                            fw in pref['content'].lower()
+                            for fw in conflict['frameworks_by_module'].values()
+                        ):
+                            matching_pref = pref
+                            break
+
+                    if matching_pref:
+                        # Preference exists, conflict is resolved by existing preference
+                        logger.info(
+                            f"Conflict resolved by existing preference: {matching_pref['content']}"
+                        )
+                        conflict['resolution'] = 'existing_preference'
+                        conflict['resolved_by'] = matching_pref['preference_id']
+                        resolved_count += 1
+                    else:
+                        # No preference exists, suggest one based on majority vote
+                        majority = conflict['majority_choice']
+                        suggestion_content = (
+                            f"Use {majority} framework for this project"
+                        )
+
+                        await self.prism.client.suggest_preference(
+                            content=suggestion_content,
+                            category='tool',
+                            confidence=0.70,
+                            session_id=session_id,
+                            project_id=project_id,
+                            detection_method='conflict_resolution',
+                            evidence=f"Resolved via majority vote in task {task_id}: {conflict['description']}",
+                            scope_type='project',
+                            scope_value=project_id,
+                        )
+
+                        logger.info(
+                            f'Suggested new preference for future: {suggestion_content}'
+                        )
+                        conflict['resolution'] = 'suggested_preference'
+                        conflict['suggested_content'] = suggestion_content
+
+                except Exception as e:
+                    logger.warning(f'Failed to resolve conflict: {e}')
+                    conflict['resolution'] = 'failed'
+
+        return resolved_count

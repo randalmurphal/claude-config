@@ -1,0 +1,623 @@
+"""
+Comprehensive health check system for PRISM MCP.
+
+Phase 5C: Health Check Endpoint
+Provides detailed system status including databases, models, performance metrics.
+
+NO DEFAULTS - all health checks report actual state.
+"""
+
+import logging
+import time
+import asyncio
+import json
+from typing import Dict, Any, Optional, List, Tuple
+from datetime import datetime, timedelta
+from dataclasses import dataclass, asdict
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ServiceHealth:
+    """Health status for a specific service."""
+    name: str
+    status: str  # "up", "down", "degraded", "unknown"
+    latency_ms: Optional[float]
+    details: Dict[str, Any]
+    last_check: datetime
+    error_message: Optional[str] = None
+
+
+@dataclass
+class SystemHealth:
+    """Overall system health status."""
+    status: str  # "healthy", "degraded", "unhealthy"
+    timestamp: datetime
+    services: Dict[str, ServiceHealth]
+    tier_info: Dict[str, Any]
+    performance_metrics: Dict[str, Any]
+    memory_tiers: Dict[str, int]
+    warnings: List[str]
+    errors: List[str]
+
+
+class HealthChecker:
+    """
+    Comprehensive health monitoring system.
+
+    Checks all system components and provides detailed status information
+    for debugging, monitoring, and operational visibility.
+
+    NO DEFAULTS - reports actual measured state.
+    """
+
+    def __init__(self):
+        """Initialize health checker."""
+        self.last_health_check: Optional[SystemHealth] = None
+        self.check_interval = 60  # Cache results for 60 seconds
+
+    async def get_system_health(self, force_refresh: bool = False) -> SystemHealth:
+        """
+        Get comprehensive system health status.
+
+        Args:
+            force_refresh: Force new check even if cached result is available
+
+        Returns:
+            SystemHealth object with all status information
+        """
+        try:
+            # Use cached result if recent and not forcing refresh
+            if (not force_refresh and
+                self.last_health_check and
+                (datetime.now() - self.last_health_check.timestamp).seconds < self.check_interval):
+                return self.last_health_check
+
+            # Perform comprehensive health check
+            services = {}
+            warnings = []
+            errors = []
+
+            # Check all services in parallel
+            check_tasks = [
+                self._check_neo4j(),
+                self._check_qdrant(),
+                self._check_redis(),
+                self._check_models(),
+                self._check_patterns()
+            ]
+
+            service_results = await asyncio.gather(*check_tasks, return_exceptions=True)
+
+            # Process service results
+            for result in service_results:
+                if isinstance(result, ServiceHealth):
+                    services[result.name] = result
+                    if result.status == "down":
+                        errors.append(f"{result.name} is down: {result.error_message}")
+                    elif result.status == "degraded":
+                        warnings.append(f"{result.name} is degraded: {result.error_message}")
+                elif isinstance(result, Exception):
+                    errors.append(f"Health check failed: {str(result)}")
+
+            # Get additional system information
+            tier_info = await self._get_tier_info()
+            performance_metrics = await self._get_performance_metrics()
+            memory_tiers = await self._get_memory_tier_stats()
+
+            # Determine overall system status
+            overall_status = self._determine_overall_status(services, warnings, errors)
+
+            # Create system health object
+            system_health = SystemHealth(
+                status=overall_status,
+                timestamp=datetime.now(),
+                services=services,
+                tier_info=tier_info,
+                performance_metrics=performance_metrics,
+                memory_tiers=memory_tiers,
+                warnings=warnings,
+                errors=errors
+            )
+
+            # Cache result
+            self.last_health_check = system_health
+
+            return system_health
+
+        except Exception as e:
+            logger.error(f"System health check failed: {e}")
+            # Return unhealthy status with error
+            return SystemHealth(
+                status="unhealthy",
+                timestamp=datetime.now(),
+                services={},
+                tier_info={},
+                performance_metrics={},
+                memory_tiers={},
+                warnings=[],
+                errors=[f"Health check system failure: {str(e)}"]
+            )
+
+    async def _check_neo4j(self) -> ServiceHealth:
+        """Check Neo4j database health."""
+        start_time = time.time()
+        details = {}
+
+        try:
+            from prism_mcp.storage.neo4j_manager import get_neo4j_manager
+
+            neo4j = get_neo4j_manager()
+
+            # Test basic connectivity
+            result = neo4j.query("RETURN 1 as test")
+            latency_ms = (time.time() - start_time) * 1000
+
+            if result and len(result) > 0:
+                # Get additional details
+                try:
+                    # Get node count
+                    node_count_result = neo4j.query("MATCH (n) RETURN count(n) as node_count")
+                    details["node_count"] = node_count_result[0]["node_count"] if node_count_result else 0
+
+                    # Get memory usage
+                    memory_result = neo4j.query("CALL dbms.listPools() YIELD used, max")
+                    if memory_result:
+                        details["memory_used_mb"] = sum(pool["used"] for pool in memory_result) // (1024 * 1024)
+                        details["memory_max_mb"] = sum(pool["max"] for pool in memory_result) // (1024 * 1024)
+
+                    # Check GDS plugin
+                    gds_result = neo4j.query("CALL gds.version() YIELD gdsVersion")
+                    details["gds_version"] = gds_result[0]["gdsVersion"] if gds_result else "not available"
+
+                except Exception as detail_error:
+                    details["detail_error"] = str(detail_error)
+
+                return ServiceHealth(
+                    name="neo4j",
+                    status="up",
+                    latency_ms=latency_ms,
+                    details=details,
+                    last_check=datetime.now()
+                )
+            else:
+                return ServiceHealth(
+                    name="neo4j",
+                    status="down",
+                    latency_ms=latency_ms,
+                    details=details,
+                    last_check=datetime.now(),
+                    error_message="Query returned no results"
+                )
+
+        except Exception as e:
+            latency_ms = (time.time() - start_time) * 1000
+            return ServiceHealth(
+                name="neo4j",
+                status="down",
+                latency_ms=latency_ms,
+                details={"error": str(e)},
+                last_check=datetime.now(),
+                error_message=str(e)
+            )
+
+    async def _check_qdrant(self) -> ServiceHealth:
+        """Check Qdrant vector database health."""
+        start_time = time.time()
+        details = {}
+
+        try:
+            from prism_mcp.storage.qdrant_manager import get_qdrant_manager
+
+            qdrant = get_qdrant_manager()
+
+            # Test basic connectivity with health endpoint
+            import httpx
+            async with httpx.AsyncClient() as client:
+                response = await client.get("http://prism-qdrant:6333", timeout=5.0)
+                latency_ms = (time.time() - start_time) * 1000
+
+                if response.status_code == 200:
+                    health_data = response.json()
+                    details.update(health_data)
+
+                    # Get collection information
+                    try:
+                        collections_response = await client.get("http://prism-qdrant:6333/collections", timeout=5.0)
+                        if collections_response.status_code == 200:
+                            collections_data = collections_response.json()
+                            details["collections"] = len(collections_data.get("result", {}).get("collections", []))
+
+                            # Get total vector count
+                            total_vectors = 0
+                            for collection in collections_data.get("result", {}).get("collections", []):
+                                collection_name = collection.get("name", "")
+                                try:
+                                    info_response = await client.get(f"http://localhost:6333/collections/{collection_name}", timeout=5.0)
+                                    if info_response.status_code == 200:
+                                        info_data = info_response.json()
+                                        vector_count = info_data.get("result", {}).get("vectors_count", 0)
+                                        total_vectors += vector_count
+                                except:
+                                    pass
+
+                            details["total_vectors"] = total_vectors
+
+                    except Exception as detail_error:
+                        details["detail_error"] = str(detail_error)
+
+                    return ServiceHealth(
+                        name="qdrant",
+                        status="up",
+                        latency_ms=latency_ms,
+                        details=details,
+                        last_check=datetime.now()
+                    )
+                else:
+                    return ServiceHealth(
+                        name="qdrant",
+                        status="down",
+                        latency_ms=latency_ms,
+                        details={"http_status": response.status_code},
+                        last_check=datetime.now(),
+                        error_message=f"HTTP {response.status_code}"
+                    )
+
+        except Exception as e:
+            latency_ms = (time.time() - start_time) * 1000
+            return ServiceHealth(
+                name="qdrant",
+                status="down",
+                latency_ms=latency_ms,
+                details={"error": str(e)},
+                last_check=datetime.now(),
+                error_message=str(e)
+            )
+
+    async def _check_redis(self) -> ServiceHealth:
+        """Check Redis cache health."""
+        start_time = time.time()
+        details = {}
+
+        try:
+            from prism_mcp.storage.redis_cache import get_redis_cache
+
+            redis = get_redis_cache()
+
+            # Test basic connectivity
+            redis.set("health_check", "test", ttl_seconds=10)
+            result = redis.get("health_check")
+            latency_ms = (time.time() - start_time) * 1000
+
+            if result == "test":
+                # Get additional details
+                try:
+                    # Get memory usage
+                    info = redis.client.info("memory")
+                    details["memory_used_mb"] = info.get("used_memory", 0) // (1024 * 1024)
+                    details["memory_peak_mb"] = info.get("used_memory_peak", 0) // (1024 * 1024)
+
+                    # Get key count
+                    details["total_keys"] = redis.client.dbsize()
+
+                    # Get uptime
+                    server_info = redis.client.info("server")
+                    details["uptime_seconds"] = server_info.get("uptime_in_seconds", 0)
+
+                except Exception as detail_error:
+                    details["detail_error"] = str(detail_error)
+
+                return ServiceHealth(
+                    name="redis",
+                    status="up",
+                    latency_ms=latency_ms,
+                    details=details,
+                    last_check=datetime.now()
+                )
+            else:
+                return ServiceHealth(
+                    name="redis",
+                    status="down",
+                    latency_ms=latency_ms,
+                    details=details,
+                    last_check=datetime.now(),
+                    error_message="Test key write/read failed"
+                )
+
+        except Exception as e:
+            latency_ms = (time.time() - start_time) * 1000
+            return ServiceHealth(
+                name="redis",
+                status="down",
+                latency_ms=latency_ms,
+                details={"error": str(e)},
+                last_check=datetime.now(),
+                error_message=str(e)
+            )
+
+    async def _check_models(self) -> ServiceHealth:
+        """Check AI model loading and tier status."""
+        start_time = time.time()
+        details = {}
+
+        try:
+            from prism_mcp.models.tier_detector import get_tier_detector
+            from prism_mcp.models.embedder import get_embedder
+
+            # Get tier information
+            tier_detector = get_tier_detector()
+            tier_info = tier_detector.get_tier_info()
+            details.update(tier_info)
+
+            # Test model loading
+            try:
+                embedder = get_embedder()
+                test_embedding = embedder.generate_embedding("test", "research_note")
+                details["embedding_test"] = "success"
+                details["embedding_dim"] = len(test_embedding) if test_embedding is not None else 0
+            except Exception as model_error:
+                details["embedding_test"] = "failed"
+                details["embedding_error"] = str(model_error)
+
+            latency_ms = (time.time() - start_time) * 1000
+
+            # Determine status based on tier and tests
+            if details.get("current_tier") in ["Full", "Dual", "Single"]:
+                if details.get("embedding_test") == "success":
+                    status = "up"
+                    error_message = None
+                else:
+                    status = "degraded"
+                    error_message = f"Model test failed: {details.get('embedding_error', 'unknown error')}"
+            elif details.get("current_tier") == "CPU":
+                status = "degraded"
+                error_message = "Running on CPU tier (GPU not available or insufficient memory)"
+            elif details.get("current_tier") == "Keyword":
+                status = "degraded"
+                error_message = "Running on Keyword tier (no embeddings available)"
+            else:
+                status = "down"
+                error_message = "Unknown tier or tier detection failed"
+
+            return ServiceHealth(
+                name="models",
+                status=status,
+                latency_ms=latency_ms,
+                details=details,
+                last_check=datetime.now(),
+                error_message=error_message
+            )
+
+        except Exception as e:
+            latency_ms = (time.time() - start_time) * 1000
+            return ServiceHealth(
+                name="models",
+                status="down",
+                latency_ms=latency_ms,
+                details={"error": str(e)},
+                last_check=datetime.now(),
+                error_message=str(e)
+            )
+
+    async def _check_patterns(self) -> ServiceHealth:
+        """Check code pattern loading status."""
+        start_time = time.time()
+        details = {}
+
+        try:
+            from prism_mcp.core.pattern_engine import get_pattern_engine
+
+            pattern_engine = get_pattern_engine()
+
+            # Test pattern verification
+            verification_result = await pattern_engine.verify_patterns()
+            details.update(verification_result)
+
+            latency_ms = (time.time() - start_time) * 1000
+
+            # Determine status based on pattern availability
+            patterns_loaded = details.get("patterns_loaded", 0)
+            if patterns_loaded > 0:
+                status = "up"
+                error_message = None
+            elif patterns_loaded == 0:
+                status = "degraded"
+                error_message = "No patterns loaded - pattern detection unavailable"
+            else:
+                status = "down"
+                error_message = "Pattern verification failed"
+
+            return ServiceHealth(
+                name="patterns",
+                status=status,
+                latency_ms=latency_ms,
+                details=details,
+                last_check=datetime.now(),
+                error_message=error_message
+            )
+
+        except Exception as e:
+            latency_ms = (time.time() - start_time) * 1000
+            return ServiceHealth(
+                name="patterns",
+                status="down",
+                latency_ms=latency_ms,
+                details={"error": str(e)},
+                last_check=datetime.now(),
+                error_message=str(e)
+            )
+
+    async def _get_tier_info(self) -> Dict[str, Any]:
+        """Get current system tier information."""
+        try:
+            from prism_mcp.models.tier_detector import get_tier_detector
+
+            tier_detector = get_tier_detector()
+            return tier_detector.get_tier_info()
+
+        except Exception as e:
+            logger.warning(f"Failed to get tier info: {e}")
+            return {"error": str(e)}
+
+    async def _get_performance_metrics(self) -> Dict[str, Any]:
+        """Get system performance metrics."""
+        try:
+            from prism_mcp.core.performance_metrics import get_performance_metrics
+
+            metrics = get_performance_metrics()
+
+            # Get comprehensive metrics summary for last hour
+            summary = await metrics.get_all_metrics_summary(window_seconds=3600)
+
+            if not summary.get("enabled", False):
+                return {
+                    "enabled": False,
+                    "message": "Performance metrics collection is disabled"
+                }
+
+            # Extract key performance indicators
+            performance_data = {
+                "enabled": True,
+                "window_seconds": 3600,
+                "timestamp": summary.get("timestamp", ""),
+            }
+
+            # API performance metrics
+            api_metrics = summary.get("api", {})
+            performance_data.update({
+                "avg_api_latency_ms": api_metrics.get("avg_latency_ms", 0.0),
+                "p95_api_latency_ms": api_metrics.get("p95_latency_ms", 0.0),
+                "p99_api_latency_ms": api_metrics.get("p99_latency_ms", 0.0),
+                "api_requests_last_hour": api_metrics.get("request_count", 0),
+            })
+
+            # Database performance metrics
+            database_metrics = summary.get("database", {})
+            performance_data["database"] = {}
+            for db_type in ["qdrant", "neo4j", "redis"]:
+                if db_type in database_metrics:
+                    db_data = database_metrics[db_type]
+                    performance_data["database"][db_type] = {
+                        "avg_latency_ms": db_data.get("avg_latency_ms", 0.0),
+                        "p95_latency_ms": db_data.get("p95_latency_ms", 0.0),
+                        "query_count": db_data.get("query_count", 0)
+                    }
+
+            # Cache performance metrics
+            cache_metrics = summary.get("cache", {})
+            performance_data["cache"] = {
+                "get_hit_rate_percent": cache_metrics.get("get", {}).get("hit_rate_percent", 0.0),
+                "set_hit_rate_percent": cache_metrics.get("set", {}).get("hit_rate_percent", 0.0),
+                "avg_get_latency_ms": cache_metrics.get("get", {}).get("avg_latency_ms", 0.0),
+                "avg_set_latency_ms": cache_metrics.get("set", {}).get("avg_latency_ms", 0.0),
+            }
+
+            # System metrics
+            system_metrics = summary.get("system", {})
+            performance_data["system"] = {
+                "memory_usage_mb": system_metrics.get("memory_usage_mb", 0.0),
+                "active_sessions": system_metrics.get("active_sessions", 0),
+            }
+
+            return performance_data
+
+        except ImportError:
+            # Performance metrics module not available
+            return {
+                "enabled": False,
+                "error": "Performance metrics module not available"
+            }
+        except Exception as e:
+            logger.warning(f"Failed to get performance metrics: {e}")
+            return {
+                "enabled": True,
+                "error": str(e),
+                "fallback_data": {
+                    "avg_api_latency_ms": 0.0,
+                    "cache_hit_rate_percent": 0.0,
+                    "api_requests_last_hour": 0,
+                    "uptime_seconds": 0
+                }
+            }
+
+    async def _get_memory_tier_stats(self) -> Dict[str, int]:
+        """Get memory tier statistics."""
+        try:
+            from prism_mcp.core.memory_engine import get_memory_engine
+
+            memory_engine = get_memory_engine()
+            stats = await memory_engine.get_tier_statistics()
+
+            return {
+                "ANCHORS": stats.get("ANCHORS", 0),
+                "LONGTERM": stats.get("LONGTERM", 0),
+                "EPISODIC": stats.get("EPISODIC", 0),
+                "WORKING": stats.get("WORKING", 0)
+            }
+
+        except Exception as e:
+            logger.warning(f"Failed to get memory tier stats: {e}")
+            return {"error": str(e)}
+
+    def _determine_overall_status(
+        self,
+        services: Dict[str, ServiceHealth],
+        warnings: List[str],
+        errors: List[str]
+    ) -> str:
+        """Determine overall system status from service health."""
+        # Count service statuses
+        up_count = sum(1 for service in services.values() if service.status == "up")
+        degraded_count = sum(1 for service in services.values() if service.status == "degraded")
+        down_count = sum(1 for service in services.values() if service.status == "down")
+
+        # Critical services that must be up
+        critical_services = ["neo4j", "qdrant", "redis"]
+        critical_down = any(
+            services.get(service, ServiceHealth("", "down", None, {}, datetime.now())).status == "down"
+            for service in critical_services
+        )
+
+        if critical_down or errors:
+            return "unhealthy"
+        elif degraded_count > 0 or warnings:
+            return "degraded"
+        elif up_count == len(services):
+            return "healthy"
+        else:
+            return "degraded"
+
+    def to_dict(self, system_health: SystemHealth) -> Dict[str, Any]:
+        """Convert SystemHealth to dictionary for JSON serialization."""
+        return {
+            "status": system_health.status,
+            "timestamp": system_health.timestamp.isoformat(),
+            "tier": system_health.tier_info,
+            "services": {
+                name: {
+                    "status": service.status,
+                    "latency_ms": service.latency_ms,
+                    "details": service.details,
+                    "last_check": service.last_check.isoformat(),
+                    "error_message": service.error_message
+                }
+                for name, service in system_health.services.items()
+            },
+            "performance": system_health.performance_metrics,
+            "memory_tiers": system_health.memory_tiers,
+            "warnings": system_health.warnings,
+            "errors": system_health.errors
+        }
+
+
+# Singleton instance
+_health_checker: Optional[HealthChecker] = None
+
+
+def get_health_checker() -> HealthChecker:
+    """Get singleton health checker instance."""
+    global _health_checker
+    if _health_checker is None:
+        _health_checker = HealthChecker()
+    return _health_checker

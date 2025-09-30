@@ -1,0 +1,533 @@
+# Orchestration MCP - Bulletproof Multi-Agent Workflow System
+
+**REAL validation, git checkpoints, parallel worktrees, and complexity-aware workflows.**
+
+---
+
+## 🚀 Quick Start - Just Want to Use It?
+
+**Read [SIMPLE_USAGE.md](./SIMPLE_USAGE.md) for the actual API that works.**
+
+The rest of this README is architectural details. The simple guide shows you exactly what formats to use.
+
+## 🎯 Core Capabilities
+
+### Bulletproof Validation
+- **ACTUAL test execution** - Runs pytest with coverage, ruff linting, import checks
+- **Validation gates** - Blocks phase transitions on test failures
+- **90%+ coverage requirement** - Enforced automatically
+- **Clear error messages** - Tells you exactly what to fix
+
+### Git-Based Checkpoints
+- **Automatic snapshots** - Checkpoint after each validated phase
+- **Easy rollback** - `rollback_to_checkpoint` recovers from failures
+- **Metadata tracking** - Stores validation status, files changed, timestamps
+- **Zero data loss** - Never lose hours of work to bad changes
+
+### Parallel Work with Worktrees
+- **Isolated development** - Each module gets its own git worktree
+- **No conflicts** - Work on multiple modules simultaneously
+- **Smart merging** - Prefers simpler code, validates after merge
+- **Auto-cleanup** - Worktrees removed after successful merge
+
+### Complexity Scaling
+- **Auto-detection** - Analyzes description to determine small/medium/large/massive
+- **Adaptive workflows** - Small tasks skip architecture, massive tasks decompose
+- **Parallel recommendations** - Suggests parallel work based on module count
+- **Time estimates** - Based on historical data from Neo4j
+
+### Task Decomposition
+- **Massive task handling** - Breaks 30+ file tasks into 5-10 subtasks
+- **Dependency tracking** - Ensures foundation built before features
+- **Progress monitoring** - Track completion percentage across subtasks
+- **Integration planning** - Clear plan for bringing subtasks together
+
+### Neo4j Intelligence
+- **Similar task queries** - Find past tasks with similar keywords
+- **Time estimation** - Predict duration from historical data
+- **Gotcha retrieval** - Get common pitfalls for task type/phase
+- **Pattern library** - Reuse successful patterns from past work
+
+## ⚠️ NO DEFAULTS Philosophy
+
+This system operates on a **NO DEFAULTS, NO FALLBACKS** principle:
+- System MUST crash if requirements not met
+- ALL configuration values must be explicit
+- NEVER silent failures or arbitrary defaults
+- FULL POWER or CRASH - no degraded functionality
+
+## 🚀 Core Features
+
+### 1. Real Validation (THE BIG CHANGE)
+
+**No more self-validation!** The system actually runs your tests.
+
+```python
+# Old (broken):
+finalize_phase → asks user "did tests pass?" → user lies → chaos
+
+# Current:
+finalize_phase → runs pytest/ruff/imports → blocks if failed → forces fixes
+```
+
+**Validation by phase:**
+- **Skeleton**: Imports work, syntax valid (python -m compileall)
+- **Implementation**: Pytest passes, 90%+ coverage, linting passes, imports work
+- **Testing**: Tests exist, coverage reports generated
+- **Integration**: Integration tests pass
+
+**Example:**
+```python
+result = await validate_phase(
+    task_id="abc123",
+    phase="implementation",
+    working_directory="/path/to/project"
+)
+
+if not result["passed"]:
+    # Phase transition BLOCKED
+    # result["suggestion"] tells you what to fix
+    print(result["suggestion"])
+```
+
+### 2. Git Checkpoints
+
+**Automatic snapshots** after each validated phase.
+
+```python
+# Auto-created during finalize_phase
+checkpoint = await create_checkpoint(
+    task_id="abc123",
+    phase="skeleton",
+    working_directory="/path/to/project",
+    validation_passed=True
+)
+# Returns: {"checkpoint_id": "a1b2c3d", "phase": "skeleton", ...}
+
+# Rollback if things go wrong
+await rollback_to_checkpoint(
+    task_id="abc123",
+    checkpoint_id="a1b2c3d",
+    working_directory="/path/to/project"
+)
+# Git reset --hard to checkpoint, clears Redis state
+```
+
+### 3. Parallel Work with Worktrees
+
+**Isolate module work** to avoid conflicts.
+
+```python
+# Create worktrees for parallel work
+for module in ["auth", "cart", "payment"]:
+    wt = await create_worktree(
+        task_id="abc123",
+        module=module,
+        working_directory="/path/to/project"
+    )
+    # Returns: {"worktree_path": "../worktree_auth", "module": "auth", ...}
+
+# Merge worktrees when done
+result = await merge_worktrees(
+    task_id="abc123",
+    modules=["auth", "cart", "payment"],
+    working_directory="/path/to/project",
+    strategy="smart"  # Prefers simpler code on conflicts
+)
+# Validates after merge to ensure nothing broke
+```
+
+### 4. Complexity-Aware Workflows
+
+**Different workflows for different task sizes.**
+
+```python
+# Analyze complexity
+analysis = await analyze_task_complexity(
+    description="Refactor authentication system across 15 files",
+    working_directory="/path/to/project"
+)
+
+# Returns:
+{
+    "complexity": "large",
+    "estimated_files": 15,
+    "estimated_duration": {"min_hours": 8, "max_hours": 20},
+    "should_decompose": False,
+    "parallel_recommended": True,
+    "workflow": {
+        "phases": ["architecture", "skeleton", "validate", "implementation", ...],
+        "validation_gates": ["skeleton", "implementation", "integration"],
+        "checkpoints": ["skeleton", "implementation", "testing"],
+        "parallel_threshold": 2
+    }
+}
+```
+
+**Workflows by complexity:**
+
+**Small (1-3 files, <3h):** skeleton → implementation → validate
+**Medium (4-10 files, 3-8h):** architecture → skeleton → implementation → testing → validate
+**Large (10-30 files, 8-20h):** architecture → skeleton → validate → implementation → testing → integration → validate
+**Massive (30+ files, 20-100h):** decompose → process subtasks → integrate
+
+### 5. Task Decomposition
+
+**Break huge tasks into manageable subtasks.**
+
+```python
+# Decompose massive task
+result = await decompose_task(
+    task_id="master_123",
+    description="Build complete e-commerce platform",
+    complexity_analysis={"complexity": "massive", "estimated_files": 50}
+)
+
+# Returns 5-10 subtasks:
+{
+    "subtasks": [
+        {
+            "subtask_id": "sub_1",
+            "order": 1,
+            "description": "Foundation: Data models and database schema",
+            "depends_on": [],
+            "estimated_files": 8
+        },
+        {
+            "subtask_id": "sub_2",
+            "order": 2,
+            "description": "Authentication and user management",
+            "depends_on": ["sub_1"],
+            "estimated_files": 10
+        },
+        # ... more subtasks ...
+    ],
+    "strategy": "vertical_slices",
+    "integration_plan": "..."
+}
+
+# Get next subtask
+next_task = await get_next_subtask(master_task_id="master_123")
+
+# Mark subtask complete
+result = await mark_subtask_complete(
+    master_task_id="master_123",
+    subtask_id="sub_1",
+    checkpoint_id="a1b2c3d"
+)
+# Returns progress and next subtask
+```
+
+## 📋 Installation
+
+### Prerequisites
+- Python 3.10+
+- Redis (ephemeral state, port 6381)
+- Neo4j 5.13+ (knowledge graph)
+- Optional: PRISM MCP for semantic enhancements
+
+### Install Package
+
+```bash
+cd orchestration_mcp
+pip install -e .
+```
+
+This installs the `orchestration-mcp` command globally.
+
+### Configure System
+
+1. **Copy configuration template**:
+   ```bash
+   cp config/config.template.yaml config/config.yaml
+   ```
+
+2. **Edit config.yaml**:
+   ```yaml
+   database:
+     redis_url: "redis://localhost:6381"
+     neo4j_uri: "bolt://localhost:7687"
+     neo4j_user: "neo4j"
+     neo4j_password: "your-password"  # CHANGE ME
+
+   # Optional: Comment out to disable PRISM
+   prism:
+     host: "localhost"
+     http_port: 8090
+
+   server:
+     name: "orchestration-mcp"
+     version: "2.0.0"
+     log_level: "INFO"
+
+   workflow:
+     max_concurrent_agents: 10
+     agent_timeout_seconds: 600
+     enable_checkpoints: true
+   ```
+
+3. **No environment variables required** - everything in config.yaml
+
+### Configure Claude Code
+
+Add to `~/.config/claude-code/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "orchestration": {
+      "command": "orchestration-mcp",
+      "env": {}
+    }
+  }
+}
+```
+
+**That's it!** Server reads `config/config.yaml` automatically.
+
+## 🔌 MCP Tools (21 Total, All Working)
+
+### Core Workflow (7 tools)
+1. **start_task** - Start task with complexity detection and workflow selection
+2. **prepare_phase** - Prepare phase: checks validation before proceeding
+3. **finalize_phase** - Finalize: runs ACTUAL validation (pytest/ruff/imports), blocks on failures
+4. **record_phase_result** - Record decisions and gotchas to Neo4j
+5. **complete_task** - Complete task, clean up worktrees, clear graph
+6. **get_task_status** - Get current task status
+7. **parse_ready_specification** - Parse .prelude/READY.md
+
+### Validation Tools (1 tool)
+8. **validate_phase** - Runs pytest/ruff/imports validation, blocks progression on failure
+
+### Checkpoint Tools (3 tools)
+9. **create_checkpoint** - Creates git checkpoint with metadata
+10. **rollback_to_checkpoint** - Rolls back to checkpoint (git reset + Redis clear)
+11. **list_checkpoints** - Lists all checkpoints for task
+
+### Worktree Tools (2 tools)
+12. **create_worktree** - Creates git worktree for parallel module work
+13. **merge_worktrees** - Merges worktrees with smart conflict resolution
+
+### Complexity Tools (1 tool)
+14. **analyze_task_complexity** - Detects complexity, recommends workflow
+
+### Decomposition Tools (3 tools)
+15. **decompose_task** - Breaks massive task into 5-10 subtasks
+16. **get_next_subtask** - Gets next subtask from queue
+17. **mark_subtask_complete** - Marks subtask done, returns progress
+
+### Intelligence Tools (4 tools)
+18. **analyze_project** - Auto-detect language, frameworks, suggest files/gotchas
+19. **augment_ready_spec** - Add analysis suggestions to READY.md
+20. **validate_ready_spec** - Validate READY.md format and sections
+21. **synthesize_learnings** - Post-completion synthesis to PRISM/Neo4j
+
+All tools use `mcp__orchestration__*` prefix.
+
+## 📖 Complete Workflow
+
+### Simple Task (1-3 files)
+```
+1. start_task → detects "small" complexity
+2. prepare_phase("skeleton") → build structure
+3. finalize_phase("skeleton") → validate imports
+4. prepare_phase("implementation") → implement
+5. finalize_phase("implementation") → VALIDATE (pytest/ruff/imports) → CHECKPOINT
+6. complete_task → done
+```
+
+### Medium Task (4-10 files)
+```
+1. start_task → detects "medium" complexity
+2. prepare_phase("architecture") → design
+3. finalize_phase("architecture")
+4. prepare_phase("skeleton") → build structure
+5. finalize_phase("skeleton") → VALIDATE → CHECKPOINT
+6. prepare_phase("implementation") → implement
+7. finalize_phase("implementation") → VALIDATE → CHECKPOINT
+8. prepare_phase("testing") → write tests
+9. finalize_phase("testing") → VALIDATE
+10. complete_task → done
+```
+
+### Large Task (10-30 files, with parallel work)
+```
+1. start_task → detects "large" complexity → recommends parallel
+2. prepare_phase("architecture") → identify 3 modules
+3. finalize_phase("architecture")
+4. create_worktree for each module → 3 worktrees
+5. prepare_phase("skeleton") → build in parallel
+6. finalize_phase("skeleton") → merge worktrees → VALIDATE → CHECKPOINT
+7. prepare_phase("implementation") → implement in parallel
+8. finalize_phase("implementation") → merge → VALIDATE → CHECKPOINT
+9. prepare_phase("integration") → test interactions
+10. finalize_phase("integration") → VALIDATE
+11. complete_task → cleanup worktrees
+```
+
+### Massive Task (30+ files, decomposed)
+```
+1. start_task → detects "massive" complexity
+2. decompose_task → creates 5 subtasks
+3. For each subtask:
+   a. get_next_subtask → returns subtask details
+   b. Run LARGE workflow for subtask
+   c. mark_subtask_complete → returns progress
+4. finalize_phase("integration") → validate all together
+5. complete_task
+```
+
+### With Validation Failure (blocks progression)
+```
+1. start_task
+2. prepare_phase("skeleton")
+3. finalize_phase("skeleton") → imports pass → CHECKPOINT
+4. prepare_phase("implementation")
+5. finalize_phase("implementation") → TESTS FAIL
+   → Returns: {"can_proceed": False, "suggestion": "Fix failing tests in test_auth.py"}
+   → Updates Evolution Log in READY.md with failure
+6. Fix tests
+7. finalize_phase("implementation") → TESTS PASS → CHECKPOINT
+8. Continue workflow...
+```
+
+### With Rollback
+```
+1. start_task
+2. Complete skeleton → CHECKPOINT (checkpoint_a)
+3. Complete implementation → CHECKPOINT (checkpoint_b)
+4. Start testing → something breaks badly
+5. list_checkpoints → see checkpoint_a and checkpoint_b
+6. rollback_to_checkpoint(checkpoint_b) → restore to implementation
+7. Continue from implementation phase
+```
+
+## 📊 What Changed from Previous Version
+
+### Previous Version (Broken)
+- Self-validation (finalize_phase asked if tests passed)
+- No real checkpoints (couldn't recover from failures)
+- No parallel work support
+- Same workflow for 1-file and 100-file tasks
+- 15 phantom tools documented but not implemented
+- Over-engineered documentation, under-implemented features
+
+### Current Version (Bulletproof)
+- **REAL validation** - Actually runs pytest/ruff/imports
+- **Git checkpoints** - Snapshot after validated phases, rollback on failures
+- **Git worktrees** - Parallel module work with intelligent merging
+- **Complexity scaling** - small/medium/large/massive workflows
+- **Task decomposition** - Break 30+ file tasks into subtasks
+- **Neo4j intelligence** - Query similar tasks, gotchas, time estimates
+- **21 working tools** - All implemented and tested
+
+## 🛠️ Architecture
+
+```
+Main Claude Agent
+    ↓
+Orchestration MCP (stdio)
+    ├─ Complexity Analyzer (auto-detect workflow)
+    ├─ Validation Engine (pytest/ruff/imports)
+    ├─ Checkpoint Manager (git snapshots)
+    ├─ Worktree Manager (parallel work)
+    ├─ Task Decomposer (massive task handling)
+    ├─ WorkflowCoordinator (adaptive workflows)
+    ├─ Redis (ephemeral state)
+    ├─ Neo4j (knowledge graph + decisions)
+    └─ PRISM HTTP API (semantic filtering, optional)
+        └─ Qdrant (21K+ patterns)
+```
+
+## 📚 Documentation
+
+### Guides
+- **SIMPLE_USAGE.md** - Complete API reference with examples for all 21 tools
+- **docs/READY_SPECIFICATION.md** - Complete READY.md format reference
+- **docs/PROJECT_ANALYZER.md** - Project analysis usage guide
+- **docs/CUSTOM_ROLES.md** - Role configuration guide
+- **CLAUDE.md** - Working instructions for development
+
+### Examples
+- **examples/ready_fastapi_project.md** - Python FastAPI REST API
+- **examples/ready_typescript_react.md** - TypeScript React SPA
+- **examples/ready_go_microservice.md** - Go event-driven service
+
+## 🧪 Testing
+
+### Test Configuration
+```bash
+cd orchestration_mcp
+python3 -c "from orchestration_mcp.utils.config import load_config; cfg = load_config(); print(f'✅ Config OK: {cfg.server.name}')"
+```
+
+### Run Server
+```bash
+orchestration-mcp
+```
+
+### Test Tools (via Claude Code)
+```
+# Analyze task complexity
+analyze_task_complexity(
+    description="Refactor authentication across 15 files",
+    working_directory="/my-project"
+)
+
+# Create checkpoint
+create_checkpoint(
+    task_id="abc123",
+    phase="skeleton",
+    working_directory="/my-project",
+    validation_passed=True
+)
+
+# Validate phase
+validate_phase(
+    task_id="abc123",
+    phase="implementation",
+    working_directory="/my-project"
+)
+```
+
+## ⚡ Key Principles
+
+### DO
+✅ Trust the validation - if tests fail, fix them (don't bypass)
+✅ Use checkpoints - rollback when needed without fear
+✅ Let massive tasks decompose - easier than doing all at once
+✅ Review merge conflicts - smart strategy isn't perfect
+✅ Check complexity hints - helps select right workflow
+
+### DON'T
+❌ Skip validation failures (progression blocked for a reason)
+❌ Manually edit checkpoint metadata (automatic tracking)
+❌ Force bypass validation gates (defeats the purpose)
+❌ Try to merge worktrees manually (use merge_worktrees tool)
+❌ Ignore complexity recommendations (workflows optimized per size)
+
+## 🎯 Quick Start Checklist
+
+1. ✅ Install orchestration-mcp: `pip install -e .`
+2. ✅ Configure `config/config.yaml` with database credentials
+3. ✅ Add to Claude Code `mcp.json`
+4. ✅ Optionally create `.prelude/READY.md` in your project
+5. ✅ Use `/conduct` to start orchestrated task
+6. ✅ Let the system handle validation, checkpoints, and parallel work automatically
+
+## 📈 Stats
+
+- **21 MCP tools** (all implemented and working)
+- **5 core systems** (validation, checkpoints, worktrees, complexity, decomposition)
+- **4 complexity levels** (small, medium, large, massive)
+- **3 validation engines** (pytest, ruff, imports)
+- **100% validation blocking** (no more self-validation lies)
+- **Zero data loss** (git checkpoints preserve all progress)
+
+## 📄 License
+
+MIT
+
+---
+
+**Built with NO DEFAULTS. REAL validation. Bulletproof recovery.**

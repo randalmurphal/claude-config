@@ -1,0 +1,318 @@
+"""
+Tests for TechEvolutionMonitor.
+
+Tests critical update checking, ADR linking, and suggestion generation.
+"""
+
+import json
+import pytest
+from datetime import datetime
+from unittest.mock import MagicMock, patch, Mock
+
+from prism_mcp.core.tech_evolution_monitor import TechEvolutionMonitor
+from prism_mcp.models.tech_update import Technology, TechUpdate, CriticalUpdate
+
+
+@pytest.fixture
+def tech_evolution_monitor():
+    """Create TechEvolutionMonitor with mocked dependencies."""
+    with patch('prism_mcp.core.tech_evolution_monitor.get_tech_stack_tracker') as mock_tracker_fn, \
+         patch('prism_mcp.core.tech_evolution_monitor.get_web_search_integration') as mock_search_fn, \
+         patch('prism_mcp.core.tech_evolution_monitor.get_prism_engine') as mock_prism_fn, \
+         patch('prism_mcp.core.tech_evolution_monitor.RedisCache') as mock_redis_class:
+
+        mock_tracker = MagicMock()
+        mock_tracker_fn.return_value = mock_tracker
+
+        mock_search = MagicMock()
+        mock_search_fn.return_value = mock_search
+
+        mock_prism = MagicMock()
+        mock_prism_fn.return_value = mock_prism
+
+        mock_redis = MagicMock()
+        mock_redis_class.return_value = mock_redis
+
+        monitor = TechEvolutionMonitor()
+        monitor.tech_stack_tracker = mock_tracker
+        monitor.web_search = mock_search
+        monitor.prism = mock_prism
+        monitor.redis = mock_redis
+
+        yield monitor
+
+
+class TestCheckCriticalUpdates:
+    """Test check_critical_updates() method."""
+
+    def test_check_critical_updates_uses_cache(self):
+        """Test that cached critical updates are used if available."""
+        with patch('prism_mcp.core.tech_evolution_monitor.get_tech_stack_tracker') as mock_tracker_fn, \
+             patch('prism_mcp.core.tech_evolution_monitor.get_web_search_integration'), \
+             patch('prism_mcp.core.tech_evolution_monitor.get_prism_engine'), \
+             patch('prism_mcp.core.tech_evolution_monitor.RedisCache') as mock_redis_class:
+
+            mock_tracker = MagicMock()
+            mock_tracker_fn.return_value = mock_tracker
+
+            mock_redis = MagicMock()
+            mock_redis_class.return_value = mock_redis
+
+            # Mock cached data
+            cached_data = [
+                {
+                    'tech_name': 'FastAPI',
+                    'severity': 'critical',
+                    'title': 'Critical vulnerability',
+                    'impact': 'Update immediately',
+                    'source_url': 'https://example.com',
+                    'cve_id': 'CVE-2024-12345',
+                }
+            ]
+            mock_redis.client.get.return_value = json.dumps(cached_data)
+
+            monitor = TechEvolutionMonitor()
+            updates = monitor.check_critical_updates(
+                session_id='session-123',
+                user_id='user-456'
+            )
+
+            assert len(updates) == 1
+            assert updates[0].tech_name == 'FastAPI'
+            assert updates[0].severity == 'critical'
+
+            # Verify tech stack was NOT fetched (used cache)
+            mock_tracker.get_user_tech_stack.assert_not_called()
+
+    def test_check_critical_updates_missing_session_id_crashes(self, tech_evolution_monitor):
+        """Test that missing session_id crashes."""
+        with pytest.raises(RuntimeError) as exc_info:
+            tech_evolution_monitor.check_critical_updates(session_id='', user_id='user-123')
+
+        assert 'session_id required' in str(exc_info.value)
+
+    def test_check_critical_updates_missing_user_id_crashes(self, tech_evolution_monitor):
+        """Test that missing user_id crashes."""
+        with pytest.raises(RuntimeError) as exc_info:
+            tech_evolution_monitor.check_critical_updates(session_id='session-123', user_id='')
+
+        assert 'user_id required' in str(exc_info.value)
+
+    def test_check_critical_updates_filters_severity(self):
+        """Test that only critical severity updates are returned."""
+        with patch('prism_mcp.core.tech_evolution_monitor.get_tech_stack_tracker') as mock_tracker_fn, \
+             patch('prism_mcp.core.tech_evolution_monitor.get_web_search_integration') as mock_search_fn, \
+             patch('prism_mcp.core.tech_evolution_monitor.get_prism_engine'), \
+             patch('prism_mcp.core.tech_evolution_monitor.RedisCache') as mock_redis_class:
+
+            mock_tracker = MagicMock()
+            mock_tracker_fn.return_value = mock_tracker
+
+            mock_search = MagicMock()
+            mock_search_fn.return_value = mock_search
+
+            mock_redis = MagicMock()
+            mock_redis_class.return_value = mock_redis
+            mock_redis.client.get.return_value = None  # No cache
+
+            # Mock tech stack
+            critical_tech = Technology(
+                name='FastAPI',
+                category='framework',
+                priority=5,
+                sentiment='prefer'
+            )
+            mock_tracker.get_user_tech_stack.return_value = [critical_tech]
+            mock_tracker.prioritize_checks.return_value = [critical_tech]
+
+            # Mock search results (mix of severities)
+            mock_updates = [
+                TechUpdate(
+                    update_id='update-1',
+                    tech_name='FastAPI',
+                    update_type='security',
+                    severity='critical',  # Should be included
+                    title='Critical SQL injection',
+                    summary='Test',
+                    impact='Update immediately',
+                    release_date=datetime.now(),
+                    source_url='https://example.com',
+                    discovered_at=datetime.now(),
+                ),
+                TechUpdate(
+                    update_id='update-2',
+                    tech_name='FastAPI',
+                    update_type='security',
+                    severity='high',  # Should NOT be included
+                    title='High severity issue',
+                    summary='Test',
+                    impact='Update soon',
+                    release_date=datetime.now(),
+                    source_url='https://example.com',
+                    discovered_at=datetime.now(),
+                ),
+            ]
+            mock_search.search_tech_updates.return_value = mock_updates
+
+            monitor = TechEvolutionMonitor()
+            updates = monitor.check_critical_updates(
+                session_id='session-123',
+                user_id='user-456'
+            )
+
+            # Should only return critical update
+            assert len(updates) == 1
+            assert updates[0].severity == 'critical'
+
+
+class TestLinkUpdatesToADRs:
+    """Test link_updates_to_adrs() method."""
+
+    def test_link_updates_to_adrs_success(self):
+        """Test linking updates to ADRs."""
+        with patch('prism_mcp.core.tech_evolution_monitor.get_tech_stack_tracker'), \
+             patch('prism_mcp.core.tech_evolution_monitor.get_web_search_integration'), \
+             patch('prism_mcp.core.tech_evolution_monitor.get_prism_engine') as mock_prism_fn, \
+             patch('prism_mcp.core.tech_evolution_monitor.RedisCache'):
+
+            mock_prism = MagicMock()
+            mock_prism_fn.return_value = mock_prism
+
+            # Mock ADR memory retrieval
+            mock_prism.retrieve_memory.return_value = [
+                {
+                    'memory_id': 'adr-123',
+                    'memory_type': 'architecture_decision',
+                    'metadata': {
+                        'adr_id': 'adr-123',
+                        'decision': 'Use FastAPI for REST API',
+                    },
+                    'similarity_score': 0.92,
+                }
+            ]
+
+            monitor = TechEvolutionMonitor()
+            adr_links = monitor.link_updates_to_adrs(
+                session_id='session-123',
+                tech_name='FastAPI'
+            )
+
+            assert len(adr_links) == 1
+            assert adr_links[0].tech_name == 'FastAPI'
+            assert adr_links[0].relevance == 0.92
+            assert 'Reconsider needed' in adr_links[0].impact_assessment
+
+    def test_link_updates_missing_session_id_crashes(self, tech_evolution_monitor):
+        """Test that missing session_id crashes."""
+        with pytest.raises(RuntimeError) as exc_info:
+            tech_evolution_monitor.link_updates_to_adrs(session_id='', tech_name='FastAPI')
+
+        assert 'session_id required' in str(exc_info.value)
+
+    def test_link_updates_missing_tech_name_crashes(self, tech_evolution_monitor):
+        """Test that missing tech_name crashes."""
+        with pytest.raises(RuntimeError) as exc_info:
+            tech_evolution_monitor.link_updates_to_adrs(session_id='session-123', tech_name='')
+
+        assert 'tech_name required' in str(exc_info.value)
+
+
+class TestGenerateSuggestions:
+    """Test generate_suggestions() method."""
+
+    def test_generate_suggestions_security(self):
+        """Test generating security patch suggestions."""
+        with patch('prism_mcp.core.tech_evolution_monitor.get_tech_stack_tracker'), \
+             patch('prism_mcp.core.tech_evolution_monitor.get_web_search_integration'), \
+             patch('prism_mcp.core.tech_evolution_monitor.get_prism_engine') as mock_prism_fn, \
+             patch('prism_mcp.core.tech_evolution_monitor.RedisCache'):
+
+            mock_prism = MagicMock()
+            mock_prism_fn.return_value = mock_prism
+            mock_prism.retrieve_memory.return_value = []
+
+            monitor = TechEvolutionMonitor()
+
+            # Mock critical security update
+            updates = [
+                TechUpdate(
+                    update_id='update-1',
+                    tech_name='FastAPI',
+                    update_type='security',
+                    severity='critical',
+                    title='Critical vulnerability',
+                    summary='Test',
+                    impact='Update immediately',
+                    release_date=datetime.now(),
+                    source_url='https://example.com',
+                    discovered_at=datetime.now(),
+                )
+            ]
+
+            suggestions = monitor.generate_suggestions(
+                session_id='session-123',
+                updates=updates,
+                user_id='user-456'
+            )
+
+            assert len(suggestions) == 1
+            assert suggestions[0].suggestion_type == 'security_patch'
+            assert suggestions[0].priority == 'immediate'
+            assert suggestions[0].effort_estimate == 'hours'
+
+    def test_generate_suggestions_breaking_changes(self):
+        """Test generating upgrade suggestions for breaking changes."""
+        with patch('prism_mcp.core.tech_evolution_monitor.get_tech_stack_tracker'), \
+             patch('prism_mcp.core.tech_evolution_monitor.get_web_search_integration'), \
+             patch('prism_mcp.core.tech_evolution_monitor.get_prism_engine') as mock_prism_fn, \
+             patch('prism_mcp.core.tech_evolution_monitor.RedisCache'):
+
+            mock_prism = MagicMock()
+            mock_prism_fn.return_value = mock_prism
+            mock_prism.retrieve_memory.return_value = []
+
+            monitor = TechEvolutionMonitor()
+
+            # Mock breaking change update
+            updates = [
+                TechUpdate(
+                    update_id='update-1',
+                    tech_name='FastAPI',
+                    update_type='breaking',
+                    severity='high',
+                    title='Breaking API changes',
+                    summary='Test',
+                    impact='Update code',
+                    release_date=datetime.now(),
+                    source_url='https://example.com',
+                    discovered_at=datetime.now(),
+                )
+            ]
+
+            suggestions = monitor.generate_suggestions(
+                session_id='session-123',
+                updates=updates,
+                user_id='user-456'
+            )
+
+            assert len(suggestions) == 1
+            assert suggestions[0].suggestion_type == 'upgrade'
+            assert suggestions[0].priority == 'soon'
+            assert suggestions[0].effort_estimate == 'days'
+
+    def test_generate_suggestions_missing_session_id_crashes(self, tech_evolution_monitor):
+        """Test that missing session_id crashes."""
+        with pytest.raises(RuntimeError) as exc_info:
+            tech_evolution_monitor.generate_suggestions(session_id='', updates=[], user_id='user-123')
+
+        assert 'session_id required' in str(exc_info.value)
+
+    def test_generate_suggestions_empty_updates(self, tech_evolution_monitor):
+        """Test that empty updates returns empty suggestions."""
+        suggestions = tech_evolution_monitor.generate_suggestions(
+            session_id='session-123',
+            updates=[],
+            user_id='user-456'
+        )
+
+        assert suggestions == []

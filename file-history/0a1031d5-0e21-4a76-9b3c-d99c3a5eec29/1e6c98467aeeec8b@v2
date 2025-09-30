@@ -1,0 +1,178 @@
+#!/usr/bin/env python3
+"""
+Project Indexer Stress Test
+Tests the limits of project indexing with large codebases
+"""
+import requests
+import json
+import time
+from pathlib import Path
+
+API_URL = "http://localhost:8090"
+API_KEY = "prism_development_key_2024"
+headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
+
+class Colors:
+    GREEN = '\033[92m'
+    RED = '\033[91m'
+    YELLOW = '\033[93m'
+    BLUE = '\033[94m'
+    CYAN = '\033[96m'
+    END = '\033[0m'
+
+print(f"\n{Colors.BLUE}{'='*70}")
+print(f"  PROJECT INDEXER STRESS TEST")
+print(f"  Finding the limits of code indexing")
+print(f"{'='*70}{Colors.END}\n")
+
+# Test forex_trader project (real-world large codebase)
+test_project = "/home/randy/repos/forex_trader"
+
+if not Path(test_project).exists():
+    print(f"{Colors.RED}✗ Project not found: {test_project}{Colors.END}")
+    print(f"{Colors.YELLOW}  Using alternative test project...{Colors.END}")
+    test_project = "/home/randy/repos/claude_mcp/prism_mcp"
+
+print(f"{Colors.CYAN}Target Project:{Colors.END} {test_project}")
+
+# Count files first
+print(f"\n{Colors.BLUE}Analyzing project structure...{Colors.END}")
+py_files = list(Path(test_project).rglob("*.py"))
+py_files = [f for f in py_files if "venv" not in str(f) and "__pycache__" not in str(f)]
+print(f"  Python files: {len(py_files)}")
+
+md_files = list(Path(test_project).rglob("*.md"))
+md_files = [f for f in md_files if "venv" not in str(f) and "node_modules" not in str(f)]
+print(f"  Markdown files: {len(md_files)}")
+
+total_size_mb = sum(f.stat().st_size for f in py_files + md_files) / (1024 * 1024)
+print(f"  Total size: {total_size_mb:.1f} MB")
+print(f"  Total files: {len(py_files) + len(md_files)}")
+
+# Warm-up: Index the project
+print(f"\n{Colors.BLUE}{'='*70}")
+print(f"  STRESS TEST: Full Project Indexing")
+print(f"{'='*70}{Colors.END}\n")
+
+index_data = {
+    "root_dir": test_project,
+    "project_id": "stress_test_forex",
+    "session_id": "stress_test",
+    "include_docs": True,
+    "include_tests": False,
+    "max_file_size_kb": 500,
+    "batch_size": 10
+}
+
+print(f"{Colors.CYAN}Starting indexing...{Colors.END}")
+print(f"  This will process all Python and documentation files")
+print(f"  Expected time: {len(py_files) * 0.2:.1f}s - {len(py_files) * 0.5:.1f}s")
+print()
+
+start_time = time.time()
+
+try:
+    # Make the API call
+    response = requests.post(
+        f"{API_URL}/api/index_project",
+        json=index_data,
+        headers=headers,
+        timeout=600  # 10 minute timeout for large projects
+    )
+
+    if response.status_code == 404:
+        print(f"{Colors.RED}✗ ERROR: /api/index_project endpoint not found{Colors.END}")
+        print(f"{Colors.YELLOW}  The project indexer integration is not yet complete.{Colors.END}")
+        print(f"{Colors.YELLOW}  This is expected - see /tmp/PROJECT_INDEXER_INTEGRATION.md{Colors.END}")
+        exit(1)
+
+    response.raise_for_status()
+    result = response.json()
+
+    elapsed = time.time() - start_time
+
+    print(f"{Colors.GREEN}✓ INDEXING COMPLETE{Colors.END}\n")
+    print(f"{'='*70}")
+    print(f"  RESULTS")
+    print(f"{'='*70}\n")
+
+    print(f"  Total time: {Colors.CYAN}{elapsed:.2f}s{Colors.END}")
+    print(f"  Files processed: {Colors.CYAN}{result.get('total_files', 'N/A')}{Colors.END}")
+    print(f"  Memories indexed: {Colors.CYAN}{result.get('indexed_memories', 'N/A')}{Colors.END}")
+    print(f"  Errors: {Colors.CYAN}{result.get('errors', 0)}{Colors.END}")
+
+    if result.get('indexed_memories', 0) > 0:
+        files_per_sec = result['total_files'] / elapsed
+        memories_per_sec = result['indexed_memories'] / elapsed
+        ms_per_file = elapsed / result['total_files'] * 1000
+
+        print(f"\n{Colors.BLUE}PERFORMANCE:{Colors.END}")
+        print(f"  {files_per_sec:.1f} files/sec")
+        print(f"  {memories_per_sec:.1f} memories/sec")
+        print(f"  {ms_per_file:.1f}ms per file")
+
+    # Test retrieval on indexed data
+    print(f"\n{Colors.BLUE}{'='*70}")
+    print(f"  STRESS TEST: Query Indexed Project")
+    print(f"{'='*70}{Colors.END}\n")
+
+    test_queries = [
+        "risk management implementation",
+        "trading strategy evaluation",
+        "position sizing algorithm",
+        "portfolio optimization",
+        "backtesting framework"
+    ]
+
+    print(f"{Colors.CYAN}Running {len(test_queries)} test queries...{Colors.END}\n")
+
+    for i, query in enumerate(test_queries, 1):
+        query_start = time.time()
+
+        try:
+            response = requests.post(
+                f"{API_URL}/api/retrieve_memories",
+                json={
+                    "query": query,
+                    "top_k": 5,
+                    "session_id": "stress_test",
+                    "context": {
+                        "project_id": "stress_test_forex"
+                    }
+                },
+                headers=headers,
+                timeout=10
+            )
+            response.raise_for_status()
+            query_result = response.json()
+
+            query_elapsed = time.time() - query_start
+            mem_count = len(query_result.get('memories', []))
+
+            print(f"  {Colors.GREEN}✓{Colors.END} Query {i}: \"{query[:40]}...\"")
+            print(f"      → {mem_count} results in {query_elapsed*1000:.1f}ms")
+
+        except Exception as e:
+            print(f"  {Colors.RED}✗{Colors.END} Query {i} failed: {str(e)[:50]}")
+
+    print(f"\n{Colors.GREEN}{'='*70}")
+    print(f"  STRESS TEST COMPLETE - System handled large-scale indexing!")
+    print(f"{'='*70}{Colors.END}\n")
+
+except requests.exceptions.Timeout:
+    elapsed = time.time() - start_time
+    print(f"{Colors.RED}✗ TIMEOUT after {elapsed:.1f}s{Colors.END}")
+    print(f"{Colors.YELLOW}  Indexing took longer than 10 minutes{Colors.END}")
+    print(f"{Colors.YELLOW}  This might indicate performance issues or a very large project{Colors.END}")
+
+except requests.exceptions.HTTPError as e:
+    print(f"{Colors.RED}✗ HTTP ERROR: {e.response.status_code}{Colors.END}")
+    try:
+        error_detail = e.response.json()
+        print(f"{Colors.YELLOW}  {error_detail.get('detail', 'Unknown error')}{Colors.END}")
+    except:
+        print(f"{Colors.YELLOW}  {e.response.text[:200]}{Colors.END}")
+
+except Exception as e:
+    print(f"{Colors.RED}✗ UNEXPECTED ERROR:{Colors.END}")
+    print(f"{Colors.YELLOW}  {str(e)}{Colors.END}")

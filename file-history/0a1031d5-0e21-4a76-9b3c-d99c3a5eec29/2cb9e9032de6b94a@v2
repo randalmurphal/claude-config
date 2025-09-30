@@ -1,0 +1,1907 @@
+"""
+HTTP API for PRISM hook integration.
+
+Fast endpoints for real-time pattern detection and learning.
+NO DEFAULTS - all values must be explicit.
+"""
+
+import logging
+from typing import Dict, List, Any, Optional
+from datetime import datetime
+
+from fastapi import FastAPI, HTTPException, Body, Depends, Security
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
+import uvicorn
+
+from prism_mcp.core.orchestrator import (
+    Orchestrator,
+    AnalysisRequest,
+    AnalysisResult,
+)
+from prism_mcp.core.session_state_manager import TaskState
+from prism_mcp.utils.config import load_config
+
+logger = logging.getLogger(__name__)
+
+# Security scheme for Swagger UI
+security = HTTPBearer()
+
+
+# Request/Response models with NO DEFAULTS
+class PatternDetectionRequest(BaseModel):
+    """Request for pattern detection."""
+
+    code: str = Field(..., description='Code to analyze')
+    language: str = Field(..., description='Programming language')
+    instruction: Optional[str] = Field(
+        None, description='Optional instruction for drift detection'
+    )
+    project_id: Optional[str] = Field(None, description='Project identifier')
+    branch: Optional[str] = Field(None, description='Git branch')
+
+
+class PatternDetectionResponse(BaseModel):
+    """Response from pattern detection."""
+
+    patterns: List[Dict[str, Any]]
+    drift_score: Optional[float]
+    suggestions: List[str]
+    confidence: Dict[str, float]
+    processing_time_ms: float
+
+
+class InterventionRequest(BaseModel):
+    """Request to track an intervention."""
+
+    before_code: str = Field(..., description='Code before intervention')
+    after_code: str = Field(..., description='Code after intervention')
+    instruction: Optional[str] = Field(None, description='Original instruction')
+    project_id: Optional[str] = Field(None, description='Project identifier')
+    branch: Optional[str] = Field(None, description='Git branch')
+    frustration_score: float = Field(
+        0.0, description='User frustration level (0-1)'
+    )
+
+
+class InterventionResponse(BaseModel):
+    """Response from intervention tracking."""
+
+    correction_id: str
+    patterns_removed: List[str]
+    patterns_added: List[str]
+    similarity: float
+    learned: bool
+
+
+class SessionStateRequest(BaseModel):
+    """Request for session state."""
+
+    session_id: str = Field(..., description='Session identifier')
+
+
+class SessionStateResponse(BaseModel):
+    """Response with session state."""
+
+    session_id: str
+    tasks: List[str]
+    active: bool
+
+
+class TaskStateRequest(BaseModel):
+    """Request to store task state."""
+
+    task_id: str = Field(..., description='Task identifier')
+    project_root: str = Field(..., description='Project root path')
+    session_id: str = Field(..., description='Session identifier')
+
+    # Current state
+    what_works: List[str] = Field(default_factory=list)
+    what_doesnt: List[str] = Field(default_factory=list)
+    decisions_made: List[str] = Field(default_factory=list)
+    next_steps: List[str] = Field(default_factory=list)
+
+    # Context
+    key_context: List[str] = Field(default_factory=list)
+    invariants: List[str] = Field(default_factory=list)
+    contextual_rules: List[str] = Field(default_factory=list)
+
+
+class TaskStateResponse(BaseModel):
+    """Response from task state storage."""
+
+    task_id: str
+    stored: bool
+    has_invariants: bool
+
+
+class StoreMemoryRequest(BaseModel):
+    """Request to store a memory."""
+
+    content: str = Field(..., description='Memory content')
+    memory_type: str = Field(..., description='Memory type')
+    tier: Optional[str] = Field(None, description='Explicit tier assignment')
+    frustration_score: float = Field(0.0, description='Frustration level 0-1')
+    project_id: Optional[str] = Field(None, description='Project identifier')
+    branch: Optional[str] = Field(None, description='Branch')
+    session_id: Optional[str] = Field(None, description='Session identifier')
+    related_to: Optional[List[str]] = Field(
+        None, description='Related memory IDs'
+    )
+
+
+class RetrieveMemoriesRequest(BaseModel):
+    """Request to retrieve memories."""
+
+    query: str = Field(..., description='Search query')
+    session_id: str = Field(
+        ..., description='Session ID for deduplication (REQUIRED)'
+    )
+    role: Optional[str] = Field(
+        None,
+        description='Role context (architect, implementer, reviewer, debugger)',
+    )
+    task_type: Optional[str] = Field(
+        None, description='Task type (skeleton, implementation, testing)'
+    )
+    task_id: Optional[str] = Field(None, description='Specific task identifier')
+    phase: Optional[str] = Field(
+        None, description='Phase (prepare, execute, validate)'
+    )
+    project_id: Optional[str] = Field(None, description='Filter by project')
+    branch: Optional[str] = Field(None, description='Filter by branch')
+    git_sha: Optional[str] = Field(
+        None, description='Current git SHA for recency boost'
+    )
+    limit: int = Field(10, description='Max results')
+    tier: Optional[str] = Field(None, description='Filter by tier')
+    exclude_memory_ids: Optional[List[str]] = Field(
+        None, description='Memory IDs to exclude'
+    )
+    return_scores: bool = Field(
+        False, description='Return scores for debugging'
+    )
+    enable_augmentation: bool = Field(
+        True,
+        description='Use query augmentation for E5 queries (+33% precision)',
+    )
+    enable_reranking: bool = Field(
+        False,
+        description='Use BGE cross-encoder reranking (slower but more precise)',
+    )
+
+
+class RecordFeedbackRequest(BaseModel):
+    """Request to record memory feedback."""
+
+    retrieval_id: str = Field(..., description='UUID of the retrieval event')
+    memory_id: str = Field(..., description='Memory that was retrieved')
+    used: bool = Field(..., description='Whether the memory was actually used')
+    helpful: Optional[bool] = Field(
+        None, description='Optional explicit helpfulness rating'
+    )
+    reason: Optional[str] = Field(None, description='Optional explanation')
+
+
+class QueryPatternsRequest(BaseModel):
+    """Request to query patterns."""
+
+    query: str = Field(..., description='Search query')
+    language: Optional[str] = Field(None, description='Filter by language')
+    limit: int = Field(10, description='Max results')
+
+
+class IndexFileRequest(BaseModel):
+    """Request to index a single file."""
+
+    file_path: str = Field(
+        ..., description='File path relative to project root'
+    )
+    content: str = Field(..., description='File content')
+    language: str = Field(..., description='Programming language')
+    project_id: str = Field(..., description='Project identifier')
+    git_sha: str = Field(..., description='Git commit SHA')
+    session_id: str = Field(..., description='Indexing session ID')
+
+
+class IndexProjectRequest(BaseModel):
+    """Request to index entire project."""
+
+    project_path: str = Field(..., description='Absolute path to project root')
+    project_id: str = Field(..., description='Project identifier')
+    session_id: str = Field(..., description='Indexing session ID')
+
+
+class QueryContextRequest(BaseModel):
+    """Request to query code context."""
+
+    query: str = Field(..., description='Search query')
+    project_id: str = Field(..., description='Project identifier')
+    max_symbols: int = Field(20, description='Maximum symbols to return')
+
+
+class TrackInterventionHookRequest(BaseModel):
+    """Request from PostToolUse hook to track code correction."""
+
+    tool_input: Dict[str, Any] = Field(
+        ..., description='Tool input data (file_path, old_string, new_string)'
+    )
+    session_id: str = Field(..., description='Session identifier')
+    project_id: str = Field(..., description='Project identifier')
+    project_path: str = Field(..., description='Project root path')
+
+
+class SessionInitRequest(BaseModel):
+    """Request from SessionStart hook to initialize session."""
+
+    project_id: str = Field(..., description='Project identifier')
+    project_path: str = Field(..., description='Project root path')
+    session_id: Optional[str] = Field(
+        None, description='Optional session ID (generated if not provided)'
+    )
+
+
+class SessionEndRequest(BaseModel):
+    """Request from SessionEnd hook to finalize session."""
+
+    session_id: str = Field(..., description='Session identifier')
+
+
+# Phase 3: Analytics Request/Response Models
+class PreferenceAnalyticsResponse(BaseModel):
+    """Response from preference analytics endpoint."""
+
+    preferences: List[Dict[str, Any]] = Field(
+        ..., description='List of preferences with analytics data'
+    )
+    summary: Dict[str, Any] = Field(..., description='Analytics summary')
+    recommendations: List[Dict[str, Any]] = Field(
+        ..., description='Actionable recommendations'
+    )
+
+
+class PreferenceRecommendationsResponse(BaseModel):
+    """Response from preference recommendations endpoint."""
+
+    recommendations: List[Dict[str, Any]] = Field(
+        ..., description='List of actionable recommendations'
+    )
+    summary: Dict[str, Any] = Field(..., description='Recommendations summary')
+
+
+class PRISMHTTPServer:
+    """
+    HTTP API server for PRISM hook integration.
+
+    Provides fast endpoints for pattern detection and learning.
+    """
+
+    def __init__(self):
+        """Initialize HTTP server with required services."""
+        # Load configuration
+        self.config = load_config()
+
+        # API key for authentication - MUST be set
+        if not hasattr(self.config.server, 'api_key'):
+            raise RuntimeError(
+                'API key not configured! '
+                "Set 'api_key' in server config. "
+                'NO DEFAULTS - system must crash without proper configuration.'
+            )
+        self.api_key = self.config.server.api_key
+
+        if not self.api_key:
+            raise RuntimeError('API key cannot be empty string!')
+
+        # Initialize orchestrator
+        self.orchestrator = Orchestrator()
+
+        # Initialize preference manager (Phase 4A)
+        from prism_mcp.core.preference_manager import PreferenceManager
+        from prism_mcp.core.preference_detector import PreferenceDetector
+
+        self.preference_manager = PreferenceManager()
+        self.preference_detector = PreferenceDetector()
+
+        # Initialize preference analytics (Phase 3)
+        from prism_mcp.core.preference_analytics import get_preference_analytics
+        self.preference_analytics = get_preference_analytics()
+
+        # Warm up on startup
+        logger.info('Warming up PRISM services...')
+        warmup_stats = self.orchestrator.warm_up()
+        logger.info(f'Warmup complete: {warmup_stats}')
+
+        # Create FastAPI app
+        self.app = FastAPI(
+            title='PRISM HTTP API',
+            description='AI Agent Quality Control System',
+            version='0.1.0',
+        )
+
+        # Register endpoints
+        self._register_endpoints()
+
+    def _verify_token(
+        self, credentials: HTTPAuthorizationCredentials = Security(security)
+    ):
+        """
+        Verify API token.
+
+        Args:
+            credentials: Bearer token from request
+
+        Raises:
+            HTTPException: If token invalid
+        """
+        if credentials.credentials != self.api_key:
+            raise HTTPException(
+                status_code=401, detail='Invalid authentication token'
+            )
+        return credentials.credentials
+
+    def _register_endpoints(self):
+        """Register all API endpoints."""
+
+        @self.app.get('/health')
+        async def health():
+            """Health check endpoint."""
+            return {'status': 'healthy', 'service': 'prism'}
+
+        @self.app.get('/api/health/detailed')
+        async def health_detailed(
+            force_refresh: bool = False,
+            token: str = Depends(self._verify_token)
+        ):
+            """
+            Comprehensive health check with detailed system status.
+
+            Phase 5C: Health Check Endpoint
+            Provides complete system health including all services, performance,
+            tier information, and actionable error messages.
+            """
+            try:
+                from prism_mcp.utils.health_check import get_health_checker
+
+                health_checker = get_health_checker()
+                system_health = await health_checker.get_system_health(force_refresh=force_refresh)
+
+                return health_checker.to_dict(system_health)
+
+            except Exception as e:
+                logger.error(f'Detailed health check failed: {e}')
+                return {
+                    "status": "unhealthy",
+                    "timestamp": datetime.now().isoformat(),
+                    "error": str(e),
+                    "services": {},
+                    "tier": {},
+                    "performance": {},
+                    "memory_tiers": {},
+                    "warnings": [],
+                    "errors": [f"Health check system failure: {str(e)}"]
+                }
+
+        @self.app.post(
+            '/api/detect_patterns', response_model=PatternDetectionResponse
+        )
+        async def detect_patterns(
+            request: PatternDetectionRequest,
+            token: str = Depends(self._verify_token),
+        ):
+            """
+            Fast pattern detection for hooks.
+
+            Target: <1s response time for real-time feedback.
+            """
+            start_time = datetime.now()
+
+            try:
+                # Create analysis request
+                analysis_req = AnalysisRequest(
+                    code=request.code,
+                    language=request.language,
+                    instruction=request.instruction,
+                    project_id=request.project_id,
+                    branch=request.branch,
+                )
+
+                # Analyze code
+                result = self.orchestrator.analyze_code(analysis_req)
+
+                # Calculate processing time
+                processing_time = (
+                    datetime.now() - start_time
+                ).total_seconds() * 1000
+
+                return PatternDetectionResponse(
+                    patterns=result.patterns_detected,
+                    drift_score=result.drift_score,
+                    suggestions=result.suggestions,
+                    confidence=result.confidence_scores,
+                    processing_time_ms=processing_time,
+                )
+
+            except Exception as e:
+                logger.error(f'Pattern detection failed: {e}')
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.post(
+            '/api/track_intervention', response_model=InterventionResponse
+        )
+        async def track_intervention(
+            request: InterventionRequest,
+            token: str = Depends(self._verify_token),
+        ):
+            """
+            Track a code intervention for learning.
+
+            Called when hooks detect a correction.
+            """
+            try:
+                # Learn from correction
+                result = self.orchestrator.learn_from_correction(
+                    before_code=request.before_code,
+                    after_code=request.after_code,
+                    instruction=request.instruction,
+                    project_id=request.project_id,
+                    branch=request.branch,
+                )
+
+                # Store high-frustration items as invariants
+                if request.frustration_score > 0.7:
+                    # This is a high-frustration correction - remember it
+                    memory = self.orchestrator.memory_engine.store_memory(
+                        content=f'User corrected: {request.before_code[:200]} -> {request.after_code[:200]}',
+                        memory_type='correction',
+                        frustration_score=request.frustration_score,
+                        project_id=request.project_id,
+                        branch=request.branch,
+                    )
+                    logger.warning(
+                        f'High frustration correction stored: {memory.memory_id}'
+                    )
+
+                return InterventionResponse(
+                    correction_id=result['correction_id'],
+                    patterns_removed=result['patterns_removed'],
+                    patterns_added=result['patterns_added'],
+                    similarity=result['similarity'],
+                    learned=True,
+                )
+
+            except Exception as e:
+                logger.error(f'Intervention tracking failed: {e}')
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.get(
+            '/api/get_session_state', response_model=SessionStateResponse
+        )
+        async def get_session_state(
+            session_id: str, token: str = Depends(self._verify_token)
+        ):
+            """
+            Get current session state.
+
+            Used by hooks to check session status.
+            """
+            try:
+                tasks = self.orchestrator.session_manager.get_session_tasks(
+                    session_id
+                )
+
+                # Check if session is active
+                active = len(tasks) > 0
+
+                return SessionStateResponse(
+                    session_id=session_id, tasks=tasks, active=active
+                )
+
+            except Exception as e:
+                logger.error(f'Get session state failed: {e}')
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.post(
+            '/api/store_task_state', response_model=TaskStateResponse
+        )
+        async def store_task_state(
+            request: TaskStateRequest, token: str = Depends(self._verify_token)
+        ):
+            """
+            Store or update task state.
+
+            Called by stop hooks to persist task progress.
+            """
+            try:
+                # Create task state
+                task_state = TaskState(
+                    task_id=request.task_id,
+                    project_root=request.project_root,
+                    what_works=request.what_works,
+                    what_doesnt=request.what_doesnt,
+                    decisions_made=request.decisions_made,
+                    next_steps=request.next_steps,
+                    key_context=request.key_context,
+                    invariants=request.invariants,
+                    contextual_rules=request.contextual_rules,
+                    session_id=request.session_id,
+                    last_updated=datetime.now(),
+                    created_at=datetime.now(),
+                )
+
+                # Store state
+                self.orchestrator.session_manager.track_task_state(task_state)
+
+                return TaskStateResponse(
+                    task_id=request.task_id,
+                    stored=True,
+                    has_invariants=len(request.invariants) > 0,
+                )
+
+            except Exception as e:
+                logger.error(f'Store task state failed: {e}')
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.post('/api/clear_session')
+        async def clear_session(
+            session_id: str = Body(..., embed=True),
+            token: str = Depends(self._verify_token),
+        ):
+            """
+            Clear all data for a session.
+
+            Called on session end.
+            """
+            try:
+                self.orchestrator.session_manager.clear_session(session_id)
+                return {'session_id': session_id, 'cleared': True}
+
+            except Exception as e:
+                logger.error(f'Clear session failed: {e}')
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.get('/api/stats')
+        async def get_stats(token: str = Depends(self._verify_token)):
+            """Get system statistics."""
+            try:
+                drift_stats = self.orchestrator.drift_detector.get_statistics()
+                memory_stats = (
+                    self.orchestrator.memory_engine.get_tier_statistics()
+                )
+
+                return {
+                    'drift': drift_stats,
+                    'memory': memory_stats,
+                    'status': 'operational',
+                }
+
+            except Exception as e:
+                logger.error(f'Get stats failed: {e}')
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.post('/api/end_session')
+        async def end_session(
+            session_id: str, token: str = Depends(self._verify_token)
+        ):
+            """
+            End a session and promote valuable memories.
+
+            Called by hooks when session ends (e.g., Claude closes).
+            """
+            try:
+                # End session and promote memories
+                self.orchestrator.end_session(session_id)
+
+                return {
+                    'session_id': session_id,
+                    'status': 'ended',
+                    'message': f'Session {session_id} ended and memories promoted',
+                }
+
+            except Exception as e:
+                logger.error(f'End session failed: {e}')
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.post('/api/store_memory')
+        async def store_memory(
+            request: StoreMemoryRequest,
+            token: str = Depends(self._verify_token),
+        ):
+            """Store a memory directly with explicit parameters."""
+            try:
+                result = self.orchestrator.store_memory(
+                    content=request.content,
+                    memory_type=request.memory_type,
+                    tier=request.tier,
+                    frustration_score=request.frustration_score,
+                    project_id=request.project_id,
+                    branch=request.branch,
+                    session_id=request.session_id,
+                    related_to=request.related_to,
+                )
+                return result
+            except Exception as e:
+                logger.error(f'Store memory failed: {e}')
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.post('/api/retrieve_memories')
+        async def retrieve_memories(
+            request: RetrieveMemoriesRequest,
+            token: str = Depends(self._verify_token),
+        ):
+            """Intelligent memory retrieval with 6-stage pipeline."""
+            try:
+                result = await self.orchestrator.retrieve_intelligent(
+                    query=request.query,
+                    session_id=request.session_id,
+                    role=request.role,
+                    task_type=request.task_type,
+                    task_id=request.task_id,
+                    phase=request.phase,
+                    project_id=request.project_id,
+                    branch=request.branch,
+                    git_sha=request.git_sha,
+                    limit=request.limit,
+                    tier=request.tier,
+                    exclude_memory_ids=request.exclude_memory_ids,
+                    return_scores=request.return_scores,
+                    enable_augmentation=request.enable_augmentation,
+                    enable_reranking=request.enable_reranking,
+                )
+                return result
+            except Exception as e:
+                logger.error(f'Retrieve memories failed: {e}')
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.post('/api/record_feedback')
+        async def record_feedback(
+            request: RecordFeedbackRequest,
+            token: str = Depends(self._verify_token),
+        ):
+            """Record feedback about memory utility."""
+            try:
+                result = self.orchestrator.record_feedback(
+                    retrieval_id=request.retrieval_id,
+                    memory_id=request.memory_id,
+                    used=request.used,
+                    helpful=request.helpful,
+                    reason=request.reason,
+                )
+                return result
+            except Exception as e:
+                logger.error(f'Record feedback failed: {e}')
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.get('/api/verify_patterns')
+        async def verify_patterns(
+            language: Optional[str] = None,
+            token: str = Depends(self._verify_token),
+        ):
+            """Verify pattern database health."""
+            try:
+                result = self.orchestrator.verify_patterns(language=language)
+                return result
+            except Exception as e:
+                logger.error(f'Verify patterns failed: {e}')
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.post('/api/query_patterns')
+        async def query_patterns(
+            request: QueryPatternsRequest,
+            token: str = Depends(self._verify_token),
+        ):
+            """Search patterns by name or description."""
+            try:
+                result = self.orchestrator.query_patterns(
+                    query=request.query,
+                    language=request.language,
+                    limit=request.limit,
+                )
+                return {'patterns': result}
+            except Exception as e:
+                logger.error(f'Query patterns failed: {e}')
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.post('/api/force_evolution')
+        async def force_evolution(token: str = Depends(self._verify_token)):
+            """Trigger immediate pattern evolution."""
+            try:
+                result = self.orchestrator.force_evolution()
+                return result
+            except Exception as e:
+                logger.error(f'Force evolution failed: {e}')
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.get('/api/pattern_metrics')
+        async def get_pattern_metrics(
+            pattern_id: str, token: str = Depends(self._verify_token)
+        ):
+            """Get evolution metrics for a specific pattern."""
+            try:
+                result = self.orchestrator.get_pattern_metrics(
+                    pattern_id=pattern_id
+                )
+                return result
+            except Exception as e:
+                logger.error(f'Get pattern metrics failed: {e}')
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.post('/api/index_file')
+        async def index_file(
+            request: IndexFileRequest, token: str = Depends(self._verify_token)
+        ):
+            """Index a single file."""
+            try:
+                from prism_mcp.core.code_indexer import CodeIndexer
+
+                indexer = CodeIndexer()
+                result = indexer.index_file(
+                    file_path=request.file_path,
+                    content=request.content,
+                    language=request.language,
+                    project_id=request.project_id,
+                    git_sha=request.git_sha,
+                    session_id=request.session_id,
+                )
+                return result
+            except Exception as e:
+                logger.error(f'Index file failed: {e}')
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.post('/api/index_project')
+        async def index_project(
+            request: IndexProjectRequest,
+            token: str = Depends(self._verify_token),
+        ):
+            """Index entire project."""
+            try:
+                from prism_mcp.core.index_manager import IndexManager
+
+                manager = IndexManager()
+                result = manager.start_full_index(
+                    project_path=request.project_path,
+                    project_id=request.project_id,
+                    session_id=request.session_id,
+                )
+                return result
+            except Exception as e:
+                logger.error(f'Index project failed: {e}')
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.post('/api/index_update')
+        async def index_update(
+            request: IndexProjectRequest,
+            token: str = Depends(self._verify_token),
+        ):
+            """Incremental index update based on git diff."""
+            try:
+                from prism_mcp.core.index_manager import IndexManager
+
+                manager = IndexManager()
+                result = manager.incremental_update(
+                    project_path=request.project_path,
+                    project_id=request.project_id,
+                    session_id=request.session_id,
+                )
+                return result
+            except Exception as e:
+                logger.error(f'Index update failed: {e}')
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.get('/api/index_state')
+        async def get_index_state(
+            project_id: str, token: str = Depends(self._verify_token)
+        ):
+            """Get indexing state for a project."""
+            try:
+                from prism_mcp.core.index_manager import IndexManager
+
+                manager = IndexManager()
+                state = manager.get_index_state(project_id)
+                if not state:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f'Project {project_id} not indexed',
+                    )
+                return state.to_dict()
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f'Get index state failed: {e}')
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.post('/api/query_context')
+        async def query_context(
+            request: QueryContextRequest,
+            token: str = Depends(self._verify_token),
+        ):
+            """Query relevant code context for a query."""
+            try:
+                from prism_mcp.core.context_provider import ContextProvider
+
+                provider = ContextProvider()
+                context = provider.get_relevant_context(
+                    query=request.query,
+                    project_id=request.project_id,
+                    max_symbols=request.max_symbols,
+                )
+                return context
+            except Exception as e:
+                logger.error(f'Query context failed: {e}')
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.post('/api/track_intervention_hook')
+        async def track_intervention_hook(
+            request: TrackInterventionHookRequest,
+            token: str = Depends(self._verify_token),
+        ):
+            """
+            Track code correction from PostToolUse hook.
+            Called automatically by Claude Code hooks for preference learning.
+            """
+            try:
+                tool_input = request.tool_input
+
+                if (
+                    'old_string' not in tool_input
+                    or 'new_string' not in tool_input
+                ):
+                    return {
+                        'success': False,
+                        'intervention_id': None,
+                        'message': 'Missing old_string or new_string',
+                    }
+
+                result = self.orchestrator.track_intervention(
+                    before_code=tool_input.get('old_string', ''),
+                    after_code=tool_input.get('new_string', ''),
+                    instruction=tool_input.get('instruction'),
+                    project_id=request.project_id,
+                    frustration_score=0.0,
+                )
+
+                return {
+                    'success': True,
+                    'intervention_id': result.get('correction_id', 'unknown'),
+                }
+            except Exception as e:
+                logger.error(f'Track intervention hook failed: {e}')
+                return {
+                    'success': False,
+                    'intervention_id': None,
+                    'error': str(e),
+                }
+
+        @self.app.post('/api/session_init')
+        async def session_init(
+            request: SessionInitRequest,
+            token: str = Depends(self._verify_token),
+        ):
+            """
+            Initialize session from SessionStart hook.
+            Generates session_id if not provided (hash of project_path + date).
+            """
+            try:
+                import hashlib
+                from datetime import date
+
+                if request.session_id:
+                    session_id = request.session_id
+                else:
+                    hash_input = (
+                        f'{request.project_path}{date.today().isoformat()}'
+                    )
+                    session_id = hashlib.sha256(
+                        hash_input.encode()
+                    ).hexdigest()[:16]
+
+                logger.info(
+                    f'Session initialized: {session_id} for project {request.project_id}'
+                )
+
+                return {'success': True, 'session_id': session_id}
+            except Exception as e:
+                logger.error(f'Session init failed: {e}')
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.post('/api/session_end_hook')
+        async def session_end_hook(
+            request: SessionEndRequest,
+            token: str = Depends(self._verify_token),
+        ):
+            """
+            Finalize session from SessionEnd hook.
+            Promotes valuable memories and runs preference detection.
+            """
+            try:
+                # End session and promote memories
+                result = self.orchestrator.end_session(
+                    session_id=request.session_id
+                )
+
+                logger.info(
+                    f'Session ended: {request.session_id}, promoted {result.get("promoted_count", 0)} memories'
+                )
+
+                # Run preference detection (Phase 4A)
+                detection_result = {'candidates_found': 0, 'suggested': 0}
+                try:
+                    detection_result = await self.preference_detector.detect_and_suggest(
+                        session_id=request.session_id,
+                        project_id=None,  # Could extract from session if needed
+                    )
+                    logger.info(
+                        f'Preference detection: {detection_result.get("suggested", 0)} preferences suggested'
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f'Preference detection failed (non-fatal): {e}'
+                    )
+
+                return {
+                    'success': True,
+                    'promoted_count': result.get('promoted_count', 0),
+                    'preferences_detected': detection_result.get(
+                        'suggested', 0
+                    ),
+                }
+            except Exception as e:
+                logger.error(f'Session end hook failed: {e}')
+                return {
+                    'success': False,
+                    'promoted_count': 0,
+                    'preferences_detected': 0,
+                    'error': str(e),
+                }
+
+        @self.app.post('/api/embeddings/batch')
+        async def generate_batch_embeddings(
+            request: dict = Body(...),
+            token: str = Depends(self._verify_token),
+        ):
+            """
+            Generate embeddings for a batch of texts.
+            Used by pattern loading via API.
+            """
+            try:
+                texts = request.get('texts', [])
+                memory_type = request.get('memory_type', 'code_pattern')
+
+                if not texts:
+                    return {"embeddings": []}
+
+                # Generate embeddings using the orchestrator's embedder
+                embeddings = []
+                for text in texts:
+                    embedding = self.orchestrator.embedder.generate_embedding(
+                        text, memory_type=memory_type
+                    )
+                    embeddings.append(embedding.tolist())
+
+                return {"embeddings": embeddings}
+            except Exception as e:
+                logger.error(f'Batch embedding generation failed: {e}')
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.post('/api/patterns/bulk')
+        async def bulk_load_patterns(
+            request: dict = Body(...),
+            token: str = Depends(self._verify_token),
+        ):
+            """
+            Bulk load patterns into the system using server's loaded models.
+            This avoids loading models multiple times.
+
+            Parameters:
+            - patterns: List of pattern dictionaries to load
+            - force_recompute: If True, bypass embedding cache and force GPU computation
+            - create_relationships: If True, also create Neo4j nodes and relationships
+            """
+            try:
+                patterns = request.get('patterns', [])
+                force_recompute = request.get('force_recompute', False)
+                if not patterns:
+                    return {"loaded": 0, "errors": []}
+
+                loaded = 0
+                errors = []
+
+                # Ensure code_patterns collection exists
+                self.orchestrator.qdrant.ensure_collection('code_patterns')
+
+                # Process each pattern
+                for pattern in patterns:
+                    try:
+                        # Build text for embedding from pattern fields (matching actual field names)
+                        text_parts = []
+                        if pattern.get('pattern_name'):
+                            text_parts.append(f"Pattern: {pattern['pattern_name']}")
+                        if pattern.get('pattern_type'):
+                            text_parts.append(f"Type: {pattern['pattern_type']}")
+                        if pattern.get('semantic_context'):
+                            text_parts.append(f"Context: {pattern['semantic_context']}")
+                        if pattern.get('ast_signature'):
+                            text_parts.append(f"AST: {pattern['ast_signature']}")
+                        if pattern.get('code_snippet'):
+                            text_parts.append(f"Code: {pattern['code_snippet']}")
+                        if pattern.get('language'):
+                            text_parts.append(f"Language: {pattern['language']}")
+
+                        text = '\n'.join(text_parts)
+                        if not text:
+                            errors.append(f"Pattern missing text content: {pattern.get('pattern_id', 'unknown')}")
+                            continue
+
+                        # Generate embedding using server's model
+                        # If force_recompute is True, we need to bypass cache
+                        if force_recompute:
+                            # Temporarily clear cache for this pattern (workaround)
+                            cache_key = f"starcoder:{text[:200]}"  # Approximate cache key
+                            if hasattr(self.orchestrator.embedder, '_embedding_cache'):
+                                self.orchestrator.embedder._embedding_cache.pop(cache_key, None)
+
+                        embedding = self.orchestrator.embedder.generate_embedding(
+                            text,
+                            memory_type='code_pattern'
+                        )
+
+                        # Store in Qdrant with correct field mappings
+                        from prism_mcp.storage.qdrant_manager import VectorPoint
+                        point = VectorPoint(
+                            point_id=pattern.get('pattern_id', ''),
+                            vector=embedding,
+                            payload={
+                                'pattern_name': pattern.get('pattern_name', ''),
+                                'pattern_type': pattern.get('pattern_type', 'general'),
+                                'language': pattern.get('language', 'unknown'),
+                                'language_priority': pattern.get('language_priority', 'secondary'),
+                                'context_type': pattern.get('context_type', ''),
+                                'semantic_context': pattern.get('semantic_context', ''),
+                                'file_context': pattern.get('file_context', ''),
+                                'ast_signature': pattern.get('ast_signature', ''),
+                                'code_snippet': pattern.get('code_snippet', ''),
+                                'source_repo': pattern.get('source_repo', ''),
+                                'repo_stars': pattern.get('repo_stars', 0),
+                                'frequency': pattern.get('frequency', 1),
+                                'quality_score': pattern.get('quality_score', 0.5),
+                                'is_universal': pattern.get('is_universal', False),
+                                'tags': pattern.get('tags', []),
+                                'has_ast': bool(pattern.get('ast_signature', ''))
+                            }
+                        )
+
+                        self.orchestrator.qdrant.upsert('code_patterns', [point])
+                        loaded += 1
+
+                        # Optionally store in Neo4j if relationships requested
+                        if request.get('create_relationships', False):
+                            try:
+                                from prism_mcp.storage.neo4j_manager import GraphNode
+                                pattern_node = GraphNode(
+                                    node_id=pattern.get('pattern_id', ''),
+                                    node_type='Pattern',
+                                    properties={
+                                        'pattern_name': pattern.get('pattern_name', ''),
+                                        'pattern_type': pattern.get('pattern_type', 'general'),
+                                        'language': pattern.get('language', 'unknown'),
+                                        'quality_score': pattern.get('quality_score', 0.5)
+                                    }
+                                )
+                                self.orchestrator.neo4j.create_node(pattern_node, unique_property='pattern_id')
+                            except Exception as e:
+                                logger.warning(f"Failed to create Neo4j node: {e}")
+
+                    except Exception as e:
+                        errors.append(f"Failed to load pattern {pattern.get('pattern_id', 'unknown')}: {str(e)}")
+                        logger.error(f"Pattern loading error: {e}")
+
+                return {
+                    "loaded": loaded,
+                    "total": len(patterns),
+                    "errors": errors
+                }
+
+            except Exception as e:
+                logger.error(f'Bulk pattern loading failed: {e}')
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.post('/api/suggest_preference')
+        async def suggest_preference(
+            request: dict = Body(...),
+            token: str = Depends(self._verify_token),
+        ):
+            """
+            Suggest preference candidate.
+            Auto-approves if explicit + confidence ≥0.85.
+            """
+            try:
+                result = await self.preference_manager.suggest_preference(
+                    content=request['content'],
+                    category=request['category'],
+                    detection_method=request.get(
+                        'detection_method', 'explicit'
+                    ),
+                    confidence=request['confidence'],
+                    evidence=request.get('evidence', ''),
+                    scope_type=request.get('scope_type', 'global'),
+                    scope_value=request.get('scope_value'),
+                    session_id=request['session_id'],
+                    project_id=request.get('project_id'),
+                )
+                return result
+            except Exception as e:
+                logger.error(f'Suggest preference failed: {e}')
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.post('/api/approve_preference')
+        async def approve_preference(
+            request: dict = Body(...),
+            token: str = Depends(self._verify_token),
+        ):
+            """
+            Approve preference, promote to ANCHORS tier.
+            """
+            try:
+                result = await self.preference_manager.approve_preference(
+                    preference_id=request['preference_id'],
+                    session_id=request['session_id'],
+                    notes=request.get('notes'),
+                )
+                return result
+            except Exception as e:
+                logger.error(f'Approve preference failed: {e}')
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.post('/api/reject_preference')
+        async def reject_preference(
+            request: dict = Body(...),
+            token: str = Depends(self._verify_token),
+        ):
+            """
+            Reject preference with comprehensive rejection learning.
+
+            Body:
+                preference_id: str - Preference ID to reject
+                reason: str - Rejection reason
+                session_id: str - Session ID
+                rejection_context: dict (optional) - Additional context
+            """
+            try:
+                result = await self.preference_manager.reject_preference(
+                    preference_id=request['preference_id'],
+                    reason=request['reason'],
+                    session_id=request['session_id'],
+                    rejection_context=request.get('rejection_context'),
+                )
+                return result
+            except Exception as e:
+                logger.error(f'Reject preference failed: {e}')
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.post('/api/list_preferences')
+        async def list_preferences(
+            request: dict = Body(...),
+            token: str = Depends(self._verify_token),
+        ):
+            """
+            List preferences for review, enriched with evidence.
+            """
+            try:
+                result = await self.preference_manager.list_preferences(
+                    session_id=request['session_id'],
+                    status=request.get('status'),
+                    category=request.get('category'),
+                    project_id=request.get('project_id'),
+                    limit=request.get('limit', 20),
+                )
+                return result
+            except Exception as e:
+                logger.error(f'List preferences failed: {e}')
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.post('/api/undo_last_approval')
+        async def undo_last_approval(
+            request: dict = Body(...),
+            token: str = Depends(self._verify_token),
+        ):
+            """
+            Undo most recent auto-approval in session (session-based, no time limit).
+            """
+            try:
+                result = await self.preference_manager.undo_last_approval(
+                    session_id=request['session_id'],
+                )
+                return result
+            except Exception as e:
+                logger.error(f'Undo last approval failed: {e}')
+                raise HTTPException(status_code=500, detail=str(e))
+
+        # Phase 3: Analytics Endpoints
+        @self.app.get('/api/preferences/analytics', response_model=PreferenceAnalyticsResponse)
+        async def get_preference_analytics(
+            min_effectiveness: Optional[float] = None,
+            limit: Optional[int] = 50,
+            preference_id: Optional[str] = None,
+            token: str = Depends(self._verify_token),
+        ):
+            """
+            Get preference analytics with effectiveness scores and recommendations.
+
+            Query Parameters:
+            - min_effectiveness: Filter by minimum effectiveness score (0.0-1.0)
+            - limit: Maximum number of preferences to return (default 50)
+            - preference_id: Get analytics for specific preference only
+            """
+            try:
+                from prism_mcp.core.preference_analytics import PreferenceMetrics
+                from dataclasses import asdict
+
+                # Get all preferences with metrics
+                all_prefs = await self.preference_analytics.store.get_all_preferences_with_metrics()
+
+                preferences = []
+                total_effective = 0
+                total_drifted = 0
+                total_unused = 0
+
+                for pref_id, metrics in all_prefs.items():
+                    # Filter by specific preference if requested
+                    if preference_id and pref_id != preference_id:
+                        continue
+
+                    # Calculate effectiveness
+                    effectiveness = await self.preference_analytics.calculate_effectiveness(pref_id)
+
+                    # Filter by minimum effectiveness
+                    if min_effectiveness is not None and effectiveness < min_effectiveness:
+                        continue
+
+                    # Detect drift
+                    drift_score = await self.preference_analytics.detect_drift(pref_id)
+                    if drift_score is None:
+                        drift_score = 0.0
+
+                    # Get orchestration correlation
+                    success_rate = await self.preference_analytics.get_orchestration_correlation(pref_id)
+
+                    # Get preference content (try to get from preference manager)
+                    content = f"Preference {pref_id}"
+                    try:
+                        preference = await self.preference_manager.get_preference(pref_id)
+                        if preference:
+                            content = preference.content
+                    except:
+                        pass
+
+                    # Determine recommendation
+                    recommendation = "keep"
+                    if effectiveness < 0.3:
+                        recommendation = "remove"
+                        total_unused += 1
+                    elif drift_score > 0.3 or effectiveness < 0.7:
+                        recommendation = "review"
+                        if drift_score > 0.3:
+                            total_drifted += 1
+                    else:
+                        total_effective += 1
+
+                    preferences.append({
+                        "preference_id": pref_id,
+                        "content": content,
+                        "metrics": {
+                            "reference_count": metrics.reference_count,
+                            "effectiveness": round(effectiveness, 3),
+                            "drift_score": round(drift_score, 3),
+                            "last_used": metrics.last_used.isoformat(),
+                            "orchestration_success_rate": round(success_rate, 3)
+                        },
+                        "recommendation": recommendation
+                    })
+
+                # Sort by effectiveness descending
+                preferences.sort(key=lambda x: x["metrics"]["effectiveness"], reverse=True)
+
+                # Apply limit
+                if limit:
+                    preferences = preferences[:limit]
+
+                # Generate recommendations
+                recommendations = await self.preference_analytics.generate_recommendations()
+                recommendation_list = []
+                for rec in recommendations:
+                    recommendation_list.append({
+                        "type": rec.action,
+                        "preference_id": rec.preference_id,
+                        "reason": rec.reason,
+                        "confidence": round(rec.confidence, 3)
+                    })
+
+                # Get summary
+                analytics_summary = await self.preference_analytics.store.get_analytics_summary()
+                summary = {
+                    "total_preferences": len(all_prefs),
+                    "effective_count": total_effective,
+                    "drifted_count": total_drifted,
+                    "unused_count": total_unused,
+                    "filtered_count": len(preferences)
+                }
+
+                return PreferenceAnalyticsResponse(
+                    preferences=preferences,
+                    summary=summary,
+                    recommendations=recommendation_list
+                )
+
+            except Exception as e:
+                logger.error(f'Get preference analytics failed: {e}')
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.get('/api/preferences/recommendations', response_model=PreferenceRecommendationsResponse)
+        async def get_preference_recommendations(
+            action_type: Optional[str] = None,  # "keep", "review", "remove"
+            min_confidence: Optional[float] = 0.5,
+            limit: Optional[int] = 20,
+            token: str = Depends(self._verify_token),
+        ):
+            """
+            Get actionable recommendations for preference curation.
+
+            Query Parameters:
+            - action_type: Filter by recommendation type ("keep", "review", "remove")
+            - min_confidence: Minimum confidence threshold (0.0-1.0)
+            - limit: Maximum number of recommendations to return
+            """
+            try:
+                # Generate recommendations
+                recommendations = await self.preference_analytics.generate_recommendations()
+
+                # Filter and format recommendations
+                filtered_recs = []
+                action_counts = {"keep": 0, "review": 0, "remove": 0}
+
+                for rec in recommendations:
+                    # Filter by action type
+                    if action_type and rec.action != action_type:
+                        continue
+
+                    # Filter by confidence
+                    if rec.confidence < min_confidence:
+                        continue
+
+                    action_counts[rec.action] += 1
+
+                    # Get preference content
+                    content = f"Preference {rec.preference_id}"
+                    try:
+                        preference = await self.preference_manager.get_preference(rec.preference_id)
+                        if preference:
+                            content = preference.content
+                    except:
+                        pass
+
+                    filtered_recs.append({
+                        "preference_id": rec.preference_id,
+                        "content": content,
+                        "action": rec.action,
+                        "reason": rec.reason,
+                        "confidence": round(rec.confidence, 3),
+                        "metrics": {
+                            "reference_count": rec.metrics.reference_count,
+                            "effectiveness": round(
+                                await self.preference_analytics.calculate_effectiveness(rec.preference_id), 3
+                            ),
+                            "last_used": rec.metrics.last_used.isoformat()
+                        }
+                    })
+
+                # Sort by confidence descending
+                filtered_recs.sort(key=lambda x: x["confidence"], reverse=True)
+
+                # Apply limit
+                if limit:
+                    filtered_recs = filtered_recs[:limit]
+
+                summary = {
+                    "total_recommendations": len(recommendations),
+                    "filtered_count": len(filtered_recs),
+                    "action_counts": action_counts,
+                    "filters_applied": {
+                        "action_type": action_type,
+                        "min_confidence": min_confidence,
+                        "limit": limit
+                    }
+                }
+
+                return PreferenceRecommendationsResponse(
+                    recommendations=filtered_recs,
+                    summary=summary
+                )
+
+            except Exception as e:
+                logger.error(f'Get preference recommendations failed: {e}')
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.get('/api/rejection/statistics')
+        async def get_rejection_statistics(
+            token: str = Depends(self._verify_token),
+        ):
+            """
+            Get comprehensive rejection statistics and patterns.
+
+            Returns:
+                {
+                    "total_rejections": int,
+                    "categories": List[str],
+                    "scope_types": List[str],
+                    "detection_methods": List[str],
+                    "avg_rejected_confidence": float,
+                    "first_rejection": str,
+                    "latest_rejection": str,
+                    "patterns_detected": int
+                }
+            """
+            try:
+                stats = await self.preference_manager.rejection_learner.get_rejection_statistics()
+                return stats
+            except Exception as e:
+                logger.error(f'Get rejection statistics failed: {e}')
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.post('/api/claudemd/export')
+        async def export_to_claudemd(
+            output_file: str = Body(...),
+            min_effectiveness: Optional[float] = Body(None),
+            min_usage_count: Optional[int] = Body(None),
+            section: str = Body("## PRISM Learned Patterns"),
+            dry_run: bool = Body(True),
+            token: str = Depends(self._verify_token)
+        ):
+            """Export high-performing preferences to CLAUDE.md."""
+            try:
+                # Initialize CLAUDE.md sync if not already done
+                if not hasattr(self, 'claudemd_sync'):
+                    from prism_mcp.integrations.claudemd_sync import CLAUDEMDSync
+                    self.claudemd_sync = CLAUDEMDSync()
+
+                result = await self.claudemd_sync.export_to_claudemd(
+                    output_file=output_file,
+                    section=section,
+                    dry_run=dry_run,
+                    min_effectiveness=min_effectiveness,
+                    min_usage_count=min_usage_count
+                )
+
+                return {
+                    "exported_count": result.exported_count,
+                    "exported_preferences": result.exported_preferences,
+                    "errors": result.errors
+                }
+
+            except Exception as e:
+                logger.error(f'Export to CLAUDE.md failed: {e}')
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.post('/api/claudemd/import')
+        async def import_from_claudemd(
+            input_file: str = Body(...),
+            auto_approve: bool = Body(False),
+            token: str = Depends(self._verify_token)
+        ):
+            """Import CLAUDE.md changes as preferences."""
+            try:
+                # Initialize CLAUDE.md sync if not already done
+                if not hasattr(self, 'claudemd_sync'):
+                    from prism_mcp.integrations.claudemd_sync import CLAUDEMDSync
+                    self.claudemd_sync = CLAUDEMDSync()
+
+                result = await self.claudemd_sync.import_from_claudemd(
+                    input_file=input_file,
+                    auto_approve=auto_approve
+                )
+
+                return {
+                    "imported_count": result.imported_count,
+                    "imported_rules": result.imported_rules,
+                    "errors": result.errors
+                }
+
+            except Exception as e:
+                logger.error(f'Import from CLAUDE.md failed: {e}')
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.post('/api/hooks/pre-tool-use')
+        async def pre_tool_use_hook(
+            tool_name: str = Body(...),
+            file_path: Optional[str] = Body(None),
+            session_id: str = Body(...),
+            additional_context: Optional[Dict[str, Any]] = Body(None),
+            token: str = Depends(self._verify_token)
+        ):
+            """Handle PreToolUse hook request."""
+            try:
+                # Initialize hook integration if not already done
+                if not hasattr(self, 'hook_integration'):
+                    from prism_mcp.integrations.hook_integration import HookIntegration
+                    self.hook_integration = HookIntegration()
+
+                result = await self.hook_integration.handle_pre_tool_use(
+                    tool_name=tool_name,
+                    file_path=file_path,
+                    session_id=session_id,
+                    additional_context=additional_context
+                )
+
+                return result
+
+            except Exception as e:
+                logger.error(f'PreToolUse hook failed: {e}')
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.post('/api/hooks/post-tool-use')
+        async def post_tool_use_hook(
+            tool_name: str = Body(...),
+            file_path: Optional[str] = Body(None),
+            session_id: str = Body(...),
+            file_content: Optional[str] = Body(None),
+            additional_context: Optional[Dict[str, Any]] = Body(None),
+            token: str = Depends(self._verify_token)
+        ):
+            """Handle PostToolUse hook request."""
+            try:
+                # Initialize hook integration if not already done
+                if not hasattr(self, 'hook_integration'):
+                    from prism_mcp.integrations.hook_integration import HookIntegration
+                    self.hook_integration = HookIntegration()
+
+                result = await self.hook_integration.handle_post_tool_use(
+                    tool_name=tool_name,
+                    file_path=file_path,
+                    session_id=session_id,
+                    file_content=file_content,
+                    additional_context=additional_context
+                )
+
+                return result
+
+            except Exception as e:
+                logger.error(f'PostToolUse hook failed: {e}')
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.get('/api/deletion/analytics')
+        async def get_deletion_analytics(
+            project_id: Optional[str] = None,
+            days_back: int = 30,
+            token: str = Depends(self._verify_token),
+        ):
+            """
+            Get symbol deletion analytics and metrics.
+
+            Query Parameters:
+            - project_id: Filter by specific project (optional)
+            - days_back: Number of days to look back (default: 30)
+            """
+            try:
+                from prism_mcp.core.index_manager import IndexManager
+
+                index_manager = IndexManager()
+                analytics = index_manager.get_deletion_analytics(project_id)
+
+                return {
+                    "project_id": project_id,
+                    "days_back": days_back,
+                    "analytics": analytics,
+                    "status": "success"
+                }
+
+            except Exception as e:
+                logger.error(f'Get deletion analytics failed: {e}')
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.get('/api/metrics/summary')
+        async def get_metrics_summary(
+            window_seconds: int = 3600,
+            token: str = Depends(self._verify_token)
+        ):
+            """
+            Get comprehensive performance metrics summary.
+
+            Query Parameters:
+            - window_seconds: Time window for aggregation in seconds (default: 3600 = 1 hour)
+
+            Returns metrics for API latency, database performance, cache statistics,
+            and system health indicators.
+            """
+            try:
+                from prism_mcp.core.performance_metrics import get_performance_metrics
+
+                metrics = get_performance_metrics()
+                summary = await metrics.get_all_metrics_summary(window_seconds)
+
+                return {
+                    "status": "success",
+                    "window_seconds": window_seconds,
+                    "timestamp": datetime.now().isoformat(),
+                    "metrics": summary
+                }
+
+            except Exception as e:
+                logger.error(f'Get metrics summary failed: {e}')
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.get('/api/metrics/timer/{metric_name}')
+        async def get_timer_metrics(
+            metric_name: str,
+            window_seconds: Optional[int] = None,
+            token: str = Depends(self._verify_token)
+        ):
+            """
+            Get detailed statistics for a specific timer metric.
+
+            Path Parameters:
+            - metric_name: Name of the timer metric
+
+            Query Parameters:
+            - window_seconds: Time window for aggregation (optional, default: all data)
+
+            Returns percentiles (p50, p95, p99), count, min/max, and mean values.
+            """
+            try:
+                from prism_mcp.core.performance_metrics import get_performance_metrics
+
+                metrics = get_performance_metrics()
+                summary = await metrics.get_timer_summary(metric_name, window_seconds)
+
+                if summary is None:
+                    return {
+                        "status": "not_found",
+                        "metric_name": metric_name,
+                        "message": "No data found for metric"
+                    }
+
+                return {
+                    "status": "success",
+                    "metric_name": metric_name,
+                    "window_seconds": window_seconds,
+                    "timestamp": datetime.now().isoformat(),
+                    "statistics": {
+                        "count": summary.count,
+                        "min_ms": summary.min_value,
+                        "max_ms": summary.max_value,
+                        "mean_ms": summary.mean,
+                        "p50_ms": summary.p50,
+                        "p95_ms": summary.p95,
+                        "p99_ms": summary.p99,
+                        "sum_ms": summary.sum_value
+                    }
+                }
+
+            except Exception as e:
+                logger.error(f'Get timer metrics failed for {metric_name}: {e}')
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.get('/api/metrics/counter/{metric_name}')
+        async def get_counter_metrics(
+            metric_name: str,
+            token: str = Depends(self._verify_token)
+        ):
+            """
+            Get current value for a counter metric.
+
+            Path Parameters:
+            - metric_name: Name of the counter metric
+
+            Returns current counter value and metadata.
+            """
+            try:
+                from prism_mcp.core.performance_metrics import get_performance_metrics
+
+                metrics = get_performance_metrics()
+                value = await metrics.get_counter_value(metric_name)
+
+                return {
+                    "status": "success",
+                    "metric_name": metric_name,
+                    "timestamp": datetime.now().isoformat(),
+                    "value": value
+                }
+
+            except Exception as e:
+                logger.error(f'Get counter metrics failed for {metric_name}: {e}')
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.get('/api/metrics/gauge/{metric_name}')
+        async def get_gauge_metrics(
+            metric_name: str,
+            token: str = Depends(self._verify_token)
+        ):
+            """
+            Get current value for a gauge metric.
+
+            Path Parameters:
+            - metric_name: Name of the gauge metric
+
+            Returns current gauge value and metadata.
+            """
+            try:
+                from prism_mcp.core.performance_metrics import get_performance_metrics
+
+                metrics = get_performance_metrics()
+                value = await metrics.get_gauge_value(metric_name)
+
+                return {
+                    "status": "success",
+                    "metric_name": metric_name,
+                    "timestamp": datetime.now().isoformat(),
+                    "value": value
+                }
+
+            except Exception as e:
+                logger.error(f'Get gauge metrics failed for {metric_name}: {e}')
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.get('/api/metrics/cache/hit-rate')
+        async def get_cache_hit_rate(
+            operation: str = "get",
+            window_seconds: Optional[int] = None,
+            token: str = Depends(self._verify_token)
+        ):
+            """
+            Get cache hit rate for specific operation.
+
+            Query Parameters:
+            - operation: Cache operation type (get, set, delete) - default: get
+            - window_seconds: Time window for calculation (optional, default: all time)
+
+            Returns hit rate percentage and supporting statistics.
+            """
+            try:
+                from prism_mcp.core.performance_metrics import get_performance_metrics
+
+                metrics = get_performance_metrics()
+                hit_rate = await metrics.get_cache_hit_rate(operation, window_seconds)
+
+                # Get supporting statistics
+                hits = await metrics.get_counter_value(f"cache_{operation}_total", {"status": "hit"})
+                misses = await metrics.get_counter_value(f"cache_{operation}_total", {"status": "miss"})
+
+                return {
+                    "status": "success",
+                    "operation": operation,
+                    "window_seconds": window_seconds,
+                    "timestamp": datetime.now().isoformat(),
+                    "hit_rate_percent": hit_rate,
+                    "statistics": {
+                        "hits": hits,
+                        "misses": misses,
+                        "total_operations": hits + misses
+                    }
+                }
+
+            except Exception as e:
+                logger.error(f'Get cache hit rate failed for {operation}: {e}')
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.post('/api/deletion/reconcile')
+        async def reconcile_symbols(
+            request: dict,
+            token: str = Depends(self._verify_token),
+        ):
+            """
+            Reconcile symbols for a project to detect deletions.
+
+            Request Body:
+            {
+                "project_id": "my_project",
+                "project_path": "/path/to/project"
+            }
+            """
+            try:
+                project_id = request.get('project_id')
+                project_path = request.get('project_path')
+
+                if not project_id:
+                    raise HTTPException(status_code=400, detail="project_id required")
+                if not project_path:
+                    raise HTTPException(status_code=400, detail="project_path required")
+
+                from prism_mcp.core.index_manager import IndexManager
+
+                index_manager = IndexManager()
+                result = index_manager.reconcile_symbols(project_path, project_id)
+
+                return {
+                    "project_id": project_id,
+                    "project_path": project_path,
+                    "reconciliation_result": result,
+                    "status": "success"
+                }
+
+            except Exception as e:
+                logger.error(f'Symbol reconciliation failed: {e}')
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.post('/api/deletion/cleanup')
+        async def cleanup_old_deletions(
+            request: dict,
+            token: str = Depends(self._verify_token),
+        ):
+            """
+            Clean up old deletion records beyond retention period.
+
+            Request Body:
+            {
+                "retention_days": 90  // optional, uses config default if not specified
+            }
+            """
+            try:
+                retention_days = request.get('retention_days')
+
+                from prism_mcp.core.symbol_deletion_tracker import SymbolDeletionTracker
+
+                deletion_tracker = SymbolDeletionTracker()
+                cleaned_count = deletion_tracker.cleanup_old_deletions(retention_days)
+
+                return {
+                    "cleaned_count": cleaned_count,
+                    "retention_days": retention_days,
+                    "status": "success"
+                }
+
+            except Exception as e:
+                logger.error(f'Deletion cleanup failed: {e}')
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.get('/api/hooks/scripts')
+        async def get_hook_scripts(
+            token: str = Depends(self._verify_token)
+        ):
+            """Get hook script templates for installation."""
+            try:
+                # Initialize hook integration if not already done
+                if not hasattr(self, 'hook_integration'):
+                    from prism_mcp.integrations.hook_integration import HookIntegration
+                    self.hook_integration = HookIntegration()
+
+                scripts = self.hook_integration.get_hook_scripts()
+
+                return {
+                    "scripts": scripts,
+                    "installation_instructions": {
+                        "directory": "~/.claude/hooks/",
+                        "permissions": "chmod +x ~/.claude/hooks/*.sh",
+                        "note": "Ensure Claude Code hooks are enabled in settings"
+                    }
+                }
+
+            except Exception as e:
+                logger.error(f'Get hook scripts failed: {e}')
+                raise HTTPException(status_code=500, detail=str(e))
+
+    def run(self, host: Optional[str] = None, port: Optional[int] = None):
+        """
+        Run the HTTP server.
+
+        Args:
+            host: Host to bind to (uses config if not specified)
+            port: Port to bind to (uses config if not specified)
+        """
+        if host is None:
+            host = self.config.server.http_host
+        if port is None:
+            port = self.config.server.http_port
+
+        logger.info(f'Starting PRISM HTTP API on {host}:{port}')
+
+        uvicorn.run(self.app, host=host, port=port, log_level='info')
+
+
+def create_http_server() -> PRISMHTTPServer:
+    """Create and return HTTP server instance."""
+    return PRISMHTTPServer()
+
+
+if __name__ == '__main__':
+    # Run as standalone HTTP server
+    server = create_http_server()
+    server.run()

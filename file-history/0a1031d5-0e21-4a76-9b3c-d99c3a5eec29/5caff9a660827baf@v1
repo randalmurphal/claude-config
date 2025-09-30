@@ -1,0 +1,315 @@
+# PRISM MCP - AI Agent Guide
+
+## 🎯 What This Is
+PRISM is an AI memory system with intelligent retrieval, pattern detection, and preference learning.
+
+## ⚠️ CRITICAL: NO DEFAULTS PHILOSOPHY
+- System MUST crash if requirements not met
+- NEVER add `.get(key, default)` for required fields - let it fail
+- NEVER add try/except without re-raising
+- ALL configuration in config.yaml - NO defaults
+
+## 📁 Where to Look
+
+### Core Components (`prism_mcp/core/`)
+- **orchestrator.py** (1200 lines) - Main coordination, warm-up, background evolution
+- **memory_engine.py** (950 lines) - 4-tier memory (ANCHORS/LONGTERM/EPISODIC/WORKING), promotion logic
+- **retrieval_coordinator.py** (900 lines) - 6-stage intelligent retrieval pipeline
+- **semantic_searcher.py** - Stage 1: Qdrant similarity search
+- **graph_expander.py** - Stage 2: Neo4j PageRank + BFS expansion
+- **diversity_selector.py** - Stage 5: MMR + Louvain clustering
+- **utility_tracker.py** - Stage 6: Feedback-driven utility scoring
+- **preference_manager.py** (540 lines) - Preference lifecycle (suggest/approve/reject/undo)
+- **preference_detector.py** - Detects preferences from user interactions
+- **code_linker.py** - Links preferences to code examples
+- **pattern_engine.py** - Hybrid AST + semantic pattern detection
+- **negation_learner.py** - Learns query negations from feedback
+- **index_manager.py** - Code indexing orchestration
+
+### Storage (`prism_mcp/storage/`)
+- **qdrant_manager.py** - Vector operations (patterns, memories, code symbols)
+- **neo4j_manager.py** - Graph operations, relationships, algorithms
+- **redis_cache.py** - Session cache (24h TTL only)
+
+### Models (`prism_mcp/models/`)
+- **embedder.py** - Dual-model architecture (E5-Mistral + StarCoder2) + BGE reranker
+- **quantization.py** - 8-bit model loading with CPU offload
+
+### Interfaces (`prism_mcp/interfaces/`)
+- **http_api.py** (1400+ lines) - FastAPI server, 25+ endpoints including Phase 4/5 features
+- **mcp_server.py** - MCP protocol, 20+ tools including CLAUDE.md sync
+- **http_client.py** - Async HTTP client for orchestration
+
+### Integrations (`prism_mcp/integrations/`)
+- **claudemd_sync.py** (300 lines) - Bidirectional CLAUDE.md ↔ PRISM sync with manual approval
+- **claudemd_parser.py** (200 lines) - Parses CLAUDE.md files to extract patterns and rules
+- **hook_integration.py** (400 lines) - PreToolUse/PostToolUse hook integration with <100ms retrieval
+
+### Utils (`prism_mcp/utils/`)
+- **config.py** - Configuration loading and validation
+- **error_messages.py** (400 lines) - Comprehensive error handling with solutions
+- **health_check.py** (600 lines) - Detailed system health monitoring
+
+### Configuration (`config/`)
+- **config.yaml** - Main config (edit this, NO env vars)
+- **config.template.yaml** - Template for new installations
+
+## 🔑 Key Concepts
+
+### Memory Tiers (4-tier system)
+1. **ANCHORS**: High-frustration patterns (user explicitly frustrated)
+2. **LONGTERM**: Stable, frequently accessed (access_count ≥ 5)
+3. **EPISODIC**: Recent session discoveries (promoted from WORKING)
+4. **WORKING**: Current session only (TTL cleanup)
+
+Promotion: WORKING → EPISODIC → LONGTERM → ANCHORS (based on access_count + frustration_score)
+
+### Intelligent Retrieval Pipeline (6 stages)
+1. **Semantic Search** (Qdrant): E5 embeddings, min_similarity_threshold=0.70
+2. **Graph Expansion** (Neo4j): PageRank + BFS, max_depth=2 (optional)
+3. **Context Filtering**: Dedup + compatibility (role/task/project/branch)
+4. **Temporal Ranking**: Age decay + recency boost + git SHA matching
+5. **Diversity Selection**: MMR algorithm + Louvain communities
+6. **Final Scoring**: Weighted combo (semantic=0.40, graph=0.30, temporal=0.20, utility=0.10)
+
+### Preference Memory
+- **Detection**: Explicit statements, interventions, rejection clusters
+- **Auto-Approval**: explicit + confidence ≥ 0.85 → ANCHORS tier immediately
+- **Manual Approval**: pending preferences require review
+- **Code Grounding**: Link preferences to code examples via EXEMPLIFIED_BY relationships
+- **Stage 0 Injection**: Preferences auto-injected into retrieval results
+
+### Claude Code Integrations
+- **CLAUDE.md Sync**: Bidirectional sync between high-performing preferences and CLAUDE.md files
+- **Hook Integration**: PreToolUse (<100ms) pattern retrieval and PostToolUse async pattern detection
+- **Sub-agent Discovery**: Auto-discovery of Claude Code agents from ~/.claude/agents/*.md
+- **Output Style Management**: Automatic style switching during orchestration workflows
+
+### Operations
+- **Setup**: `./setup.sh` - Complete ecosystem installation
+- **Error Messages**: Every error includes specific solution guidance
+- **Health Monitoring**: Detailed system status with `/api/health/detailed`
+- **Management Scripts**: Operational tools for production deployment
+
+### UUID Systems (CRITICAL)
+- **Legacy memories**: 12-char hex → converted to integer via MD5
+- **Preferences**: Full UUID (36-char) → stored as UUID string natively in Qdrant
+- **Why Different**: Preferences need stable, human-readable IDs without conversion
+
+## 🔧 Common Operations
+
+### Initial Setup
+```bash
+./setup.sh                          # Complete one-command setup
+./scripts/check_prerequisites.sh    # Verify system requirements
+./scripts/cleanup.sh                # Clean removal and reset
+```
+
+### Daily Operations
+```bash
+./start_prism.sh                    # Start PRISM HTTP API
+./stop_databases.sh                 # Stop database containers
+./restart_databases.sh              # Restart database containers
+./scripts/health_check.sh           # Quick health validation
+```
+
+### Health Monitoring
+```bash
+curl http://localhost:8092/api/health/detailed  # Comprehensive system status
+tail -f setup.log                              # Setup progress
+nerdctl logs prism-neo4j prism-qdrant prism-redis  # Service logs
+```
+
+### CLAUDE.md Integration
+```bash
+# Export high-performing preferences to CLAUDE.md
+prism_export_to_claudemd --output-file ./CLAUDE.md --dry-run false
+
+# Import CLAUDE.md changes as ANCHORS preferences
+prism_import_from_claudemd --input-file ./CLAUDE.md --auto-approve false
+```
+
+### Adding New Patterns
+1. Add to `prism_mcp/bootstrap/download_patterns.py`
+2. Run `python -m prism_mcp.bootstrap.download_patterns`
+3. Run `python -m prism_mcp.bootstrap.load_patterns_to_db`
+
+### Modifying Retrieval Weights
+Edit `config/config.yaml`:
+```yaml
+intelligent_retrieval:
+  scoring:
+    weights:
+      semantic: 0.40  # Must sum to 1.0
+      graph: 0.30
+      temporal: 0.20
+      utility: 0.10
+```
+
+### Storage API Usage
+- **Wrappers**: Use for common ops (`upsert()`, `search()`, `set()`, `get()`)
+- **Raw client**: Use `.client` for advanced ops (`retrieve()`, `scroll()`, `lpush()`)
+
+**Example - Qdrant Record Access**:
+```python
+# WRONG - Record is not subscriptable
+payload = record['payload']
+
+# CORRECT - Use dot notation
+payload = record.payload
+```
+
+**Example - Qdrant Scroll**:
+```python
+# Returns tuple - must unpack
+results, next_offset = self.qdrant.client.scroll(...)
+```
+
+**Example - Redis List Ops**:
+```python
+# Use raw client for list operations
+self.redis.client.lpush(key, value)
+preference_id = self.redis.client.lpop(key)
+```
+
+### UUID Native Storage (Preferences)
+```python
+# Store with UUID string directly - NO integer conversion
+point = PointStruct(id=uuid_string, vector=embedding.tolist(), payload=payload)
+self.qdrant.client.upsert(collection_name='memories_e5', points=[point])
+
+# Retrieve with UUID string - matches exactly
+points = self.qdrant.client.retrieve(collection_name='memories_e5', ids=[uuid_string])
+```
+
+## ⚠️ Common Pitfalls
+
+### DON'T
+- Use `.get(key, default)` for required config/data
+- Add try/except in core logic without re-raising
+- Mix UUID systems (12-char conversion vs 36-char native)
+- Use `record['key']` for Qdrant Record objects (use `record.key`)
+- Assume wrapper methods exist (check API docs)
+- Forget to unpack tuples from `scroll()` and `query()`
+
+### DO
+- Fail loud on missing fields/data
+- Use retry logic for eventual consistency (Qdrant writes)
+- Check if using wrapper or raw client
+- Use UUID strings natively for preferences
+- Handle both 12-char and 36-char UUID formats in validation
+- Add retry with exponential backoff for distributed systems
+
+## 🧪 Testing
+
+```bash
+# Run all tests
+pytest
+
+# Run specific validation
+python tests/validate_implementation.py
+
+# With coverage
+pytest --cov=prism_mcp --cov-report=html
+```
+
+## 📊 Core Capabilities
+
+**Intelligent Retrieval**: 6-stage pipeline with semantic search, graph expansion, and diversity selection
+**Preference Memory**: Detection, lifecycle management, and code grounding
+**Claude Code Integration**: CLAUDE.md sync, hooks, and sub-agent discovery
+
+## 📖 Documentation Structure
+
+- **README.md**: Human-friendly setup guide (you're reading the wrong file!)
+- **CLAUDE.md**: This file - concise AI agent guide
+- **docs/IMPLEMENTATION_NOTES.md**: Phase 4/5 bugs fixed, lessons learned
+- **docs/ULTIMATE_ARCHITECTURE_SPEC.md**: Complete system architecture (88K)
+- **docs/PREFERENCE_MEMORY_SPEC.md**: Preference learning spec (95K)
+- **docs/PHASE_2_6_FINAL_SPEC.md**: Future work (DO NOT REMOVE)
+- **docs/PHASE*_REVIEW.md**: Technical phase reviews
+
+## 🔍 Debugging & Troubleshooting
+
+### System Health
+```bash
+# Comprehensive health check with detailed service status
+./scripts/health_check.sh
+
+# Detailed API health check (requires authentication)
+curl -H "Authorization: Bearer YOUR_API_KEY" \
+     http://localhost:8090/api/health/detailed
+
+# Check individual services
+nerdctl ps | grep prism                    # Container status
+curl http://localhost:7474                 # Neo4j HTTP
+curl http://localhost:6333/health          # Qdrant health
+nerdctl exec prism-redis redis-cli ping    # Redis connectivity
+```
+
+### Error Messages
+All errors include specific solution guidance:
+- **ConfigError**: Shows exact config file, line number, and fix instructions
+- **DatabaseConnectionError**: Service-specific troubleshooting steps
+- **ModelLoadingError**: Memory, GPU, and model-specific guidance
+- **SetupError**: Failure recovery steps
+
+### Common Issues
+
+#### Pattern not detecting?
+Check `code_patterns` collection in Qdrant, verify `has_ast=True` and `ast_query` exists
+
+#### Memory not promoting?
+Check `get_tier_statistics()`, verify Neo4j Memory nodes have `session_id`, `tier`, `access_count`
+
+#### Graph scores always zero?
+Verify `graph.expansion_enabled: true` in config, check Neo4j relationships exist
+
+#### Retrieval returns empty?
+Ensure `session_id` provided (REQUIRED), check Qdrant `memories` collection has data
+
+#### Preference not found after creation?
+Eventual consistency - retry logic should handle this (10 attempts, exponential backoff)
+
+#### Setup failing?
+```bash
+# Check prerequisites first
+./scripts/check_prerequisites.sh
+
+# Clean and retry
+./scripts/cleanup.sh
+./setup.sh
+
+# Check logs for specific errors
+tail -f setup.log
+```
+
+#### Hook integration not working?
+```bash
+# Check hook scripts exist and are executable
+ls -la ~/.claude/hooks/
+chmod +x ~/.claude/hooks/*.sh
+
+# Test hook endpoints
+curl -X POST http://localhost:8092/api/hooks/pre-tool-use \
+     -H "Content-Type: application/json" \
+     -H "Authorization: Bearer YOUR_API_KEY" \
+     -d '{"tool_name":"Write","session_id":"test"}'
+```
+
+## 🔧 System Features
+
+**Infrastructure**: Qdrant (vectors), Neo4j (graph), Redis (cache), HTTP API
+**API Endpoints**: 25+ HTTP endpoints with authentication
+**MCP Tools**: 20+ tools for Claude Code integration
+**Preference Lifecycle**: Complete workflow with Claude Code integration
+**CLAUDE.md Sync**: Bidirectional sync with manual approval
+**Hook Integration**: Real-time pattern retrieval and learning
+**Health Monitoring**: Comprehensive diagnostics and status reporting
+**Setup Automation**: One-command installation with error recovery
+
+---
+
+*For implementation details, see docs/IMPLEMENTATION_NOTES.md*
+*For architecture, see docs/ULTIMATE_ARCHITECTURE_SPEC.md*
+*For future work, see docs/PHASE_2_6_FINAL_SPEC.md*

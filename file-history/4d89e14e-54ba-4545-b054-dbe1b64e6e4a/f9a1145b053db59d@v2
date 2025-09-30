@@ -1,0 +1,505 @@
+"""
+Tech Evolution Monitor - Proactively track technology updates.
+
+Responsibilities:
+- Quick startup checks for critical updates (<5s)
+- Background scanning of full tech stack (~5min for 50 techs)
+- Link updates to architectural decisions (ADRs)
+- Generate actionable suggestions
+
+NO DEFAULTS - crash loudly on missing required fields.
+"""
+
+import asyncio
+import json
+import logging
+import time
+import uuid
+from datetime import datetime
+from typing import Dict, List, Optional
+
+from prism_mcp.core.prism_engine import get_prism_engine
+from prism_mcp.core.tech_stack_tracker import get_tech_stack_tracker
+from prism_mcp.integrations.web_search import get_web_search_integration
+from prism_mcp.models.tech_update import (
+    ADRLink,
+    CriticalUpdate,
+    ScanResult,
+    TechUpdate,
+    UpdateSuggestion,
+)
+from prism_mcp.storage.redis_cache import RedisCache
+
+
+logger = logging.getLogger(__name__)
+
+
+class TechEvolutionMonitor:
+    """
+    Technology evolution monitoring system.
+
+    Tracks updates, security advisories, and breaking changes for user's tech stack.
+    """
+
+    def __init__(self):
+        """Initialize tech evolution monitor."""
+        self.tech_stack_tracker = get_tech_stack_tracker()
+        self.web_search = get_web_search_integration()
+        self.prism = get_prism_engine()
+        self.redis = RedisCache()
+
+        logger.info('TechEvolutionMonitor initialized')
+
+    def check_critical_updates(
+        self, session_id: str, user_id: str, force_refresh: bool = False
+    ) -> List[CriticalUpdate]:
+        """
+        Quick check for critical updates (<5s).
+
+        Checks top 10 critical technologies only. Uses cache if available (<24hrs old).
+
+        Performance target: <5s total
+        - Get critical techs: <100ms
+        - Check cache: <10ms
+        - Web search (if needed): <3s
+        - Format results: <100ms
+
+        Args:
+            session_id: Session ID (required)
+            user_id: User ID (required)
+            force_refresh: Force refresh even if cache valid
+
+        Returns:
+            List of CriticalUpdate objects (critical severity only)
+
+        Raises:
+            RuntimeError: If session_id or user_id missing
+        """
+        if not session_id:
+            raise RuntimeError('session_id required')
+        if not user_id:
+            raise RuntimeError('user_id required')
+
+        start_time = time.time()
+
+        # Check cache first (unless force_refresh)
+        if not force_refresh:
+            cache_key = f'critical_updates:{user_id}'
+            cached = self.redis.client.get(cache_key)
+            if cached:
+                try:
+                    update_dicts = json.loads(cached)
+                    elapsed = (time.time() - start_time) * 1000
+                    logger.info(
+                        f'Loaded {len(update_dicts)} critical updates from cache ({elapsed:.1f}ms)'
+                    )
+                    return [self._critical_update_from_dict(u) for u in update_dicts]
+                except Exception as e:
+                    logger.warning(f'Failed to parse cached critical updates: {e}')
+
+        # Get top 10 critical technologies
+        try:
+            tech_stack = self.tech_stack_tracker.get_user_tech_stack(
+                session_id=session_id, user_id=user_id
+            )
+            critical_techs = self.tech_stack_tracker.prioritize_checks(
+                tech_stack, max_critical=10
+            )[:10]
+        except Exception as e:
+            logger.error(f'Failed to get critical technologies: {e}')
+            raise RuntimeError(f'Critical tech retrieval failed: {e}')
+
+        if not critical_techs:
+            logger.info('No critical technologies to check')
+            return []
+
+        # Search for critical updates only (security + breaking)
+        critical_updates = []
+
+        for tech in critical_techs:
+            try:
+                updates = self.web_search.search_tech_updates(
+                    tech_name=tech.name,
+                    current_version=tech.current_version,
+                    update_types=['security', 'breaking'],
+                    max_results=3,  # Only top 3 per tech
+                )
+
+                # Filter to critical severity only
+                for update in updates:
+                    if update.severity == 'critical':
+                        critical_update = CriticalUpdate(
+                            tech_name=update.tech_name,
+                            severity='critical',
+                            title=update.title,
+                            impact=update.impact,
+                            source_url=update.source_url,
+                            cve_id=update.cve_id,
+                        )
+                        critical_updates.append(critical_update)
+
+            except Exception as e:
+                logger.warning(f'Failed to check {tech.name}: {e}')
+                continue
+
+        # Cache for 24 hours
+        try:
+            update_dicts = [u.to_dict() for u in critical_updates]
+            self.redis.client.setex(
+                f'critical_updates:{user_id}', 86400, json.dumps(update_dicts)
+            )  # 24hr TTL
+        except Exception as e:
+            logger.warning(f'Failed to cache critical updates: {e}')
+
+        elapsed = (time.time() - start_time) * 1000
+        logger.info(
+            f'Found {len(critical_updates)} critical updates for {len(critical_techs)} technologies ({elapsed:.1f}ms)'
+        )
+
+        return critical_updates
+
+    async def scan_full_stack(
+        self,
+        session_id: str,
+        user_id: str,
+        project_id: Optional[str] = None,
+        background: bool = True,
+    ) -> ScanResult:
+        """
+        Full scan of all technologies in stack (~5min for 50 techs).
+
+        Processes technologies in parallel batches of 10.
+        Each tech check: ~6s (search + parse)
+        Total: ~5min for 50 techs
+
+        Args:
+            session_id: Session ID (required)
+            user_id: User ID (required)
+            project_id: Optional project filter
+            background: If True, run async (don't block)
+
+        Returns:
+            ScanResult with summary
+
+        Raises:
+            RuntimeError: If session_id or user_id missing
+        """
+        if not session_id:
+            raise RuntimeError('session_id required')
+        if not user_id:
+            raise RuntimeError('user_id required')
+
+        scan_id = str(uuid.uuid4())
+        started_at = datetime.now()
+
+        logger.info(f'Starting full stack scan (scan_id={scan_id}, background={background})')
+
+        # Get full tech stack
+        try:
+            tech_stack = self.tech_stack_tracker.get_user_tech_stack(
+                session_id=session_id, user_id=user_id, project_id=project_id
+            )
+        except Exception as e:
+            logger.error(f'Failed to get tech stack: {e}')
+            raise RuntimeError(f'Tech stack retrieval failed: {e}')
+
+        if not tech_stack:
+            logger.warning('Tech stack is empty, nothing to scan')
+            completed_at = datetime.now()
+            return ScanResult(
+                scan_id=scan_id,
+                user_id=user_id,
+                started_at=started_at,
+                completed_at=completed_at,
+                technologies_scanned=0,
+                updates_found=0,
+                critical_count=0,
+                high_count=0,
+                medium_count=0,
+                low_count=0,
+                errors=[],
+            )
+
+        # Scan technologies in parallel batches
+        batch_size = 10
+        all_updates = []
+        errors = []
+
+        for i in range(0, len(tech_stack), batch_size):
+            batch = tech_stack[i : i + batch_size]
+            batch_num = (i // batch_size) + 1
+            total_batches = (len(tech_stack) + batch_size - 1) // batch_size
+
+            logger.info(
+                f'Processing batch {batch_num}/{total_batches} ({len(batch)} technologies)'
+            )
+
+            # Process batch in parallel
+            tasks = [self._scan_technology(tech) for tech in batch]
+            batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            for result in batch_results:
+                if isinstance(result, Exception):
+                    error_msg = str(result)
+                    errors.append(error_msg)
+                    logger.warning(f'Scan error: {error_msg}')
+                elif result:
+                    all_updates.extend(result)
+
+        # Count by severity
+        critical_count = sum(1 for u in all_updates if u.severity == 'critical')
+        high_count = sum(1 for u in all_updates if u.severity == 'high')
+        medium_count = sum(1 for u in all_updates if u.severity == 'medium')
+        low_count = sum(1 for u in all_updates if u.severity == 'low')
+
+        completed_at = datetime.now()
+        duration = (completed_at - started_at).total_seconds()
+
+        # Store scan result in Redis
+        scan_result = ScanResult(
+            scan_id=scan_id,
+            user_id=user_id,
+            started_at=started_at,
+            completed_at=completed_at,
+            technologies_scanned=len(tech_stack),
+            updates_found=len(all_updates),
+            critical_count=critical_count,
+            high_count=high_count,
+            medium_count=medium_count,
+            low_count=low_count,
+            errors=errors,
+        )
+
+        try:
+            self.redis.client.setex(
+                f'scan_result:{scan_id}', 86400, json.dumps(scan_result.to_dict())
+            )
+            self.redis.client.set(f'last_scan:{user_id}', datetime.now().isoformat())
+        except Exception as e:
+            logger.warning(f'Failed to store scan result: {e}')
+
+        logger.info(
+            f'Scan complete: {len(tech_stack)} techs, {len(all_updates)} updates found '
+            f'({critical_count} critical, {high_count} high, {medium_count} medium, {low_count} low) '
+            f'in {duration:.1f}s'
+        )
+
+        return scan_result
+
+    def link_updates_to_adrs(self, session_id: str, tech_name: str) -> List[ADRLink]:
+        """
+        Find ADRs that reference this technology and assess update impact.
+
+        Args:
+            session_id: Session ID (required)
+            tech_name: Technology name (required)
+
+        Returns:
+            List of ADRLink objects
+
+        Raises:
+            RuntimeError: If required params missing
+        """
+        if not session_id:
+            raise RuntimeError('session_id required')
+        if not tech_name:
+            raise RuntimeError('tech_name required')
+
+        # Query PRISM for ADRs mentioning this tech
+        try:
+            memories = self.prism.retrieve_memory(
+                query=f'{tech_name} architecture decision',
+                session_id=session_id,
+                limit=5,
+                tier='anchors',  # ADRs are in ANCHORS tier
+            )
+        except Exception as e:
+            logger.warning(f'Failed to query ADRs: {e}')
+            return []
+
+        adr_links = []
+
+        for memory in memories:
+            # Check if this is an ADR (has 'architecture_decision' type)
+            memory_type = memory.get('memory_type', '')
+            if memory_type != 'architecture_decision':
+                continue
+
+            # Extract ADR metadata
+            metadata = memory.get('metadata', {})
+            adr_id = metadata.get('adr_id', memory.get('memory_id', ''))
+            decision = metadata.get('decision', '')
+
+            # Calculate relevance (based on similarity score)
+            relevance = memory.get('similarity_score', 0.0)
+
+            # Generate impact assessment
+            # TODO: Could use LLM here for more nuanced assessment
+            if relevance > 0.8:
+                impact_assessment = 'Reconsider needed - decision heavily relies on this technology'
+            elif relevance > 0.6:
+                impact_assessment = 'Review recommended - decision mentions this technology'
+            else:
+                impact_assessment = 'Decision still valid - minor mention only'
+
+            adr_link = ADRLink(
+                adr_id=adr_id,
+                tech_name=tech_name,
+                decision=decision,
+                relevance=relevance,
+                impact_assessment=impact_assessment,
+            )
+
+            adr_links.append(adr_link)
+
+        logger.info(f'Found {len(adr_links)} ADR links for {tech_name}')
+
+        return adr_links
+
+    def generate_suggestions(
+        self, session_id: str, updates: List[TechUpdate], user_id: str
+    ) -> List[UpdateSuggestion]:
+        """
+        Generate actionable suggestions from updates.
+
+        Args:
+            session_id: Session ID (required)
+            updates: List of TechUpdate objects (required)
+            user_id: User ID (required)
+
+        Returns:
+            List of UpdateSuggestion objects
+
+        Raises:
+            RuntimeError: If required params missing
+        """
+        if not session_id:
+            raise RuntimeError('session_id required')
+        if not updates:
+            logger.info('No updates to generate suggestions from')
+            return []
+        if not user_id:
+            raise RuntimeError('user_id required')
+
+        suggestions = []
+
+        # Group updates by technology
+        updates_by_tech: Dict[str, List[TechUpdate]] = {}
+        for update in updates:
+            if update.tech_name not in updates_by_tech:
+                updates_by_tech[update.tech_name] = []
+            updates_by_tech[update.tech_name].append(update)
+
+        # Generate suggestions per technology
+        for tech_name, tech_updates in updates_by_tech.items():
+            # Get ADR links
+            adr_links = self.link_updates_to_adrs(session_id, tech_name)
+            related_adrs = [link.adr_id for link in adr_links]
+
+            # Check for critical security updates
+            security_updates = [u for u in tech_updates if u.update_type == 'security']
+            if security_updates:
+                critical_security = [u for u in security_updates if u.severity == 'critical']
+                if critical_security:
+                    suggestion = UpdateSuggestion(
+                        suggestion_id=str(uuid.uuid4()),
+                        tech_name=tech_name,
+                        suggestion_type='security_patch',
+                        priority='immediate',
+                        action=f'Apply security patch immediately for {tech_name}',
+                        reasoning=f'{len(critical_security)} critical security vulnerabilities found',
+                        effort_estimate='hours',
+                        related_adrs=related_adrs,
+                    )
+                    suggestions.append(suggestion)
+
+            # Check for breaking changes
+            breaking_updates = [u for u in tech_updates if u.update_type == 'breaking']
+            if breaking_updates:
+                suggestion = UpdateSuggestion(
+                    suggestion_id=str(uuid.uuid4()),
+                    tech_name=tech_name,
+                    suggestion_type='upgrade',
+                    priority='soon',
+                    action=f'Plan upgrade for {tech_name} - breaking changes ahead',
+                    reasoning=f'{len(breaking_updates)} breaking changes in newer versions',
+                    effort_estimate='days',
+                    related_adrs=related_adrs,
+                )
+                suggestions.append(suggestion)
+
+            # Check for deprecations
+            deprecation_updates = [u for u in tech_updates if u.update_type == 'deprecation']
+            if deprecation_updates:
+                suggestion = UpdateSuggestion(
+                    suggestion_id=str(uuid.uuid4()),
+                    tech_name=tech_name,
+                    suggestion_type='deprecation_plan',
+                    priority='planned',
+                    action=f'Create migration plan for {tech_name} deprecations',
+                    reasoning=f'{len(deprecation_updates)} features being deprecated',
+                    effort_estimate='weeks',
+                    related_adrs=related_adrs,
+                )
+                suggestions.append(suggestion)
+
+        logger.info(f'Generated {len(suggestions)} suggestions from {len(updates)} updates')
+
+        return suggestions
+
+    # Helper methods
+
+    async def _scan_technology(self, tech) -> List[TechUpdate]:
+        """Scan single technology for updates (async)."""
+        try:
+            updates = self.web_search.search_tech_updates(
+                tech_name=tech.name,
+                current_version=tech.current_version,
+                update_types=['security', 'breaking', 'deprecation', 'feature'],
+                max_results=10,
+            )
+
+            # Update check schedule
+            has_critical = any(u.severity == 'critical' for u in updates)
+            self.tech_stack_tracker.update_check_schedule(
+                user_id=tech.user_id or 'default_user',
+                tech_name=tech.name,
+                last_checked=datetime.now(),
+                has_critical_update=has_critical,
+            )
+
+            return updates
+
+        except Exception as e:
+            logger.warning(f'Failed to scan {tech.name}: {e}')
+            raise RuntimeError(f'Scan failed for {tech.name}: {e}')
+
+    def _critical_update_from_dict(self, data: Dict) -> CriticalUpdate:
+        """Reconstruct CriticalUpdate from cached dict."""
+        return CriticalUpdate(
+            tech_name=data['tech_name'],
+            severity=data['severity'],
+            title=data['title'],
+            impact=data['impact'],
+            source_url=data['source_url'],
+            cve_id=data.get('cve_id'),
+        )
+
+
+# Singleton instance
+_tech_evolution_monitor: Optional[TechEvolutionMonitor] = None
+
+
+def get_tech_evolution_monitor() -> TechEvolutionMonitor:
+    """
+    Get global TechEvolutionMonitor instance (singleton).
+
+    Returns:
+        TechEvolutionMonitor instance
+    """
+    global _tech_evolution_monitor
+
+    if _tech_evolution_monitor is None:
+        _tech_evolution_monitor = TechEvolutionMonitor()
+
+    return _tech_evolution_monitor

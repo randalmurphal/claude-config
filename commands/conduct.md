@@ -14,7 +14,7 @@ description: Orchestrate complex development tasks using orchestration MCP - BUI
 - No real checkpoints (couldn't recover from failures)
 - No parallel work support
 - Same workflow for 1-file and 100-file tasks
-- 15 phantom tools documented but not implemented
+- Phantom tools documented but not implemented
 
 **Current Version:**
 - **REAL validation** - Actually runs pytest/ruff/imports
@@ -25,7 +25,7 @@ description: Orchestrate complex development tasks using orchestration MCP - BUI
 - **Architecture-first workflow** - Define interfaces before implementation (NEW)
 - **Dependency-aware execution** - Parallel execution respecting dependencies (NEW)
 - **ADR storage** - Architectural decisions stored to PRISM (NEW)
-- **21 working tools** - All implemented and tested
+- **18 working tools** - All implemented and tested
 
 ## When to Use /conduct
 
@@ -310,16 +310,15 @@ Continuing with independent components while waiting for answers..."
 5. System marks queries as answered, resumes payment_processor implementation
 ```
 
-## Available Tools (21 total, all working)
+## Available Tools (18 total, all working)
 
-**Core Workflow (7):**
+**Core Workflow (6):**
 - start_task (with complexity detection)
 - prepare_phase
 - finalize_phase (with REAL validation)
 - record_phase_result
 - complete_task
 - get_task_status
-- parse_ready_specification
 
 **Validation (1):**
 - validate_phase (runs pytest/ruff/imports)
@@ -341,11 +340,9 @@ Continuing with independent components while waiting for answers..."
 - get_next_subtask
 - mark_subtask_complete
 
-**Intelligence (4):**
+**Intelligence (2):**
 - analyze_project
-- augment_ready_spec
-- validate_ready_spec
-- synthesize_learnings
+- parse_ready_specification
 
 ## Success Criteria (How to know it's working)
 
@@ -612,7 +609,7 @@ start → decompose → [5 subtasks]
 8. **Dependency-aware parallelization** (NEW) - Smart execution order respects dependencies
 9. **User query generation** (NEW) - Continues work on unblocked tasks while waiting for answers
 10. **ADR storage to PRISM** (NEW) - Architectural decisions persist across sessions
-11. **All tools implemented** - No phantom features, everything works
+11. **18 tools fully implemented** - All working, all tested
 
 ## Quick Reference
 
@@ -654,6 +651,6 @@ start → decompose → [5 subtasks]
 - Circular dependency detection (fail loud before code) ✨ NEW
 - User query generation (continue on unblocked tasks) ✨ NEW
 - ADR storage to PRISM (decisions persist forever) ✨ NEW
-- 21 working tools (all implemented, all tested)
+- 18 working tools (all implemented, all tested)
 
 **When you run /conduct, you get bulletproof autonomous development with architecture-first planning, dependency-aware parallelization, and validation that actually works.**

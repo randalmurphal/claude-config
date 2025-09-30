@@ -1,0 +1,12 @@
+# API Keys for Premium Tier Testing
+# DO NOT COMMIT THIS FILE TO GIT
+
+# Voyage AI (FREE 200M tokens)
+# Code: voyage-code-3
+# General: voyage-3-large
+VOYAGE_API_KEY=pa-LY4uDLmrcH2pO2AgR2T188mHu_L4anvBTDWdsSbAp89
+
+# Jina AI (FREE 10M tokens)
+# Reranker: jina-reranker-m0
+# Get from: https://jina.ai/ → Sign up → Dashboard → API Keys
+JINA_API_KEY=jina_230ece7c7d054fb4b1986d0699a0dea1etd0TKReJHj8N0nzg4PAHrFlDktX

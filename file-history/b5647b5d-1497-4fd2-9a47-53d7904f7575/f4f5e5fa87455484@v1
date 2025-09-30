@@ -1,0 +1,597 @@
+# Orchestration MCP - Multi-Agent Workflow System
+
+## ⚠️ CRITICAL: NO DEFAULTS PHILOSOPHY
+- System MUST crash if requirements not met
+- NEVER add `.get(key, default)` for required fields - let it fail
+- NEVER add try/except without re-raising
+- ALL configuration in config.yaml - NO environment variables required
+
+## 🎯 What Orchestration MCP Provides
+
+Orchestration MCP is a spec-driven multi-agent workflow system that provides:
+
+- **Architecture-First Workflow**: Define interfaces before implementation (medium/large/massive projects)
+- **4-Stage Workflow Orchestration**: Architecture → Skeleton → Implementation → Validation
+- **Dependency-Aware Execution**: Parallel execution with circular dependency detection
+- **Living READY.md Specifications**: Evolving specifications that update during execution
+- **Intelligent Project Analysis**: Automatic detection of languages, frameworks, and dependencies
+- **Custom Role System**: Three-tier role resolution (project → global → default)
+- **Research-Backed Context Patterns**: Six proven patterns that force intelligent agent behavior
+- **Knowledge Graph Integration**: Decision and learning tracking in Neo4j
+- **PRISM Integration**: Semantic memory retrieval and pattern detection
+
+## 🚀 Current Capabilities
+
+**Core Features:**
+- ✅ 11 MCP tools (7 core workflow + 4 intelligence)
+- ✅ READY.md parser with 13 sections (10 required, 3 optional)
+- ✅ ProjectAnalyzer (language, frameworks, dependencies detection)
+- ✅ RoleManager (three-tier resolution: project → global → default)
+- ✅ SpecEvolutionTracker (automatic updates with git commits)
+- ✅ 6 research-backed context patterns implemented
+- ✅ PRISM intelligent retrieval with 6-stage pipeline
+- ✅ Feedback loop for utility learning
+- ✅ Git-aware temporal ranking
+- ✅ Context layer attribution tracking
+- ✅ File-level change tracking with snapshots
+- ✅ 157 tests passing + integration tests
+- ✅ Config-file based (no env vars required)
+- ✅ System-agnostic installation via pip
+
+**New Architecture-First Capabilities:**
+- ✅ ArchitecturePhase - Define interfaces before implementation
+- ✅ DependencyManager - Neo4j-based dependency graph with cycle detection
+- ✅ QueryManager - Redis-based user query generation for blocked tasks
+- ✅ IntegrationValidator - Validates component combinations
+- ✅ Dependency-aware parallel execution
+- ✅ User query generation when unknowns block progress
+- ✅ Interface contract validation
+
+## 🔑 Core Concepts
+
+### Architecture-First Workflow (NEW)
+
+For medium/large/massive projects, the system now follows an architecture-first approach:
+
+1. **Architecture Phase**: Define all component interfaces and contracts BEFORE implementation
+   - Parse READY.md to extract components
+   - Define interfaces/contracts for each component
+   - Generate dependency graph
+   - Detect circular dependencies (FAIL LOUD if found)
+   - Store architecture.yaml with all interfaces
+   - Store ADRs (Architectural Decision Records) to PRISM
+
+2. **Skeleton Phase**: Build implementation structure following architecture
+   - Use architecture.yaml as the source of truth
+   - Create stub implementations with NotImplementedError
+   - Maintain exact interface contracts from architecture
+
+3. **Implementation Phase**: Fill in function bodies
+   - Follow skeleton contracts EXACTLY (no signature changes)
+   - Leverage dependency graph for parallel execution
+   - Use QueryManager when blocked by unknowns
+
+4. **Validation Phase**: Verify integration
+   - Validate imports resolve correctly
+   - Validate interface contracts satisfied
+   - Check for circular dependencies
+   - Run integration tests
+   - Detect new code duplication
+
+**When Architecture Phase Runs:**
+- Small projects: Direct to skeleton (fast iteration)
+- Medium projects: Architecture → Skeleton → Implementation (structured approach)
+- Large/Massive projects: Architecture → Skeleton → Implementation (required for complexity)
+
+### 6 Research-Backed Context Patterns
+
+1. **Context Recitation** (Manus): Mission at START+END fights lost-in-middle
+2. **Layered Context**: PRIMARY/SECONDARY/REFERENCE reduces cognitive load
+3. **Self-Check Gates**: 4 questions agents answer before completion
+4. **Graduated Autonomy**: skeleton (high freedom) vs implementation (medium) vs validator (low)
+5. **Semantic Filtering**: PRISM filters learnings by relevance (keyword fallback)
+6. **TODO Tracking**: Constant objective recitation
+
+### 4-Stage Workflow
+
+- **Phase 0** (optional): Analyze project, augment READY.md
+1. **architecture_phase** (NEW - optional): Define interfaces, extract dependencies, validate architecture
+2. **prepare_phase**: Create chambers, build layered contexts, query learnings, load custom roles
+3. **launch agents**: Agents execute with enriched contexts and role configs (dependency-aware)
+4. **finalize_phase**: Progressive checkpoints (red/green/yellow gates), track failures to Evolution Log
+- **Phase N+1** (optional): Synthesize learnings to PRISM/Neo4j
+
+### Quality Gates
+
+- **GREEN**: Pass, continue
+- **YELLOW**: Warning, non-blocking
+- **RED**: Blocker, stop execution (tracked to Evolution Log)
+
+## 🧠 PRISM Integration
+
+### 6-Stage Intelligent Retrieval Pipeline
+
+Orchestration uses PRISM's full intelligent retrieval pipeline for prior learnings:
+
+1. **Semantic Search** (Qdrant) - Find relevant memories by meaning, not just keywords
+2. **Graph Expansion** (Neo4j PageRank + BFS) - Discover related learnings through relationships
+3. **Context Filtering** - Filter by role/task/phase compatibility
+4. **Temporal Ranking** - Boost recent work on same git branch (git SHA aware)
+5. **Diversity Selection** (MMR + Louvain) - Eliminate redundant advice
+6. **Utility Scoring** - Prioritize memories that actually helped before
+
+### Feedback Loop & Learning
+
+System learns from outcomes through multi-signal feedback:
+- **Context layer attribution**: PRIMARY memories weighted higher than SECONDARY
+- **File change tracking**: Chamber snapshots detect which files were modified
+- **Gate outcomes**: Success/failure signals memory helpfulness
+- **Confidence scoring**: Feedback includes confidence level (0.1-0.9)
+- **Hierarchical learning**: role+task → role → general fallback
+
+### Git-Aware Context
+
+- Automatically detects git SHA and branch from working directory
+- Temporal ranking boosts memories from same branch
+- Handles detached HEAD and non-git repos gracefully
+
+## 📁 Architecture
+
+### Core Components
+
+**Workflow Orchestration:**
+- `orchestration_mcp/mcp_server.py` - Main MCP server entry point (599 lines, 11 tools)
+- `services/workflow_coordinator.py` - 4-stage workflow orchestration (1215+ lines)
+- `services/agent_coordinator.py` - Agent execution coordination
+
+**NEW Architecture-First Components:**
+- `phases/architecture.py` - Architecture phase (define interfaces before implementation)
+- `services/dependency_manager.py` - Neo4j-based dependency graph management
+- `services/query_manager.py` - Redis-based user query generation
+- `services/integration_validator.py` - Component combination validation
+
+**Intelligence & Context:**
+- `services/neo4j_manager.py` - Knowledge graph operations
+- `services/prism_integration.py` - PRISM semantic memory integration
+- `services/prism_http_client.py` - PRISM HTTP API client
+- `services/role_manager.py` - Three-tier role resolution (346 lines)
+- `services/task_decomposer.py` - Task decomposition logic
+- `services/complexity_analyzer.py` - Project complexity analysis
+
+**Validation & Quality:**
+- `services/validation_runner.py` - Validation execution
+- `services/validation_parsers.py` - Validation result parsing
+- `services/checkpoint_manager.py` - Checkpoint management
+
+**Utilities:**
+- `utils/config.py` - Configuration loader (NO DEFAULTS)
+- `utils/ready_parser.py` - READY.md parser, 13 sections (440 lines)
+- `utils/project_analyzer.py` - Intelligent project analysis (1003 lines)
+- `utils/spec_evolution.py` - Live spec updates with git (480 lines)
+
+### Configuration
+
+- `config/config.yaml` - Main configuration (edit this)
+- `config/config.template.yaml` - Template for new installations
+- `config/roles.yaml` - Global role overrides (template with examples)
+
+### Documentation
+
+- `docs/READY_SPECIFICATION.md` - Complete READY.md format reference
+- `docs/PROJECT_ANALYZER.md` - Project analysis usage guide
+- `docs/CUSTOM_ROLES.md` - Role configuration guide
+- `examples/ready_fastapi_project.md` - Python FastAPI example
+- `examples/ready_typescript_react.md` - TypeScript React example
+- `examples/ready_go_microservice.md` - Go microservice example
+- `docs/IMPLEMENTATION_COMPLETE.md` - Pattern implementation details
+- `docs/IMPLEMENTATION_GUIDE.md` - 6 research-backed patterns
+
+## 🔗 Installation & Configuration
+
+### Installation
+
+```bash
+cd orchestration_mcp
+pip install -e .                    # Installs orchestration-mcp command
+cp config/config.template.yaml config/config.yaml
+# Edit config.yaml with your database credentials
+orchestration-mcp                   # Test it works
+```
+
+### Configuration Structure
+
+```yaml
+database:                           # REQUIRED
+  redis_url: "redis://localhost:6381"
+  neo4j_uri: "bolt://localhost:7687"
+  neo4j_user: "neo4j"
+  neo4j_password: "your-password"
+
+prism:                              # OPTIONAL - comment out to disable
+  host: "localhost"
+  http_port: 8090
+
+server:
+  name: "orchestration-mcp"
+  version: "0.3.0"
+  log_level: "INFO"
+
+workflow:
+  max_concurrent_agents: 10
+  agent_timeout_seconds: 600
+  enable_checkpoints: true
+```
+
+## 🧪 Testing & Validation
+
+### Test Configuration
+
+```bash
+# Test config loading
+python3 -c "from orchestration_mcp.utils.config import load_config; print(load_config())"
+
+# Run server
+orchestration-mcp
+
+# Test from Claude Code
+# Add to ~/.config/claude-code/mcp.json:
+# {
+#   "mcpServers": {
+#     "orchestration": {
+#       "command": "orchestration-mcp",
+#       "env": {}
+#     }
+#   }
+# }
+```
+
+### Development Workflow
+
+1. Make code changes
+2. Reinstall: `pip install -e .`
+3. Test config: `python3 -c "from orchestration_mcp.utils.config import load_config; load_config()"`
+4. Test server: `orchestration-mcp` (Ctrl+C to stop)
+5. Commit changes
+
+## 🔍 Key System Components
+
+### READY.md Specification
+
+- 13-section format (10 required, 3 optional)
+- Living document that evolves during execution
+- Located at `.prelude/READY.md`
+- See `docs/READY_SPECIFICATION.md`
+
+### ArchitecturePhase (NEW)
+
+**Location:** `orchestration_mcp/phases/architecture.py`
+
+**Purpose:** Define system interfaces before implementation
+
+**Responsibilities:**
+- Parse READY.md to extract components
+- Define interfaces/contracts for each component
+- Generate dependency graph
+- Validate for circular dependencies
+- Store architecture.yaml with all interfaces
+- Store ADRs (Architectural Decision Records) to PRISM
+
+**Output:** `architecture.yaml` with:
+```yaml
+version: "1.0"
+task_id: "abc123"
+components:
+  component_name:
+    name: "component_name"
+    public_methods: [...]
+    data_structures: [...]
+    error_types: [...]
+    dependencies: [...]
+dependencies:
+  component_a: [component_b, component_c]
+  component_b: []
+```
+
+### DependencyManager (NEW)
+
+**Location:** `orchestration_mcp/services/dependency_manager.py`
+
+**Purpose:** Manage task dependencies and execution order using Neo4j
+
+**Capabilities:**
+- Extract dependencies from architecture spec
+- Store as graph in Neo4j (Component nodes with DEPENDS_ON relationships)
+- Query for ready tasks (all dependencies satisfied)
+- Query for blocked tasks (dependencies incomplete)
+- Update graph as tasks complete (mark in_progress, completed)
+- Detect circular dependencies (FAIL LOUD if found)
+- Visualize dependency graph
+
+**Example Usage:**
+```python
+dep_manager = DependencyManager(neo4j_uri, neo4j_user, neo4j_password)
+dep_manager.store_dependency_graph(task_id, dependencies)
+
+# Check for circular dependencies (FAIL LOUD)
+if dep_manager.has_circular_dependencies(task_id):
+    raise RuntimeError("Circular dependencies detected!")
+
+# Get tasks ready to execute
+ready_tasks = dep_manager.get_ready_tasks(task_id)
+
+# Mark task complete and unblock dependents
+dep_manager.mark_task_complete(task_id, component_name)
+```
+
+### QueryManager (NEW)
+
+**Location:** `orchestration_mcp/services/query_manager.py`
+
+**Purpose:** Generate questions for user when dependencies are blocked by unknowns
+
+**Workflow:**
+1. Detect unknowns during architecture/implementation phase
+2. Generate clear questions for user
+3. Store questions in Redis with "pending" status
+4. Continue with unblocked tasks (parallel execution)
+5. Resume blocked tasks when queries answered
+
+**Example Usage:**
+```python
+query_manager = QueryManager(redis_url)
+
+# Generate query when unknown detected
+query_id = query_manager.generate_query(
+    task_id=task_id,
+    component="auth_service",
+    query_type="requirement",
+    question="What OAuth providers should be supported?",
+    context={"purpose": "third_party_auth"}
+)
+
+# Get all pending queries
+pending = query_manager.get_pending_queries(task_id)
+
+# Answer query (user provides answer)
+query_manager.answer_query(query_id, "Google and GitHub OAuth")
+
+# Get components blocked by unanswered queries
+blocked = query_manager.get_blocked_components(task_id)
+```
+
+**Query Types:**
+- `requirement` - Missing functional requirement
+- `dependency` - Unknown external dependency
+- `design_decision` - Architecture choice needed
+
+### IntegrationValidator (NEW)
+
+**Location:** `orchestration_mcp/services/integration_validator.py`
+
+**Purpose:** Validate that components work together correctly
+
+**Checks:**
+- Import compatibility (all imports resolve)
+- Interface contracts satisfied (implementation matches architecture)
+- No circular dependencies
+- Integration tests pass
+- No new duplication introduced
+
+**Example Usage:**
+```python
+validator = IntegrationValidator(working_directory, validation_runner)
+
+# Validate component combination
+results = validator.validate_integration(
+    components=["auth_service.py", "user_repository.py"],
+    architecture=architecture_spec
+)
+
+# Check results
+if not results["passed"]:
+    # Handle validation failures
+    print(f"Import errors: {results['imports']['errors']}")
+    print(f"Interface mismatches: {results['interfaces']['mismatches']}")
+    print(f"Circular deps: {results['circular_deps']['cycles']}")
+```
+
+### ProjectAnalyzer
+
+- Auto-detects language, frameworks, dependencies
+- Queries PRISM for similar project patterns
+- Queries Neo4j for prior decisions
+- Suggests files, gotchas, roles with confidence scores
+
+### RoleManager
+
+- Three-tier resolution: project → global → default
+- Configure model (haiku/sonnet/opus), expertise, validation
+- Inheritance from base roles
+- Project roles from READY.md Custom Roles section
+
+### SpecEvolutionTracker
+
+- Automatically updates READY.md during execution
+- Triggers: gate failures, discoveries, new files, performance insights
+- Appends to Evolution Log with timestamps
+- Git commits after each update
+
+## 🎯 Architecture-First Workflow Reference
+
+### When to Use Each Workflow Size
+
+**Small Projects** (< 3 components):
+```yaml
+phases: [skeleton, implementation, validation]
+```
+- Skip architecture phase for faster iteration
+- Direct to skeleton with clear interfaces
+
+**Medium Projects** (3-10 components):
+```yaml
+phases: [architecture, skeleton, implementation, validation]
+```
+- Architecture phase defines contracts first
+- Dependency graph enables parallel execution
+- Query manager handles unknowns gracefully
+
+**Large/Massive Projects** (10+ components):
+```yaml
+phases: [architecture, skeleton, implementation, validation]
+```
+- Architecture phase is REQUIRED
+- Circular dependency detection prevents late failures
+- Integration validator ensures components work together
+
+### File Locations Quick Reference
+
+```
+Architecture Phase:     orchestration_mcp/phases/architecture.py
+Dependency Manager:     orchestration_mcp/services/dependency_manager.py
+Query Manager:          orchestration_mcp/services/query_manager.py
+Integration Validator:  orchestration_mcp/services/integration_validator.py
+Workflow Coordinator:   orchestration_mcp/services/workflow_coordinator.py
+Role Manager:           orchestration_mcp/services/role_manager.py
+READY Parser:           orchestration_mcp/utils/ready_parser.py
+```
+
+### Architecture Phase Flow
+
+1. **Parse READY.md** → Extract components from "Files to Create/Modify"
+2. **Define Interfaces** → Infer public methods, data structures, error types
+3. **Extract Dependencies** → Build dependency graph from type signatures
+4. **Validate Architecture** → Check for circular dependencies (FAIL LOUD)
+5. **Generate architecture.yaml** → Store interfaces and dependency graph
+6. **Store ADRs** → Save architectural decisions to PRISM
+7. **Store to Neo4j** → Save dependency graph for execution coordination
+
+### Dependency-Aware Execution
+
+```python
+# In WorkflowCoordinator
+1. Load architecture.yaml (if architecture phase ran)
+2. Extract dependency graph
+3. Store in Neo4j via DependencyManager
+4. Query for ready tasks (no unsatisfied dependencies)
+5. Execute ready tasks in parallel
+6. Mark complete and unblock dependents
+7. Repeat until all tasks complete or blocked by queries
+```
+
+### User Query Generation
+
+**When queries are generated:**
+- Missing functional requirement discovered
+- Unknown external dependency encountered
+- Design decision requires user input
+- Component blocked by unclear interface contract
+
+**Query lifecycle:**
+1. **Generate** → QueryManager.generate_query() → Stored in Redis as "pending"
+2. **Continue** → System executes unblocked tasks in parallel
+3. **Answer** → User provides answer via QueryManager.answer_query()
+4. **Resume** → System resumes blocked tasks with new information
+
+### Integration Validation Flow
+
+1. **Validate Imports** → Ensure all imports resolve correctly
+2. **Validate Interfaces** → Compare implementation against architecture.yaml contracts
+3. **Check Circular Dependencies** → Detect import cycles (FAIL if found)
+4. **Run Integration Tests** → Execute pytest for combined components
+5. **Check Duplication** → Detect new code duplication introduced by integration
+6. **Report Results** → RED/YELLOW/GREEN gates with detailed error info
+
+## ⚠️ Common Pitfalls & Best Practices
+
+### DON'T
+- Use environment variables for configuration (use config.yaml)
+- Add `.get(key, default)` for required fields
+- Hardcode paths (especially /home/randy)
+- Create files without reading first
+- Skip validation after changes
+- Change interface signatures after architecture phase (breaks contracts)
+- Ignore circular dependency warnings (FAIL LOUD)
+
+### DO
+- Edit config/config.yaml for all configuration
+- Fail loud on missing fields
+- Use system-agnostic paths
+- Test with `orchestration-mcp` command after changes
+- Reinstall with `pip install -e .` after code changes
+- Follow architecture.yaml contracts exactly in implementation
+- Use QueryManager when blocked by unknowns
+- Let DependencyManager coordinate parallel execution
+
+### Troubleshooting Guide
+
+**Adding new tool?** → `mcp_server.py` list_tools() and call_tool()
+
+**Changing workflow logic?** → `services/workflow_coordinator.py` (prepare_phase, execute_architecture_phase, finalize_phase)
+
+**Config not loading?** → Check `config/config.yaml` exists and is valid YAML
+
+**Import errors?** → Reinstall with `pip install -e .`
+
+**Testing changes?** → `python3 -c "from orchestration_mcp.utils.config import load_config; cfg = load_config()"`
+
+**Circular dependencies detected?** → Check architecture.yaml, fix component dependencies, re-run architecture phase
+
+**Queries blocking progress?** → Check `QueryManager.get_pending_queries(task_id)`, provide answers
+
+**Interface validation failing?** → Compare implementation against architecture.yaml, ensure exact signature match
+
+## 📈 Performance Impact
+
+### Workflow Efficiency
+- **Before**: 40-60 tool calls per task
+- **After**: 8-10 tool calls per task
+
+### Context Quality
+- **Before**: Unstructured context dump
+- **After**: Layered PRIMARY/SECONDARY/REFERENCE context
+
+### Validation
+- **Before**: Binary pass/fail validation
+- **After**: Red/green/yellow quality gates with semantic filtering
+
+### Parallel Execution (NEW)
+- **Before**: Sequential execution (slowest path)
+- **After**: Dependency-aware parallel execution (only wait for actual dependencies)
+
+## 🚫 Non-Negotiable Standards
+
+1. **Security**: Never log credentials
+2. **Completeness**: Full implementation or explain why not
+3. **Quality**: Syntax validates before commit
+4. **Testing**: Config loads without errors
+5. **Honesty**: Uncertain = say so
+6. **Architecture**: No circular dependencies (FAIL LOUD if detected)
+7. **Contracts**: Follow architecture.yaml interfaces exactly
+
+## 🔄 PRISM Integration Details
+
+The system includes enhanced `PRISMHTTPClient` with methods for:
+- `retrieve_memories()` - Intelligent retrieval with full pipeline
+- `record_memory_feedback()` - Feedback for utility learning
+- `detect_patterns()` - Pattern detection for attribution
+- `end_session()` - Session lifecycle management
+- `get_index_state()` - Code indexing state queries
+
+Enhanced `WorkflowCoordinator` provides:
+- Git context extraction (SHA and branch)
+- Directory snapshot creation for change tracking
+- Modified file detection via hash comparison
+- Multi-signal feedback recording
+- Hybrid Neo4j + PRISM retrieval
+- Architecture phase execution
+- Dependency-aware agent coordination
+
+Benefits include:
+- Semantic relevance instead of keyword matching
+- No redundant learnings (diversity guaranteed)
+- System gets smarter over time (utility tracker learns)
+- Context-aware filtering (right info for right role)
+- Git-timeline aware (recent work prioritized)
+- Architecture validation before implementation (catch errors early)
+- Parallel execution when possible (faster completion)
+- User query generation (graceful handling of unknowns)

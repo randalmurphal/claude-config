@@ -1,0 +1,722 @@
+"""
+Pytest configuration and fixtures for PRISM test suite.
+
+This module provides shared fixtures and utilities for all tests.
+Tests ACTUAL FUNCTIONALITY, not just whether code runs.
+"""
+
+import pytest
+import time
+import os
+from pathlib import Path
+from typing import Generator, Dict, Any
+import tempfile
+import shutil
+
+# Add parent directory to path for imports
+import sys
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from unittest.mock import Mock, MagicMock, patch, AsyncMock
+import numpy as np
+
+from prism_mcp.utils.config import load_config
+from prism_mcp.storage.neo4j_manager import Neo4jManager
+from prism_mcp.storage.qdrant_manager import QdrantManager
+from prism_mcp.storage.redis_cache import RedisCache
+from prism_mcp.core.orchestrator import Orchestrator
+from prism_mcp.core.threshold_manager import ThresholdManager
+from prism_mcp.models.tier_detector import SystemTier
+
+# Test data directory
+TEST_DATA_DIR = Path(__file__).parent / "test_data"
+TEST_DATA_DIR.mkdir(exist_ok=True)
+
+
+@pytest.fixture(scope="session")
+def test_config():
+    """Load test configuration once per session."""
+    # Ensure config is loaded
+    config = load_config()
+    return config
+
+
+@pytest.fixture(scope="session")
+def neo4j_cleanup():
+    """Clean up test data from Neo4j after all tests."""
+    yield
+    # Cleanup after all tests
+    neo4j = Neo4jManager()
+    try:
+        # Remove all test nodes
+        neo4j.query("""
+            MATCH (n)
+            WHERE n.test_marker = true
+            DETACH DELETE n
+        """)
+
+        # Remove temporary nodes
+        neo4j.query("""
+            MATCH (m:Memory)
+            WHERE m.memory_type = 'test'
+            DETACH DELETE m
+        """)
+    except Exception as e:
+        print(f"Neo4j cleanup error: {e}")
+    finally:
+        neo4j.close()
+
+
+@pytest.fixture
+def neo4j_with_data(test_config, neo4j_cleanup):
+    """Provide Neo4j with test data for memory operations."""
+    neo4j = Neo4jManager()
+
+    # Create test memory nodes
+    neo4j.query("""
+        CREATE (m1:Memory {
+            memory_id: 'test_mem_1',
+            memory_type: 'test',
+            tier: 'WORKING',
+            test_marker: true,
+            content: 'Test memory 1',
+            access_count: 5,
+            frustration_score: 0.3
+        })
+        CREATE (m2:Memory {
+            memory_id: 'test_mem_2',
+            memory_type: 'test',
+            tier: 'EPISODIC',
+            test_marker: true,
+            content: 'Test memory 2',
+            access_count: 10,
+            frustration_score: 0.5
+        })
+        CREATE (m3:Memory {
+            memory_id: 'test_mem_3',
+            memory_type: 'test',
+            tier: 'ANCHORS',
+            test_marker: true,
+            content: 'Critical memory',
+            access_count: 50,
+            frustration_score: 0.9
+        })
+        CREATE (m1)-[:RELATED_TO {strength: 0.8}]->(m2)
+        CREATE (m2)-[:RELATED_TO {strength: 0.6}]->(m3)
+        CREATE (m3)-[:RELATED_TO {strength: 0.9}]->(m1)
+    """)
+
+    yield neo4j
+
+    # Cleanup test data
+    neo4j.query("""
+        MATCH (n)
+        WHERE n.test_marker = true
+        DETACH DELETE n
+    """)
+    neo4j.close()
+
+
+@pytest.fixture
+def redis_client(test_config):
+    """Provide Redis client for testing."""
+    redis = RedisCache()
+
+    # Clear test keys before
+    keys = redis.client.keys("test:*")
+    if keys:
+        redis.client.delete(*keys)
+
+    yield redis
+
+    # Clear test keys after
+    keys = redis.client.keys("test:*")
+    if keys:
+        redis.client.delete(*keys)
+
+
+@pytest.fixture
+def qdrant_client(test_config):
+    """Provide Qdrant client for testing."""
+    config = test_config
+    qdrant = QdrantManager(
+        url=config.database.qdrant_url,
+        embedding_dim=config.model.embedding_dim
+    )
+    return qdrant
+
+
+@pytest.fixture
+def threshold_manager():
+    """Provide threshold manager with test thresholds."""
+    manager = ThresholdManager()
+
+    # Ensure test thresholds exist
+    try:
+        manager.get_threshold('similarity_threshold')
+    except RuntimeError:
+        # Load test thresholds if not present
+        from prism_mcp.core.threshold_manager import LearnedThreshold
+        from datetime import datetime
+
+        test_thresholds = [
+            ('similarity_threshold', 0.75),
+            ('ast_weight', 0.8),
+            ('semantic_weight', 0.3),
+            ('semantic_only_weight', 0.6),
+            ('drift_threshold', 0.7),
+        ]
+
+        for name, value in test_thresholds:
+            threshold = LearnedThreshold(
+                name=name,
+                value=value,
+                confidence=0.9,
+                sample_count=100,
+                last_updated=datetime.now().isoformat(),
+                method='test'
+            )
+            manager._persist_threshold(threshold)
+
+    return manager
+
+
+@pytest.fixture
+def sample_vulnerable_code():
+    """Provide sample vulnerable code for testing."""
+    return {
+        'sql_injection': '''
+import sqlite3
+
+def get_user(username):
+    conn = sqlite3.connect('users.db')
+    cursor = conn.cursor()
+    # VULNERABLE: SQL injection
+    query = f"SELECT * FROM users WHERE username = '{username}'"
+    cursor.execute(query)
+    return cursor.fetchone()
+        ''',
+
+        'xss': '''
+from flask import Flask, request
+
+app = Flask(__name__)
+
+@app.route('/greet')
+def greet():
+    # VULNERABLE: XSS
+    name = request.args.get('name', 'World')
+    return f"<h1>Hello {name}!</h1>"
+        ''',
+
+        'hardcoded_secret': '''
+import requests
+
+API_KEY = "sk-1234567890abcdef"  # VULNERABLE: Hardcoded secret
+
+def call_api():
+    headers = {"Authorization": f"Bearer {API_KEY}"}
+    return requests.get("https://api.example.com", headers=headers)
+        ''',
+
+        'path_traversal': '''
+import os
+
+def read_file(filename):
+    # VULNERABLE: Path traversal
+    path = f"/var/www/uploads/{filename}"
+    with open(path, 'r') as f:
+        return f.read()
+        ''',
+    }
+
+
+@pytest.fixture
+def sample_safe_code():
+    """Provide sample safe code for testing."""
+    return {
+        'parameterized_query': '''
+import sqlite3
+
+def get_user_safe(username):
+    conn = sqlite3.connect('users.db')
+    cursor = conn.cursor()
+    # SAFE: Parameterized query
+    query = "SELECT * FROM users WHERE username = ?"
+    cursor.execute(query, (username,))
+    return cursor.fetchone()
+        ''',
+
+        'escaped_output': '''
+from flask import Flask, request, escape
+
+app = Flask(__name__)
+
+@app.route('/greet')
+def greet():
+    # SAFE: HTML escaped
+    name = escape(request.args.get('name', 'World'))
+    return f"<h1>Hello {name}!</h1>"
+        ''',
+
+        'env_secret': '''
+import os
+import requests
+
+def call_api():
+    # SAFE: Secret from environment
+    api_key = os.environ.get('API_KEY')
+    if not api_key:
+        raise ValueError("API_KEY not set")
+    headers = {"Authorization": f"Bearer {api_key}"}
+    return requests.get("https://api.example.com", headers=headers)
+        ''',
+    }
+
+
+@pytest.fixture
+def temp_config():
+    """Create temporary config for testing NO DEFAULTS."""
+    config_dir = tempfile.mkdtemp()
+    config_path = Path(config_dir) / "config.yaml"
+
+    yield config_path
+
+    # Cleanup
+    shutil.rmtree(config_dir, ignore_errors=True)
+
+
+def wait_for_condition(condition_func, timeout=10, interval=0.1):
+    """
+    Wait for a condition to become true.
+
+    Args:
+        condition_func: Function that returns True when condition is met
+        timeout: Maximum time to wait in seconds
+        interval: Check interval in seconds
+
+    Returns:
+        True if condition met, False if timeout
+    """
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        if condition_func():
+            return True
+        time.sleep(interval)
+    return False
+
+
+def assert_pattern_detected(patterns, pattern_name, min_confidence=0.3):
+    """
+    Assert that a specific pattern was detected with sufficient confidence.
+
+    Args:
+        patterns: List of detected patterns
+        pattern_name: Name of pattern to check for
+        min_confidence: Minimum confidence required
+
+    Raises:
+        AssertionError if pattern not found or confidence too low
+    """
+    for pattern in patterns:
+        if pattern_name.lower() in pattern.get('pattern_name', '').lower():
+            confidence = pattern.get('confidence', 0)
+            assert confidence >= min_confidence, \
+                f"Pattern '{pattern_name}' detected but confidence too low: {confidence} < {min_confidence}"
+            return True
+
+    # Pattern not found
+    pattern_names = [p.get('pattern_name', 'Unknown') for p in patterns]
+    raise AssertionError(
+        f"Pattern '{pattern_name}' not detected. Found patterns: {pattern_names}"
+    )
+
+
+def assert_drift_detected(drift_score, threshold=0.7):
+    """
+    Assert that drift was properly detected.
+
+    Args:
+        drift_score: The drift score from analysis
+        threshold: The drift threshold
+
+    Raises:
+        AssertionError if drift not properly detected
+    """
+    assert drift_score > threshold, \
+        f"Drift not detected: score {drift_score} <= threshold {threshold}"
+
+
+def assert_memory_tier(neo4j, memory_id, expected_tier):
+    """
+    Assert that a memory is in the expected tier.
+
+    Args:
+        neo4j: Neo4j manager
+        memory_id: ID of memory to check
+        expected_tier: Expected tier name
+
+    Raises:
+        AssertionError if memory not in expected tier
+    """
+    result = neo4j.query("""
+        MATCH (m:Memory {memory_id: $memory_id})
+        RETURN m.tier as tier
+    """, memory_id=memory_id)
+
+    assert result, f"Memory {memory_id} not found"
+    actual_tier = result[0]['tier']
+    assert actual_tier == expected_tier, \
+        f"Memory {memory_id} in wrong tier: {actual_tier} != {expected_tier}"
+
+
+def assert_threshold_learned(manager, threshold_name, expected_range=(0.0, 1.0)):
+    """
+    Assert that a threshold was learned within expected range.
+
+    Args:
+        manager: ThresholdManager
+        threshold_name: Name of threshold
+        expected_range: Tuple of (min, max) expected values
+
+    Raises:
+        AssertionError if threshold not learned or out of range
+    """
+    try:
+        value = manager.get_threshold(threshold_name)
+    except RuntimeError:
+        raise AssertionError(f"Threshold '{threshold_name}' not learned")
+
+    min_val, max_val = expected_range
+    assert min_val <= value <= max_val, \
+        f"Threshold '{threshold_name}' out of range: {value} not in [{min_val}, {max_val}]"
+
+
+@pytest.fixture
+def mock_embedder():
+    """
+    Provide mocked embedder for testing without loading models.
+    Tests LOGIC not hardware.
+    """
+    embedder = Mock()
+    embedder.current_tier = SystemTier.CPU
+
+    # Mock E5 embedding (always available)
+    def mock_e5_embed(text, augment=False):
+        # Return deterministic embedding based on text hash
+        hash_val = hash(text) % 1000
+        embedding = np.random.RandomState(hash_val).rand(4096).astype(np.float32)
+        embedding = embedding / np.linalg.norm(embedding)  # Normalize
+        return embedding
+
+    embedder.embed_with_e5 = Mock(side_effect=mock_e5_embed)
+
+    # Mock StarCoder embedding (raises in CPU tier)
+    def mock_starcoder_embed(code):
+        if embedder.current_tier in [SystemTier.CPU, SystemTier.SINGLE, SystemTier.KEYWORD]:
+            raise RuntimeError(
+                f"StarCoder2 embedding not available in {embedder.current_tier.value} tier. "
+                f"Code pattern detection disabled. "
+                f"Available features: {{'semantic_search': True, 'code_patterns': False, 'reranking': False}}"
+            )
+        hash_val = hash(code) % 1000
+        embedding = np.random.RandomState(hash_val).rand(4608).astype(np.float32)
+        embedding = embedding / np.linalg.norm(embedding)
+        return embedding
+
+    embedder.embed_with_starcoder = Mock(side_effect=mock_starcoder_embed)
+
+    # Mock generate_embedding (routes to appropriate model)
+    def mock_generate_embedding(text, memory_type):
+        if memory_type == "code_pattern":
+            return mock_starcoder_embed(text)
+        else:
+            return mock_e5_embed(text)
+
+    embedder.generate_embedding = Mock(side_effect=mock_generate_embedding)
+
+    # Mock compute_similarity
+    def mock_compute_similarity(emb1, emb2):
+        if emb1.shape != emb2.shape:
+            raise ValueError(f"shapes {emb1.shape} and {emb2.shape} not aligned")
+        # Normalize vectors and compute cosine similarity
+        norm1 = np.linalg.norm(emb1)
+        norm2 = np.linalg.norm(emb2)
+        if norm1 == 0 or norm2 == 0:
+            return 0.0
+        return float(np.dot(emb1, emb2) / (norm1 * norm2))
+
+    embedder.compute_similarity = Mock(side_effect=mock_compute_similarity)
+
+    return embedder
+
+
+@pytest.fixture
+def integration_config(test_config):
+    """Alias for test_config for integration tests."""
+    return test_config
+
+
+@pytest.fixture
+def mock_neo4j_manager():
+    """Mock Neo4jManager for preference analytics tests."""
+    neo4j = Mock()
+    neo4j.query = Mock(return_value=[])
+    neo4j.execute_query = AsyncMock(return_value=[])
+    neo4j.close = Mock()
+    return neo4j
+
+
+@pytest.fixture
+def mock_analytics_store_full():
+    """Full mock of AnalyticsStore for preference analytics tests."""
+    from prism_mcp.storage.analytics_store import AnalyticsStore
+    from prism_mcp.core.preference_analytics import PreferenceMetrics
+    from datetime import datetime, timedelta
+    import numpy as np
+
+    store = Mock(spec=AnalyticsStore)
+
+    # Mock all async methods
+    store.record_usage = AsyncMock()
+    store.record_outcome = AsyncMock()
+    store.record_drift = AsyncMock()
+    store.cleanup_old_data = AsyncMock()
+
+    # Mock metrics retrieval methods
+    def mock_get_preference_metrics(preference_id):
+        # Return sample metrics based on preference_id
+        if "insufficient" in preference_id:
+            return PreferenceMetrics(
+                preference_id=preference_id,
+                reference_count=2,  # Below min threshold
+                session_completions=1,
+                file_change_count=1,
+                interventions=0,
+                gate_outcomes=[],
+                days_since_creation=5.0,
+                last_used=datetime.now(),
+                original_embedding=None,
+                current_embedding=None
+            )
+        elif "ineffective" in preference_id:
+            return PreferenceMetrics(
+                preference_id=preference_id,
+                reference_count=10,
+                session_completions=2,  # Low
+                file_change_count=3,    # Low
+                interventions=8,        # High (bad)
+                gate_outcomes=[("gate_1", False, 0.3)] * 5,  # Failing
+                days_since_creation=20.0,
+                last_used=datetime.now() - timedelta(days=1),
+                original_embedding=None,
+                current_embedding=None
+            )
+        elif "excellent" in preference_id:
+            return PreferenceMetrics(
+                preference_id=preference_id,
+                reference_count=25,
+                session_completions=22,  # High
+                file_change_count=30,    # High
+                interventions=1,         # Low (good)
+                gate_outcomes=[("gate_1", True, 0.9)] * 15,  # Passing
+                days_since_creation=5.0,  # Recent
+                last_used=datetime.now() - timedelta(hours=1),
+                original_embedding=None,
+                current_embedding=None
+            )
+        elif "unused" in preference_id:
+            return PreferenceMetrics(
+                preference_id=preference_id,
+                reference_count=15,  # Above min usage
+                session_completions=8,
+                file_change_count=12,
+                interventions=2,
+                gate_outcomes=[("gate_1", True, 0.8)] * 8,
+                days_since_creation=60.0,
+                last_used=datetime.now() - timedelta(days=45),  # Old
+                original_embedding=None,
+                current_embedding=None
+            )
+        elif "low_usage" in preference_id:
+            return PreferenceMetrics(
+                preference_id=preference_id,
+                reference_count=3,  # Below recommendation threshold
+                session_completions=2,
+                file_change_count=5,
+                interventions=0,
+                gate_outcomes=[("gate_1", True, 0.8)] * 2,
+                days_since_creation=10.0,
+                last_used=datetime.now() - timedelta(days=1),
+                original_embedding=None,
+                current_embedding=None
+            )
+        else:
+            # Default test metrics
+            return PreferenceMetrics(
+                preference_id=preference_id,
+                reference_count=10,
+                session_completions=8,
+                file_change_count=15,
+                interventions=2,
+                gate_outcomes=[
+                    ("gate_1", True, 0.9),
+                    ("gate_2", True, 0.8),
+                    ("gate_3", False, 0.7),
+                    ("gate_4", True, 0.85)
+                ],
+                days_since_creation=30.0,
+                last_used=datetime.now() - timedelta(days=1),
+                original_embedding=np.array([0.1, 0.2, 0.3, 0.4]),
+                current_embedding=np.array([0.1, 0.2, 0.3, 0.4])
+            )
+
+    store.get_preference_metrics = AsyncMock(side_effect=mock_get_preference_metrics)
+
+    # Mock batch retrieval methods that will be customized per test
+    def mock_get_all_preferences_with_metrics():
+        # Default empty - will be overridden in individual tests
+        return {}
+
+    store.get_all_preferences_with_metrics = AsyncMock(side_effect=mock_get_all_preferences_with_metrics)
+    store.get_orchestration_success_rate = AsyncMock(return_value=0.85)
+    store.get_analytics_summary = AsyncMock(return_value={
+        "total_preferences": 5,
+        "active_preferences": 3,
+        "success_rate": 0.85
+    })
+
+    return store
+
+
+@pytest.fixture
+def coordinator_mocks(integration_config):
+    """Create RetrievalCoordinator with mocked components for testing."""
+    from unittest.mock import Mock, patch
+    from prism_mcp.core.retrieval_coordinator import RetrievalCoordinator
+    from prism_mcp.core.memory_engine import Memory, MemoryTier
+    from datetime import datetime
+    import numpy as np
+
+    def create_memory(memory_id: str) -> Memory:
+        """Create test memory."""
+        return Memory(
+            memory_id=memory_id,
+            content="test content",
+            memory_type="pattern",
+            tier=MemoryTier.WORKING,
+            embedding=np.array([1.0, 0.0]),
+            created_at=datetime.now(),
+            last_accessed=datetime.now(),
+            access_count=5,
+            frustration_score=0.0,
+            related_memories=[]
+        )
+
+    def create_mock_config():
+        """Create mock configuration."""
+        config = Mock()
+        config.intelligent_retrieval.semantic.initial_candidate_pool = 50
+        config.intelligent_retrieval.graph.expansion_enabled = True
+        config.intelligent_retrieval.graph.top_k_seeds = 10
+        config.intelligent_retrieval.graph.max_depth = 2
+        config.intelligent_retrieval.scoring.weights.semantic = 0.40
+        config.intelligent_retrieval.scoring.weights.graph = 0.30
+        config.intelligent_retrieval.scoring.weights.temporal = 0.20
+        config.intelligent_retrieval.scoring.weights.utility = 0.10
+
+        # Add retrieval modes configuration
+        config.retrieval = Mock()
+
+        # Phase mapping as dict (supports .get() method)
+        config.retrieval.phase_mapping = {
+            'prepare': 'comprehensive',
+            'skeleton': 'balanced',
+            'implementation': 'fast',
+            'validation': 'balanced'
+        }
+
+        # Mode timeouts - use dict for subscriptable access
+        config.retrieval.modes = {
+            'lightning': Mock(timeout_ms=100),
+            'fast': Mock(timeout_ms=500),
+            'balanced': Mock(timeout_ms=2000),
+            'comprehensive': Mock(timeout_ms=20000)
+        }
+
+        return config
+
+    # Create mock config
+    mock_config = create_mock_config()
+
+    mock_semantic = Mock()
+
+    # Use side_effect to handle different search types
+    def mock_search(*args, **kwargs):
+        memory_type = kwargs.get('memory_type', 'pattern')
+        if memory_type == 'user_preference':
+            return []  # No preferences by default to simplify tests
+        else:
+            # Use the return_value if it was set by a test
+            return mock_semantic.search.return_value
+
+    mock_semantic.search.side_effect = mock_search
+    mock_semantic.search.return_value = [
+        (create_memory('mem1'), 0.85),
+        (create_memory('mem2'), 0.75)
+    ]
+
+    mock_graph = Mock()
+    mock_graph.expand.return_value = []
+
+    mock_context = Mock()
+    mock_context.filter.side_effect = lambda candidates, **kwargs: candidates
+
+    mock_temporal = Mock()
+    mock_temporal.score.side_effect = lambda candidates, **kwargs: [
+        (m, {**scores, 'temporal': 0.7})
+        for m, scores in candidates
+    ]
+
+    mock_diversity = Mock()
+    def mock_diversity_select(candidates, **kwargs):
+        limit = kwargs.get('limit', len(candidates))
+        return candidates[:limit]
+    mock_diversity.select.side_effect = mock_diversity_select
+
+    mock_utility = Mock()
+    mock_utility.get_utility_score.return_value = 0.5
+    mock_utility.record_retrieval.return_value = "retrieval_uuid"
+
+    mock_cache = Mock()
+    mock_cache.enabled = False
+    # Make async methods return awaitable coroutines
+    from unittest.mock import AsyncMock
+    mock_cache.cache_results = AsyncMock()
+    mock_cache.get_cached_results = AsyncMock(return_value=None)
+
+    mocks = {
+        'config': mock_config,
+        'semantic_searcher': mock_semantic,
+        'graph_expander': mock_graph,
+        'context_filter': mock_context,
+        'temporal_ranker': mock_temporal,
+        'diversity_selector': mock_diversity,
+        'utility_tracker': mock_utility,
+        'cache_manager': mock_cache
+    }
+
+    # Create coordinator with all components mocked
+    with patch('prism_mcp.core.retrieval_coordinator.get_config', return_value=mock_config), \
+         patch('prism_mcp.core.retrieval_coordinator.SemanticSearcher', return_value=mock_semantic), \
+         patch('prism_mcp.core.retrieval_coordinator.GraphExpander', return_value=mock_graph), \
+         patch('prism_mcp.core.retrieval_coordinator.ContextFilter', return_value=mock_context), \
+         patch('prism_mcp.core.retrieval_coordinator.TemporalRanker', return_value=mock_temporal), \
+         patch('prism_mcp.core.retrieval_coordinator.DiversitySelector', return_value=mock_diversity), \
+         patch('prism_mcp.core.retrieval_coordinator.UtilityTracker', return_value=mock_utility), \
+         patch('prism_mcp.core.retrieval_coordinator.CacheManager', return_value=mock_cache):
+        coordinator = RetrievalCoordinator()
+
+        # Keep original async method - tests should use @pytest.mark.asyncio
+
+    yield coordinator, mocks

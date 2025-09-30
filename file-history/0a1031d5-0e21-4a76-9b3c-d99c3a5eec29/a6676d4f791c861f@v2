@@ -1,0 +1,231 @@
+#!/usr/bin/env python3
+"""
+Compare Voyage API vs Local using existing 72K patterns in Qdrant
+
+This test:
+1. Samples 100 random patterns from Qdrant
+2. Tests 10 code queries against them
+3. Compares local (StarCoder2 via Qdrant) vs Voyage API
+4. Shows quality and latency differences
+"""
+
+import os
+import sys
+import time
+import random
+import numpy as np
+from pathlib import Path
+
+print("="*80)
+print("VOYAGE API vs LOCAL EMBEDDINGS - REAL PATTERN TEST")
+print("="*80)
+
+# Check for API key
+api_key = os.getenv("VOYAGE_API_KEY")
+if not api_key:
+    print("\n⚠️  VOYAGE_API_KEY not set!")
+    print("Set it with: export VOYAGE_API_KEY='pa-xxx'")
+    sys.exit(1)
+
+# Import dependencies
+try:
+    import voyageai
+    from qdrant_client import QdrantClient
+except ImportError as e:
+    print(f"⚠️  Missing package: {e}")
+    print("Run: pip install voyageai qdrant-client")
+    sys.exit(1)
+
+print("\n1. Connecting to Qdrant...")
+qdrant = QdrantClient(url="http://localhost:6333")
+
+# Check collection status
+collection_info = qdrant.get_collection("code_patterns")
+pattern_count = collection_info.points_count
+print(f"✓ Connected to Qdrant")
+print(f"✓ Found {pattern_count:,} code patterns loaded")
+
+if pattern_count < 100:
+    print(f"\n⚠️  Only {pattern_count} patterns loaded. Need at least 100 for meaningful test.")
+    sys.exit(1)
+
+print("\n2. Sampling 100 random patterns...")
+# Get random sample
+sample_size = min(100, pattern_count)
+random_ids = random.sample(range(pattern_count), sample_size)
+
+# Scroll to get patterns
+patterns = []
+offset = 0
+retrieved = 0
+
+while retrieved < sample_size:
+    results, next_offset = qdrant.scroll(
+        collection_name="code_patterns",
+        limit=50,
+        offset=offset,
+        with_payload=True,
+        with_vectors=True
+    )
+
+    for record in results:
+        if retrieved >= sample_size:
+            break
+        patterns.append({
+            'id': record.id,
+            'code': record.payload.get('code', '')[:500],
+            'description': record.payload.get('description', ''),
+            'vector': record.vector if hasattr(record, 'vector') else record.vector[''],  # Handle both formats
+        })
+        retrieved += 1
+
+    if next_offset is None:
+        break
+    offset = next_offset
+
+print(f"✓ Loaded {len(patterns)} patterns")
+
+# Test queries
+CODE_QUERIES = [
+    "JWT authentication implementation",
+    "async database connection pooling",
+    "REST API error handling",
+    "rate limiting middleware",
+    "OAuth2 authorization flow",
+    "password hashing with bcrypt",
+    "session management with Redis",
+    "API request validation",
+    "database transaction handling",
+    "file upload processing",
+]
+
+print(f"\n3. Testing {len(CODE_QUERIES)} queries...")
+
+# Initialize Voyage client
+voyage_client = voyageai.Client(api_key=api_key)
+
+# Results storage
+results = []
+
+for query in CODE_QUERIES:
+    print(f"\n   Query: '{query[:50]}...'")
+
+    # === LOCAL (Qdrant with StarCoder2 embeddings) ===
+    print("   [Local] Searching...", end=" ", flush=True)
+    local_start = time.time()
+
+    # Search using Qdrant (patterns already have StarCoder2 embeddings)
+    search_results = qdrant.search(
+        collection_name="code_patterns",
+        query_text=query,  # Qdrant will use query encoder
+        limit=5,
+    )
+
+    local_latency = (time.time() - local_start) * 1000
+    local_top5 = [(r.id, r.score) for r in search_results]
+    print(f"{local_latency:.0f}ms")
+
+    # === VOYAGE API ===
+    print("   [Voyage] Searching...", end=" ", flush=True)
+    api_start = time.time()
+
+    # Embed query with Voyage
+    query_result = voyage_client.embed(
+        texts=[query],
+        model="voyage-code-3",
+        input_type="query"
+    )
+    query_embedding = np.array(query_result.embeddings[0])
+
+    # Embed all pattern texts with Voyage (batch)
+    pattern_texts = [p['description'] or p['code'][:200] for p in patterns]
+    pattern_result = voyage_client.embed(
+        texts=pattern_texts,
+        model="voyage-code-3",
+        input_type="document"
+    )
+    pattern_embeddings = np.array(pattern_result.embeddings)
+
+    # Compute similarities
+    similarities = np.dot(pattern_embeddings, query_embedding)
+    top5_indices = np.argsort(similarities)[-5:][::-1]
+
+    api_latency = (time.time() - api_start) * 1000
+    api_top5 = [(patterns[i]['id'], similarities[i]) for i in top5_indices]
+    total_tokens = query_result.total_tokens + pattern_result.total_tokens
+
+    print(f"{api_latency:.0f}ms ({total_tokens:,} tokens)")
+
+    # === COMPARISON ===
+    local_ids = {id for id, _ in local_top5}
+    api_ids = {id for id, _ in api_top5}
+    overlap = len(local_ids & api_ids)
+
+    avg_score_local = np.mean([score for _, score in local_top5])
+    avg_score_api = np.mean([score for _, score in api_top5])
+
+    results.append({
+        'query': query,
+        'overlap': overlap,
+        'local_latency': local_latency,
+        'api_latency': api_latency,
+        'local_avg_score': avg_score_local,
+        'api_avg_score': avg_score_api,
+        'tokens': total_tokens,
+    })
+
+print("\n" + "="*80)
+print("RESULTS SUMMARY")
+print("="*80)
+
+avg_overlap = np.mean([r['overlap'] for r in results])
+avg_local_latency = np.mean([r['local_latency'] for r in results])
+avg_api_latency = np.mean([r['api_latency'] for r in results])
+total_tokens_used = sum([r['tokens'] for r in results])
+avg_local_score = np.mean([r['local_avg_score'] for r in results])
+avg_api_score = np.mean([r['api_avg_score'] for r in results])
+
+print(f"\nPattern Coverage:")
+print(f"  Average overlap: {avg_overlap:.1f}/5 patterns ({avg_overlap/5*100:.0f}%)")
+print(f"  Different patterns found: {5-avg_overlap:.1f}/5 ({(5-avg_overlap)/5*100:.0f}%)")
+
+print(f"\nLatency:")
+print(f"  Local (StarCoder2): {avg_local_latency:.0f}ms per query")
+print(f"  Voyage API: {avg_api_latency:.0f}ms per query")
+print(f"  Difference: {avg_api_latency/avg_local_latency:.1f}x slower")
+
+print(f"\nAverage Scores:")
+print(f"  Local: {avg_local_score:.3f}")
+print(f"  Voyage: {avg_api_score:.3f}")
+print(f"  Difference: {((avg_api_score-avg_local_score)/avg_local_score*100):+.1f}%")
+
+print(f"\nAPI Usage:")
+print(f"  Total tokens: {total_tokens_used:,}")
+print(f"  Remaining: {200_000_000 - total_tokens_used:,} (FREE tier)")
+print(f"  Cost: $0.00")
+
+print("\n" + "="*80)
+print("RECOMMENDATION")
+print("="*80)
+
+if avg_overlap < 3:
+    print("\n✅ Voyage finds significantly different (potentially better) patterns!")
+    print("   Low overlap suggests Voyage is capturing different semantic nuances")
+elif avg_overlap > 4:
+    print("\n⚠️  Very high overlap - both models finding similar patterns")
+    print("   Quality improvement may be minimal for your use case")
+else:
+    print("\n✅ Moderate overlap - Voyage provides alternative perspectives")
+    print("   Worth using for quality improvement")
+
+if avg_api_latency < avg_local_latency * 10:
+    print(f"\n✅ Latency difference acceptable ({avg_api_latency/avg_local_latency:.1f}x)")
+    print("   API latency is reasonable for the quality boost")
+else:
+    print(f"\n⚠️  API latency is high ({avg_api_latency/avg_local_latency:.1f}x slower)")
+    print("   Consider local models if speed is critical")
+
+print(f"\n💰 Cost: FREE for your usage (~{total_tokens_used * 365:,} tokens/year)")
+print("   Well within 200M token limit")
+
+print("\n" + "="*80)

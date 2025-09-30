@@ -1,0 +1,583 @@
+"""
+Integration validator for component combinations.
+
+Validates that components work together correctly.
+"""
+
+import ast
+import logging
+import subprocess
+from pathlib import Path
+from typing import Any
+
+logger = logging.getLogger(__name__)
+
+
+class IntegrationValidator:
+    """
+    Validates component combinations.
+
+    Checks:
+    - Import compatibility
+    - Interface contracts satisfied
+    - No circular dependencies
+    - Tests pass for combined components
+    - No new duplication introduced
+    """
+
+    def __init__(
+        self,
+        working_directory: str,
+        validation_runner,
+        duplication_detector=None,
+    ):
+        """
+        Initialize integration validator.
+
+        Args:
+            working_directory: Project root
+            validation_runner: ValidationRunner instance
+            duplication_detector: Optional DuplicationDetector instance
+        """
+        self.working_directory = Path(working_directory)
+        self.validation_runner = validation_runner
+        self.duplication_detector = duplication_detector
+
+    def validate_imports(self, components: list[str]) -> dict[str, Any]:
+        """
+        Validate that all imports resolve correctly.
+
+        Args:
+            components: List of component file paths
+
+        Returns:
+            Dict with validation results
+        """
+        errors = []
+
+        for component in components:
+            try:
+                # Try to import the module
+                result = subprocess.run(
+                    ["python3", "-m", "py_compile", component],
+                    capture_output=True,
+                    text=True,
+                    cwd=str(self.working_directory),
+                    timeout=10,
+                )
+
+                if result.returncode != 0:
+                    errors.append(
+                        {"file": component, "error": result.stderr}
+                    )
+
+            except subprocess.TimeoutExpired:
+                errors.append(
+                    {"file": component, "error": "Import check timed out"}
+                )
+            except Exception as e:
+                errors.append({"file": component, "error": str(e)})
+
+        return {
+            "passed": len(errors) == 0,
+            "files_checked": len(components),
+            "errors": errors,
+        }
+
+    def validate_interfaces(
+        self, architecture: dict[str, Any], components: list[str]
+    ) -> dict[str, Any]:
+        """
+        Validate that component implementations match interface contracts.
+
+        Args:
+            architecture: Architecture specification with interfaces
+            components: List of implemented component files
+
+        Returns:
+            Dict with validation results
+        """
+        mismatches = []
+        components_checked = 0
+
+        # Extract interfaces from architecture
+        arch_components = architecture.get("components", {})
+
+        if not arch_components:
+            return {
+                "passed": True,
+                "components_checked": 0,
+                "mismatches": [],
+                "reason": "No interfaces defined in architecture",
+            }
+
+        for component_path in components:
+            component_file = Path(component_path)
+
+            # Resolve path relative to working directory
+            if component_file.is_absolute():
+                try:
+                    relative_path = component_file.relative_to(self.working_directory)
+                except ValueError:
+                    relative_path = component_file
+            else:
+                relative_path = component_file
+
+            # Extract component name from path
+            component_name = self._extract_component_name(str(relative_path))
+
+            # Check if this component has an interface definition
+            interface = arch_components.get(component_name)
+            if not interface:
+                # Try alternative naming (module.py -> module)
+                alt_name = component_name.replace(".py", "")
+                interface = arch_components.get(alt_name)
+
+            if not interface:
+                continue
+
+            components_checked += 1
+
+            # Parse implementation to extract actual API
+            try:
+                actual_api = self._parse_implementation(component_path)
+            except Exception as e:
+                mismatches.append({
+                    "component": component_name,
+                    "error": f"Failed to parse implementation: {e}",
+                })
+                continue
+
+            # Compare against interface
+            component_mismatches = self._check_interface_match(
+                component_name, interface, actual_api
+            )
+            mismatches.extend(component_mismatches)
+
+        return {
+            "passed": len(mismatches) == 0,
+            "components_checked": components_checked,
+            "mismatches": mismatches,
+        }
+
+    def _extract_component_name(self, path: str) -> str:
+        """Extract component name from file path."""
+        # Convert path to component name (e.g., "src/auth/login.py" -> "login")
+        path_obj = Path(path)
+        return path_obj.stem
+
+    def _parse_implementation(self, component_path: str) -> dict[str, Any]:
+        """
+        Parse Python file to extract API (classes, functions, methods).
+
+        Args:
+            component_path: Path to Python file
+
+        Returns:
+            Dict with extracted API structure
+        """
+        file_path = Path(component_path)
+        if not file_path.is_absolute():
+            file_path = self.working_directory / file_path
+
+        with open(file_path) as f:
+            source = f.read()
+
+        tree = ast.parse(source)
+
+        api = {
+            "functions": [],
+            "classes": {},
+        }
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef):
+                # Top-level function
+                if self._is_top_level(node, tree):
+                    api["functions"].append({
+                        "name": node.name,
+                        "args": [arg.arg for arg in node.args.args],
+                        "returns": ast.unparse(node.returns) if node.returns else None,
+                    })
+
+            elif isinstance(node, ast.ClassDef):
+                # Class with methods
+                class_api = {
+                    "methods": [],
+                }
+
+                for item in node.body:
+                    if isinstance(item, ast.FunctionDef):
+                        class_api["methods"].append({
+                            "name": item.name,
+                            "args": [arg.arg for arg in item.args.args],
+                            "returns": ast.unparse(item.returns) if item.returns else None,
+                        })
+
+                api["classes"][node.name] = class_api
+
+        return api
+
+    def _is_top_level(self, node: ast.FunctionDef, tree: ast.Module) -> bool:
+        """Check if function is at top level (not nested in class)."""
+        for top_node in tree.body:
+            if top_node is node:
+                return True
+        return False
+
+    def _check_interface_match(
+        self, component_name: str, interface: dict[str, Any], actual_api: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        """
+        Compare interface definition against actual implementation.
+
+        Args:
+            component_name: Name of component
+            interface: Expected interface definition
+            actual_api: Parsed actual API
+
+        Returns:
+            List of mismatches found
+        """
+        mismatches = []
+
+        # Check required functions
+        expected_functions = interface.get("functions", [])
+        actual_functions = {f["name"]: f for f in actual_api["functions"]}
+
+        for expected_func in expected_functions:
+            func_name = expected_func.get("name")
+            if func_name not in actual_functions:
+                mismatches.append({
+                    "component": component_name,
+                    "type": "missing_function",
+                    "name": func_name,
+                    "expected": expected_func,
+                })
+            else:
+                # Check signature match
+                actual_func = actual_functions[func_name]
+                sig_mismatch = self._check_signature_match(
+                    expected_func, actual_func
+                )
+                if sig_mismatch:
+                    mismatches.append({
+                        "component": component_name,
+                        "type": "signature_mismatch",
+                        "name": func_name,
+                        "expected": expected_func,
+                        "actual": actual_func,
+                        "details": sig_mismatch,
+                    })
+
+        # Check required classes
+        expected_classes = interface.get("classes", {})
+        actual_classes = actual_api["classes"]
+
+        for class_name, expected_class in expected_classes.items():
+            if class_name not in actual_classes:
+                mismatches.append({
+                    "component": component_name,
+                    "type": "missing_class",
+                    "name": class_name,
+                    "expected": expected_class,
+                })
+            else:
+                # Check methods
+                actual_class = actual_classes[class_name]
+                expected_methods = expected_class.get("methods", [])
+                actual_methods = {m["name"]: m for m in actual_class["methods"]}
+
+                for expected_method in expected_methods:
+                    method_name = expected_method.get("name")
+                    if method_name not in actual_methods:
+                        mismatches.append({
+                            "component": component_name,
+                            "type": "missing_method",
+                            "class": class_name,
+                            "name": method_name,
+                            "expected": expected_method,
+                        })
+                    else:
+                        # Check method signature
+                        actual_method = actual_methods[method_name]
+                        sig_mismatch = self._check_signature_match(
+                            expected_method, actual_method
+                        )
+                        if sig_mismatch:
+                            mismatches.append({
+                                "component": component_name,
+                                "type": "method_signature_mismatch",
+                                "class": class_name,
+                                "name": method_name,
+                                "expected": expected_method,
+                                "actual": actual_method,
+                                "details": sig_mismatch,
+                            })
+
+        return mismatches
+
+    def _check_signature_match(
+        self, expected: dict[str, Any], actual: dict[str, Any]
+    ) -> str | None:
+        """
+        Check if function/method signatures match.
+
+        Args:
+            expected: Expected signature
+            actual: Actual signature
+
+        Returns:
+            Error message if mismatch, None if match
+        """
+        # Check argument count (allow for self in methods)
+        expected_args = expected.get("args", [])
+        actual_args = actual.get("args", [])
+
+        # Filter out 'self' for comparison
+        expected_args_filtered = [a for a in expected_args if a != "self"]
+        actual_args_filtered = [a for a in actual_args if a != "self"]
+
+        if len(expected_args_filtered) != len(actual_args_filtered):
+            return f"Argument count mismatch: expected {len(expected_args_filtered)}, got {len(actual_args_filtered)}"
+
+        # Check argument names
+        if expected_args_filtered != actual_args_filtered:
+            return f"Argument names mismatch: expected {expected_args_filtered}, got {actual_args_filtered}"
+
+        return None
+
+    def check_circular_dependencies(
+        self, components: list[str]
+    ) -> dict[str, Any]:
+        """
+        Check for circular import dependencies.
+
+        Args:
+            components: List of component file paths
+
+        Returns:
+            Dict with any circular dependencies found
+        """
+        # Build import graph
+        import_graph: dict[str, set[str]] = {}
+
+        for component in components:
+            try:
+                imports = self._extract_imports(component)
+                # Normalize component path
+                normalized_component = str(Path(component).resolve())
+                import_graph[normalized_component] = imports
+            except Exception as e:
+                logger.warning(f"Failed to extract imports from {component}: {e}")
+                import_graph[str(Path(component).resolve())] = set()
+
+        # Detect cycles using DFS
+        cycles = []
+        visited: set[str] = set()
+        recursion_stack: set[str] = set()
+
+        def dfs_cycle_detect(node: str, path: list[str]) -> None:
+            """DFS to detect cycles."""
+            visited.add(node)
+            recursion_stack.add(node)
+            path.append(node)
+
+            for neighbor in import_graph.get(node, set()):
+                if neighbor not in visited:
+                    dfs_cycle_detect(neighbor, path[:])
+                elif neighbor in recursion_stack:
+                    # Found a cycle
+                    cycle_start = path.index(neighbor)
+                    cycle = path[cycle_start:] + [neighbor]
+                    cycles.append(cycle)
+
+            recursion_stack.remove(node)
+
+        for component in import_graph:
+            if component not in visited:
+                dfs_cycle_detect(component, [])
+
+        return {
+            "checked": True,
+            "cycles_found": len(cycles),
+            "cycles": [self._format_cycle(c) for c in cycles],
+        }
+
+    def _extract_imports(self, component_path: str) -> set[str]:
+        """
+        Extract import statements from a Python file.
+
+        Args:
+            component_path: Path to Python file
+
+        Returns:
+            Set of imported file paths (resolved)
+        """
+        file_path = Path(component_path)
+        if not file_path.is_absolute():
+            file_path = self.working_directory / file_path
+
+        with open(file_path) as f:
+            source = f.read()
+
+        tree = ast.parse(source)
+        imports = set()
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    # Convert module name to file path
+                    resolved = self._resolve_import(alias.name, file_path)
+                    if resolved:
+                        imports.add(str(resolved))
+
+            elif isinstance(node, ast.ImportFrom):
+                if node.module:
+                    # Convert module name to file path
+                    resolved = self._resolve_import(node.module, file_path)
+                    if resolved:
+                        imports.add(str(resolved))
+
+        return imports
+
+    def _resolve_import(self, module_name: str, from_file: Path) -> Path | None:
+        """
+        Resolve module name to file path.
+
+        Args:
+            module_name: Python module name (e.g., "package.module")
+            from_file: File making the import
+
+        Returns:
+            Resolved file path or None if not found
+        """
+        # Convert module name to relative path
+        module_path = module_name.replace(".", "/")
+
+        # Try as .py file
+        candidates = [
+            self.working_directory / f"{module_path}.py",
+            self.working_directory / module_path / "__init__.py",
+        ]
+
+        # Also check relative to importing file
+        relative_base = from_file.parent
+        candidates.extend([
+            relative_base / f"{module_path}.py",
+            relative_base / module_path / "__init__.py",
+        ])
+
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate.resolve()
+
+        return None
+
+    def _format_cycle(self, cycle: list[str]) -> list[str]:
+        """Format cycle paths for display."""
+        return [str(Path(c).relative_to(self.working_directory)) for c in cycle]
+
+    def run_integration_tests(self) -> dict[str, Any]:
+        """
+        Run integration tests for combined components.
+
+        Returns:
+            Dict with test results
+        """
+        # Use existing ValidationRunner to run pytest
+        validation_result = self.validation_runner.validate_phase("integration")
+
+        return validation_result
+
+    def check_new_duplication(
+        self, components: list[str]
+    ) -> dict[str, Any]:
+        """
+        Check if integration introduced new code duplication.
+
+        Args:
+            components: List of component file paths
+
+        Returns:
+            Dict with duplication detection results
+        """
+        if not self.duplication_detector:
+            return {"checked": False, "reason": "No duplication detector available"}
+
+        # Run duplication detection on integrated components
+        try:
+            duplicates = self.duplication_detector.detect_project_duplicates(
+                str(self.working_directory), min_lines=10, max_results=10
+            )
+
+            return {
+                "checked": True,
+                "duplicates_found": len(duplicates),
+                "duplicates": duplicates,
+            }
+        except Exception as e:
+            logger.error(f"Duplication check failed: {e}")
+            return {
+                "checked": False,
+                "error": str(e),
+            }
+
+    def validate_integration(
+        self,
+        components: list[str],
+        architecture: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """
+        Run full integration validation.
+
+        Args:
+            components: List of component file paths
+            architecture: Optional architecture spec for interface validation
+
+        Returns:
+            Dict with comprehensive validation results
+        """
+        results = {
+            "imports": self.validate_imports(components),
+            "circular_deps": None,
+            "interfaces": None,
+            "tests": None,
+            "duplication": None,
+            "passed": False,
+        }
+
+        # Check circular dependencies
+        try:
+            results["circular_deps"] = self.check_circular_dependencies(components)
+        except NotImplementedError:
+            results["circular_deps"] = {"checked": False, "reason": "Not implemented"}
+
+        # Check interface contracts
+        if architecture:
+            try:
+                results["interfaces"] = self.validate_interfaces(architecture, components)
+            except NotImplementedError:
+                results["interfaces"] = {"checked": False, "reason": "Not implemented"}
+
+        # Run integration tests
+        try:
+            results["tests"] = self.run_integration_tests()
+        except Exception as e:
+            logger.error(f"Integration tests failed: {e}")
+            results["tests"] = {"passed": False, "error": str(e)}
+
+        # Check for new duplication
+        results["duplication"] = self.check_new_duplication(components)
+
+        # Overall pass/fail
+        results["passed"] = (
+            results["imports"]["passed"]
+            and (
+                results["circular_deps"] is None
+                or results["circular_deps"].get("cycles_found", 0) == 0
+            )
+            and (results["tests"] is None or results["tests"].get("passed", False))
+        )
+
+        return results

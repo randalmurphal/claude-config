@@ -14,7 +14,7 @@ CODE=$(cat "$FILE_PATH" 2>/dev/null) || exit 0
 
 # Pattern detection (async)
 (
-    curl -s -X POST http://localhost:8090/api/hooks/post-tool-use \
+    curl -s -X POST http://localhost:8092/api/hooks/post-tool-use \
         -H "Content-Type: application/json" \
         -H "Authorization: Bearer prism_development_key_2024" \
         -d "{

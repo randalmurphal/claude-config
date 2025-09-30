@@ -1,0 +1,177 @@
+"""
+Tests for UserPromptEnricher Tier 4 (personal context) injection.
+
+Tests _build_tier4_context() method and query-aware injection.
+"""
+
+import json
+import pytest
+from unittest.mock import MagicMock, patch
+
+
+class TestTier4PersonalContext:
+    """Test Tier 4 personal context injection."""
+
+    def test_build_tier4_with_preferences(self):
+        """Test that preferences are always included (top 2)."""
+        from prism_mcp.integrations.user_prompt_enricher import UserPromptEnricher
+
+        with patch('prism_mcp.integrations.user_prompt_enricher.RedisCache') as mock_redis_class, \
+             patch('prism_mcp.integrations.user_prompt_enricher.ConceptExtractor'):
+
+            mock_redis = MagicMock()
+            mock_redis_class.return_value = mock_redis
+
+            enricher = UserPromptEnricher()
+            enricher.redis = mock_redis
+
+            # Mock preferences in cache
+            preferences = [
+                {'value': 'Use explicit error handling', 'scope': 'global'},
+                {'value': 'Prefer FastAPI for REST', 'scope': 'framework'},
+                {'value': 'Third pref (should be truncated)', 'scope': 'language'}
+            ]
+
+            mock_redis.client.get.return_value = json.dumps(preferences)
+
+            result = enricher._build_tier4_context('test_session', query_type='implementation')
+
+            # Should include top 2 preferences only
+            assert len([item for item in result if 'PREF' in item]) == 2
+            assert any('PREF(global)' in item for item in result)
+            assert any('PREF(framework)' in item for item in result)
+
+    def test_build_tier4_with_lessons_for_bugs(self):
+        """Test that lessons are included for bugs/implementation queries."""
+        from prism_mcp.integrations.user_prompt_enricher import UserPromptEnricher
+
+        with patch('prism_mcp.integrations.user_prompt_enricher.RedisCache') as mock_redis_class, \
+             patch('prism_mcp.integrations.user_prompt_enricher.ConceptExtractor'):
+
+            mock_redis = MagicMock()
+            mock_redis_class.return_value = mock_redis
+
+            enricher = UserPromptEnricher()
+            enricher.redis = mock_redis
+
+            lessons = [{'content': 'Always validate user input before DB queries'}]
+
+            mock_redis.client.get.side_effect = lambda key: {
+                'personal:test_session:preferences': json.dumps([]),
+                'personal:test_session:lessons': json.dumps(lessons),
+            }.get(key)
+
+            # Bug query should include lessons
+            result_bugs = enricher._build_tier4_context('test_session', query_type='bugs')
+            assert any('LESSON:' in item for item in result_bugs)
+
+            # Architecture query should NOT include lessons
+            result_arch = enricher._build_tier4_context('test_session', query_type='architecture')
+            assert not any('LESSON:' in item for item in result_arch)
+
+    def test_build_tier4_with_tech_opinions(self):
+        """Test that avoided tech is shown for architecture/implementation."""
+        from prism_mcp.integrations.user_prompt_enricher import UserPromptEnricher
+
+        with patch('prism_mcp.integrations.user_prompt_enricher.RedisCache') as mock_redis_class, \
+             patch('prism_mcp.integrations.user_prompt_enricher.ConceptExtractor'):
+
+            mock_redis = MagicMock()
+            mock_redis_class.return_value = mock_redis
+
+            enricher = UserPromptEnricher()
+            enricher.redis = mock_redis
+
+            opinions = [
+                {'tech_name': 'MongoDB', 'sentiment': 'avoid'},
+                {'tech_name': 'PostgreSQL', 'sentiment': 'prefer'}
+            ]
+
+            mock_redis.client.get.side_effect = lambda key: {
+                'personal:test_session:preferences': json.dumps([]),
+                'personal:test_session:tech_opinions': json.dumps(opinions),
+            }.get(key)
+
+            # Architecture query should show avoided tech
+            result = enricher._build_tier4_context('test_session', query_type='architecture')
+            assert any('AVOID: MongoDB' in item for item in result)
+
+    def test_build_tier4_with_threads(self):
+        """Test that active threads are included for explore queries."""
+        from prism_mcp.integrations.user_prompt_enricher import UserPromptEnricher
+
+        with patch('prism_mcp.integrations.user_prompt_enricher.RedisCache') as mock_redis_class, \
+             patch('prism_mcp.integrations.user_prompt_enricher.ConceptExtractor'):
+
+            mock_redis = MagicMock()
+            mock_redis_class.return_value = mock_redis
+
+            enricher = UserPromptEnricher()
+            enricher.redis = mock_redis
+
+            threads = [{'topic': 'Authentication refactoring', 'status': 'active'}]
+
+            mock_redis.client.get.side_effect = lambda key: {
+                'personal:test_session:preferences': json.dumps([]),
+                'personal:test_session:active_threads': json.dumps(threads),
+            }.get(key)
+
+            # Explore query should include thread
+            result = enricher._build_tier4_context('test_session', query_type='explore')
+            assert any('THREAD:' in item for item in result)
+            assert any('Authentication refactoring' in item for item in result)
+
+    def test_build_tier4_max_4_items(self):
+        """Test that Tier 4 returns max 4 items."""
+        from prism_mcp.integrations.user_prompt_enricher import UserPromptEnricher
+
+        with patch('prism_mcp.integrations.user_prompt_enricher.RedisCache') as mock_redis_class, \
+             patch('prism_mcp.integrations.user_prompt_enricher.ConceptExtractor'):
+
+            mock_redis = MagicMock()
+            mock_redis_class.return_value = mock_redis
+
+            enricher = UserPromptEnricher()
+            enricher.redis = mock_redis
+
+            # Mock all context types
+            mock_redis.client.get.side_effect = lambda key: {
+                'personal:test_session:preferences': json.dumps([
+                    {'value': 'Pref 1', 'scope': 'global'},
+                    {'value': 'Pref 2', 'scope': 'language'},
+                ]),
+                'personal:test_session:lessons': json.dumps([
+                    {'content': 'Lesson 1'}
+                ]),
+                'personal:test_session:tech_opinions': json.dumps([
+                    {'tech_name': 'Tech1', 'sentiment': 'avoid'}
+                ]),
+                'personal:test_session:active_threads': json.dumps([
+                    {'topic': 'Thread 1'}
+                ]),
+            }.get(key)
+
+            # Should return max 4 items
+            result = enricher._build_tier4_context('test_session', query_type='implementation')
+            assert len(result) <= 4
+
+    def test_build_tier4_empty_cache(self):
+        """Test that empty cache returns empty list."""
+        from prism_mcp.integrations.user_prompt_enricher import UserPromptEnricher
+
+        with patch('prism_mcp.integrations.user_prompt_enricher.RedisCache') as mock_redis_class, \
+             patch('prism_mcp.integrations.user_prompt_enricher.ConceptExtractor'):
+
+            mock_redis = MagicMock()
+            mock_redis_class.return_value = mock_redis
+
+            enricher = UserPromptEnricher()
+            enricher.redis = mock_redis
+
+            # Mock empty cache
+            mock_redis.client.get.return_value = None
+
+            result = enricher._build_tier4_context('test_session', query_type='bugs')
+
+            # Should return empty list
+            assert result == []

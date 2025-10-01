@@ -190,6 +190,21 @@ Report:
     print(f"Launching {len(agents)} agents in parallel...")
     results = await_all_agents(agents)
 
+    # Review agent reports for documentation updates
+    for result in results:
+        # Check for discoveries/gotchas that need documentation
+        if result.contains_discovery():
+            discoveries = result.extract_discoveries()
+            update_prelude_discoveries(discoveries)
+
+        if result.contains_spec_correction():
+            correction = result.extract_correction()
+            # Evaluate if core or minor
+            if correction.is_core_change():
+                update_ready_md(correction)
+            # Always document in DISCOVERIES.md
+            document_correction(correction)
+
     # Validate phase
     print(f"\n### Validation: {phase.name}")
     validation = validate_phase(phase, project_root, results)
@@ -484,6 +499,176 @@ if estimate_complexity(ready_md) > 80:
 - Parse phases
 - Make execution decisions
 - High-level validation
+
+## Handling Spec Discrepancies
+
+**Sub-agents must distinguish factual corrections from design assumptions.**
+
+### ✅ ALLOW (with evidence):
+- **Spec wrong about technical facts**: Library behavior, API responses, existing code structure
+- **Minor implementation details**: Variable names, helper functions, internal structure
+- **Evidence required**: Validation output, error messages, docs, code inspection
+
+**Examples:**
+```
+Spec: "Call JWT library with HS256"
+Reality: Library only supports RS256 (error message proves it)
+Action: ✅ Update to RS256, document in DISCOVERIES.md
+Rationale: Spec factually wrong about library capabilities
+```
+
+```
+Spec: "User model has username field"
+Reality: Existing code has email field, no username (verified in codebase)
+Action: ✅ Use email field, update .prelude/DISCOVERIES.md
+Rationale: Spec wrong about existing codebase state
+```
+
+### ❌ BLOCK (assumptions):
+- **Core architectural decisions**: Storage choice, auth method, framework selection
+- **Scope additions**: Features not mentioned in spec
+- **"Better way" redesigns**: Without validation proving current approach broken
+
+**Examples:**
+```
+Spec: "Use PostgreSQL for storage"
+Agent thinks: "SQLite would be simpler for this use case"
+Action: ❌ STOP - follow spec, core decision not minor detail
+```
+
+```
+Spec: Doesn't mention rate limiting
+Agent thinks: "Should add rate limiting for security"
+Action: ❌ STOP - out of scope, ask orchestrator/user first
+```
+
+### 🛑 STOP AND ASK (unclear contradictions):
+- Spec says X but seems wrong based on "feeling" without hard evidence
+- Multiple valid interpretations possible
+- Unclear if core requirement or implementation detail
+
+### Documentation Requirement for Corrections
+
+Any correction must be documented with:
+1. **What spec said**: Original requirement
+2. **What reality is**: Actual state (with evidence)
+3. **Why it's factual**: Not a design change, just truth
+4. **Evidence source**: Error message, docs link, code location
+
+**Format for .prelude/DISCOVERIES.md:**
+```markdown
+## Spec Correction: [Brief description]
+
+**Original spec**: [What READY.md said]
+**Reality**: [What actually is true]
+**Evidence**: [Error output / code location / docs link]
+**Action taken**: [What was implemented instead]
+**Impact**: [Core/Minor - does this change approach or just details?]
+```
+
+### Orchestrator Responsibilities
+
+**When sub-agent reports correction:**
+1. Review evidence quality
+2. Determine if core vs minor
+3. Update .prelude/DISCOVERIES.md if important
+4. Update READY.md if core requirement changed
+5. Propagate correction to other sub-agents if needed
+
+**When sub-agent blocks on assumption:**
+1. Don't override spec without user confirmation
+2. If truly broken, escalate to user
+3. Document the ambiguity in DISCOVERIES.md
+
+## Documentation Updates During Orchestration
+
+**Orchestrator as Scribe:** Sub-agents report findings, orchestrator decides what/where to document.
+
+### What Sub-Agents Report
+
+Sub-agents should include in their completion reports:
+- **Discoveries**: "Found existing middleware conflicts with our approach - had to wrap it"
+- **Gotchas**: "Library X requires Y to be initialized first, docs don't mention this"
+- **Spec corrections**: "Spec said use field 'username' but code has 'email' field"
+- **Performance insights**: "Initial approach was too slow, optimized by caching"
+- **Security issues**: "Found existing code vulnerable to X, fixed it"
+
+### Orchestrator Decision Flow
+
+**For each sub-agent report:**
+
+1. **Extract findings**: What did they discover that wasn't in spec?
+
+2. **Evaluate importance**:
+   - Core architectural change? → Update READY.md + DISCOVERIES.md
+   - Important gotcha? → Update DISCOVERIES.md or ARCHITECTURE.md Known Gotchas
+   - Minor implementation detail? → Skip documentation
+   - Project-wide pattern? → Update CLAUDE.md if applicable
+
+3. **Update at natural boundaries**:
+   - After phase validation passes
+   - Before creating checkpoint
+   - When major discovery changes approach
+   - Before complete_task
+
+4. **Keep documentation focused**:
+   - DISCOVERIES.md: New learnings during implementation
+   - ARCHITECTURE.md Known Gotchas: Validated issues future devs should know
+   - READY.md: Only update if core requirements changed
+   - CLAUDE.md: Only for persistent project-wide patterns
+
+### Documentation Update Examples
+
+**Example 1: Important gotcha**
+```
+Sub-agent: "JWT library requires RS256, not HS256 as spec stated"
+Orchestrator:
+  → Updates .prelude/DISCOVERIES.md with correction
+  → Updates READY.md Implementation Notes if it affects other phases
+  → Notes for other sub-agents in remaining phases
+```
+
+**Example 2: Minor detail**
+```
+Sub-agent: "Renamed internal helper function for clarity"
+Orchestrator:
+  → No documentation needed (minor refactor)
+```
+
+**Example 3: Major architectural change**
+```
+Sub-agent: "Database migration approach in spec doesn't work with existing schema"
+Orchestrator:
+  → STOP: Escalate to user (core requirement change)
+  → If user approves: Update READY.md + ARCHITECTURE.md
+  → Document in DISCOVERIES.md with full context
+```
+
+### Update Natural Boundaries
+
+**After phase validation passes:**
+```python
+# Phase complete - document learnings
+if phase_has_important_discoveries(results):
+    update_prelude_discoveries(extract_discoveries(results))
+    print("📝 Updated .prelude/DISCOVERIES.md with phase learnings")
+```
+
+**Before checkpoint:**
+```python
+# Checkpoint includes current state of knowledge
+update_documentation_from_phase(results)
+checkpoint = mcp.create_checkpoint(...)
+```
+
+**Before complete_task:**
+```python
+# Final documentation sync
+review_all_discoveries()
+archive_obsolete_discoveries()
+update_architecture_known_gotchas()
+mcp.complete_task(...)
+```
 
 ## Error Handling
 

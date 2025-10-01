@@ -75,12 +75,27 @@ User: /prelude [optional: initial description]
 
 ### Phase 1: CHALLENGE MODE
 
-**Must find at least 3 concerns:**
+**BE STUBBORN - Must find at least 3 concerns:**
 - Conflicts with existing code
 - Hidden complexity
 - Pain points (from similar projects)
 - Missing requirements
 - Underestimated difficulty
+- Unstated assumptions that could break
+
+**Keep digging until you find real problems.** Don't accept surface-level understanding.
+
+**Parallel investigation for complex unknowns:**
+```
+If multiple areas unclear, spawn investigators IN PARALLEL:
+
+Task(investigator, "Investigate auth flow - how does token validation work?")
+Task(investigator, "Investigate database schema - what tables/relations exist?")
+Task(investigator, "Investigate existing error handling patterns")
+
+Each investigator saves ~1500 tokens vs reading files yourself.
+Combine findings for complete picture.
+```
 
 **Present format:**
 ```
@@ -88,6 +103,7 @@ User: /prelude [optional: initial description]
 🔴 HIDDEN COMPLEXITY: [unexpected challenges]
 ⚠️ PAIN POINTS: [what typically goes wrong]
 🔴 MISSING: [undefined requirements]
+🔴 ASSUMPTIONS: [unstated assumptions that must be validated]
 📊 COMPLEXITY: X/10 (not Y/10) - [why]
 
 Questions: [3-5 strategic decisions for user]
@@ -148,7 +164,7 @@ Status: INVESTIGATING | RESOLVED | OBSOLETE
 
 **Single spike:**
 ```
-Launch Task (spike-validator):
+Launch Task (spike-tester):
 Goal: [ONE specific thing to validate]
 Context: [relevant project info]
 Success: [what proves it works]
@@ -167,6 +183,17 @@ Task 3: [approach C validation]
 [All run simultaneously, compare results]
 
 DO NOT wait for spike 1 before launching spike 2.
+```
+
+**Creative exploration (same spike, different angles):**
+```
+For complex/creative problems, run same spike 2-3 times with different framing:
+
+Task(spike-tester, "Validate [approach] focusing on performance implications")
+Task(spike-tester, "Validate [approach] focusing on security considerations")
+Task(spike-tester, "Validate [approach] focusing on maintainability")
+
+Different instructions may reveal different insights for same problem.
 ```
 
 **Save results:** `.prelude/SPIKE_RESULTS/NNN_description.md`
@@ -544,6 +571,46 @@ Ready for /conduct execution
 - Underestimate complexity
 - Change mission unless user requests
 - Expand scope without asking
+
+---
+
+## Recovering from Failed/Incomplete Orchestrations
+
+**If /conduct fails or gets stuck:**
+
+1. **Review what happened:**
+   - Check `.prelude/` for what was understood
+   - Read any partial implementation to understand state
+   - Identify what assumptions broke or what was missing
+
+2. **Update .prelude/ documentation:**
+   - Add discovered gotchas to DISCOVERIES.md or Known Gotchas in ARCHITECTURE.md
+   - Update CONSTRAINTS.md if new constraints discovered
+   - Update ASSUMPTIONS.md with what broke
+   - Document any architectural issues found
+
+3. **Re-spike if needed:**
+   - If approach failed validation, run new spikes
+   - Test alternative approaches
+   - Document results in SPIKE_RESULTS/
+
+4. **Update READY.md:**
+   - Fix incorrect assumptions
+   - Add missing requirements
+   - Update architecture based on learnings
+   - Add new gotchas to Implementation Notes
+   - Clarify ambiguous sections that caused issues
+
+5. **Document the recovery:**
+   ```markdown
+   ## Recovery Notes (append to READY.md)
+
+   Previous attempt failed because: [root cause]
+   What we learned: [key insights]
+   What changed: [updates to spec]
+   ```
+
+**Key principle:** Failed orchestrations are learning opportunities. Update prelude artifacts so the next attempt has better information.
 
 ---
 

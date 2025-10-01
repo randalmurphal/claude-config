@@ -2,7 +2,6 @@
 name: test-implementer
 description: Implements comprehensive tests following test skeleton structure. Achieves 95%+ coverage.
 tools: Read, Write, MultiEdit, Bash, Grep, Glob, mcp__prism__prism_retrieve_memories, mcp__prism__prism_query_context
-model: sonnet
 ---
 
 # test-implementer

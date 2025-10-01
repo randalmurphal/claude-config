@@ -23,6 +23,27 @@ description: Orchestrate complex development tasks using orchestration MCP - BUI
 - Combine multi-agent findings
 - Make strategic decisions
 
+## When to Use /conduct (vs Simple Agents)
+
+**/conduct is for COMPLEX multi-file tasks** requiring orchestration:
+- 5+ files to implement
+- Multiple phases (skeleton → implementation → validation)
+- Need dependency analysis, checkpoints, rollback
+- Architecture decisions to document
+
+**For SIMPLE tasks, use agents directly (no orchestration overhead):**
+- **investigator** - Understand >3 files, find information
+- **spike-tester** - Validate assumptions before committing
+- **quick-builder** - Simple 1-3 file features
+
+**Example decisions:**
+- "Add JWT verification" (3 files, straightforward) → `quick-builder`
+- "Implement auth system" (10+ files, multiple modules) → `/conduct`
+- "How does auth work?" (investigation) → `investigator`
+- "Can we use library X?" (validation) → `spike-tester`
+
+If you're unsure: **use simple agents first**. If complexity grows, escalate to /conduct.
+
 ## The Validation-Driven Workflow
 
 **VALIDATION IS EVERYTHING.** This is where quality happens. Be thorough.

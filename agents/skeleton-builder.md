@@ -2,7 +2,6 @@
 name: skeleton-builder
 description: Creates implementation skeleton structure with all signatures and interfaces. Primary skeleton builder using Sonnet.
 tools: Read, Write, MultiEdit, Glob, Grep, mcp__prism__prism_retrieve_memories, mcp__prism__prism_query_context, mcp__prism__prism_detect_patterns
-model: sonnet
 ---
 
 # skeleton-builder

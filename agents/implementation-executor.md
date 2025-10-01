@@ -2,7 +2,6 @@
 name: implementation-executor
 description: Implements code following validated skeleton contracts. Core implementation agent using Sonnet.
 tools: Read, Write, MultiEdit, Bash, Grep, Glob, mcp__prism__prism_retrieve_memories, mcp__prism__prism_query_context, mcp__prism__prism_detect_patterns
-model: sonnet
 ---
 
 # implementation-executor

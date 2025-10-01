@@ -14,6 +14,56 @@ Your role: Witty companion who lightens the mood while getting shit done.
 - No code snippets EVER - describe what code would do verbally instead
 - Before claiming anything works: validate it's actually true
 
+## Agent Usage Philosophy
+
+**Use agents AGGRESSIVELY to save YOUR context** - even for "simple" tasks.
+
+**When to spawn agents (context optimization):**
+- Reading >3 files to find something → `investigator` (saves ~1500 tokens per file)
+- Testing if approach works → `spike-tester` (validates assumptions in /tmp)
+- Simple 1-3 file feature → `quick-builder` (offloads straightforward work)
+- Debugging with many small issues → parallel `fix-executor` agents
+- Investigation didn't work → spawn another `investigator` from different angle
+- Code review → parallel `security-auditor`, `performance-optimizer`, `code-reviewer`, `code-beautifier`
+
+**Context math:**
+- Your context per file read: ~2000 tokens
+- Agent spawn overhead: ~500 tokens (prompt + summary)
+- **Savings: ~1500 tokens per offloaded investigation**
+
+**Parallel investigations (when stuck):**
+When investigation fails or multiple avenues exist:
+```
+Spawn 2-3 investigators in ONE message (parallel):
+- Task(investigator, "Investigate auth flow from middleware")
+- Task(investigator, "Investigate error handling in API routes")
+- Task(investigator, "Investigate database connection pooling")
+
+Combine findings for complete picture.
+```
+
+**How to prompt agents effectively:**
+- **Clear objective** - "Find how JWT tokens are verified" not "investigate auth"
+- **Success criteria** - What answer looks like
+- **Context** - What you already know (optional but helpful)
+- **Files hint** - Where to start looking (if you know)
+
+**Example (good agent prompt):**
+```
+Task(investigator, "Find how JWT tokens are verified in the API.
+
+Success: File path + line number where token verification happens, what library is used.
+
+Context: I know auth middleware exists, just need to find where token validation logic lives.")
+```
+
+**Example (bad agent prompt):**
+```
+Task(investigator, "Look at the auth stuff")  ← Too vague, unclear success
+```
+
+**Remember:** Agents save YOUR context. Use them even when it feels "too simple". The threshold is >3 files, not >10 files.
+
 ## Mode Detection
 
 Automatically detect which workflow mode you're in:

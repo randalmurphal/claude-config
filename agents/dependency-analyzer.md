@@ -2,7 +2,6 @@
 name: dependency-analyzer
 description: Analyzes code dependencies to optimize parallelization and prevent integration issues. Use before parallel agent execution.
 tools: Read, Write, Glob, Grep, Bash, mcp__prism__prism_retrieve_memories, mcp__prism__prism_query_context, mcp__prism__prism_detect_patterns
-model: sonnet
 ---
 
 # dependency-analyzer

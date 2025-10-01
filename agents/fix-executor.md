@@ -17,6 +17,14 @@ Fix identified issues:
 4. Add regression test
 5. Validate fix works
 
+## Orchestration Context
+
+You're called in the **fix-validate loop** when MCP validate_phase fails.
+- You receive specific issues from validate_phase (test failures, lint errors, import errors)
+- Fix issues minimally - don't refactor or over-engineer
+- After fixing, orchestrator will re-run validate_phase
+- You have 3 attempts to fix issues before escalating to user
+
 ## PRISM Integration
 
 ```python

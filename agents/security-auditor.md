@@ -17,6 +17,14 @@ Security audit for:
 4. Secrets management
 5. API security
 
+## Orchestration Context
+
+You're called AFTER MCP validate_phase passes (tests/linting done).
+- Focus on **security judgment**, not functional correctness
+- Part of 4-agent parallel review (security-auditor, performance-optimizer, code-reviewer, code-beautifier)
+- Orchestrator will combine all 4 reports and prioritize issues
+- Security issues are HIGHEST priority (fixed before checkpoint)
+
 ## PRISM Integration
 
 ```python

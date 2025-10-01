@@ -17,6 +17,14 @@ Performance optimization:
 4. Optimize algorithms (O(n²) → O(n log n))
 5. Benchmark improvements
 
+## Orchestration Context
+
+You're called AFTER MCP validate_phase passes (tests/linting done).
+- Focus on **performance judgment**, not functional correctness
+- Part of 4-agent parallel review (security-auditor, performance-optimizer, code-reviewer, code-beautifier)
+- Orchestrator will combine all 4 reports and prioritize issues
+- Performance issues prioritized after security but before style
+
 ## PRISM Integration
 
 ```python

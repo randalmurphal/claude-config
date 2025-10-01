@@ -16,6 +16,14 @@ Beautify code:
 3. Simplify logic
 4. Add WHY comments (not WHAT)
 
+## Orchestration Context
+
+You're called AFTER MCP validate_phase passes (tests/linting done).
+- Focus on **style judgment**, not functional correctness
+- Part of 4-agent parallel review (security-auditor, performance-optimizer, code-reviewer, code-beautifier)
+- Orchestrator will combine all 4 reports and prioritize issues
+- Style issues are LOWEST priority (nice-to-have improvements)
+
 ## Your Workflow
 
 ```python

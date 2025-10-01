@@ -122,6 +122,42 @@ prism_detect_patterns(
    ruff check src/
    ```
 
+## Handling Spec Discrepancies
+
+**You must distinguish factual corrections from design assumptions.**
+
+### ✅ ALLOW (with evidence):
+- **Spec wrong about technical facts**: Library actually requires X not Y (error proves it)
+- **Spec wrong about existing code**: Field is named 'email' not 'username' (codebase shows it)
+- **Minor implementation details**: Helper function names, internal structure
+
+**Report format:**
+```markdown
+## Spec Correction: [Brief description]
+
+**Original spec**: [What skeleton/READY.md said]
+**Reality**: [What's actually true]
+**Evidence**: [Error message / code location / docs link]
+**Action taken**: [What you implemented instead]
+**Impact**: Minor (doesn't change approach, just corrects technical fact)
+```
+
+### ❌ BLOCK (assumptions):
+- **Core architectural decisions**: "PostgreSQL would be better than SQLite"
+- **Scope additions**: "Should also add rate limiting"
+- **Better way redesigns**: "This approach is inefficient, let me refactor"
+
+**When blocked, STOP and report:**
+```markdown
+## Blocked on Assumption
+
+**Issue**: [What seems wrong about spec]
+**Assumption**: [What you think should be done instead]
+**Why blocking**: [Core decision / out of scope / unclear]
+
+Needs orchestrator/user decision before proceeding.
+```
+
 ## Constraints (What You DON'T Do)
 
 - ❌ **NEVER change skeleton signatures** (contract is law)
@@ -129,6 +165,7 @@ prism_detect_patterns(
 - ❌ **NEVER skip error handling** (use domain exceptions)
 - ❌ **NEVER leave TODOs/FIXMEs** (complete implementation only)
 - ❌ **NEVER add try/except without re-raising** (fail loud)
+- ❌ **NEVER make design assumptions** (follow spec, correct facts only)
 
 ## Self-Check Gates
 
@@ -147,6 +184,39 @@ Before marking complete:
 ✅ Error handling uses domain exceptions
 ✅ Code is self-documenting (clear names, obvious flow)
 ✅ NO placeholder code (complete implementation)
+
+## Completion Report Format
+
+Include in your final report:
+
+```markdown
+### Implementation Complete
+- [List files implemented with brief description]
+
+### Validation Results
+**Tests:** [Pass/Fail - command output]
+**Linting:** [Pass/Fail - command output]
+**Imports:** [Pass/Fail - verification]
+
+### Discoveries (if any)
+- **Gotcha found**: [Describe unexpected behavior/requirement]
+  - Evidence: [Error message / docs / code location]
+  - Resolution: [How you handled it]
+
+### Spec Corrections (if any)
+[Use format from "Handling Spec Discrepancies" section]
+
+### Issues Encountered
+[Any problems and resolutions, or NONE]
+
+### Status
+COMPLETE / BLOCKED [if blocked, explain what needs resolution]
+```
+
+**Why report discoveries:**
+- Orchestrator documents them for future phases
+- Other agents can learn from your findings
+- Prevents duplicate discovery work
 
 ## Beauty Standards
 

@@ -37,6 +37,16 @@ Main agent will give you:
 ### What It Does
 [2-3 sentence summary of functionality]
 
+### Discoveries (if any)
+- **Gotcha found**: [Unexpected behavior/requirement]
+  - Evidence: [What revealed this]
+  - Resolution: [How you handled it]
+
+### Spec Corrections (if any)
+- **Original assumption**: [What was expected]
+- **Reality**: [What's actually true]
+- **Evidence**: [Error/docs/code proving it]
+
 ### Issues Encountered
 [Any problems and how you solved them, or NONE]
 
@@ -107,6 +117,24 @@ python -c "import module_name"
 
 **Don't report success until validation passes.**
 
+## Handling Spec Discrepancies
+
+**Distinguish factual corrections from design assumptions:**
+
+### ✅ ALLOW (with evidence):
+- Spec says library does X, but error proves it does Y
+- Spec says use field 'username', but code has 'email'
+- Minor implementation details
+
+**Report in "Spec Corrections" section with evidence.**
+
+### ❌ BLOCK (ask orchestrator):
+- Core architectural decisions ("Should use Redis not SQLite")
+- Scope additions ("Should also add caching")
+- Design changes ("This approach seems inefficient")
+
+**Report in "Issues Encountered" and mark status BLOCKED.**
+
 ## Decision Framework
 
 **When to ask main agent:**
@@ -114,12 +142,14 @@ python -c "import module_name"
 - Need to modify >3 files (beyond "quick" builder scope)
 - Breaking change to existing API
 - Security/auth implications unclear
+- Spec seems wrong about core decisions (not just facts)
 
 **When to proceed:**
 - Requirements clear
 - 1-3 files, straightforward implementation
 - Following existing patterns
 - No major architecture decisions
+- Only correcting factual errors (with evidence)
 
 ## Validation Standards
 

@@ -33,6 +33,16 @@ Main agent will give you:
 ### Validation
 **Tests:** ✅ PASS (X/X tests, including new regression test)
 **Linting:** ✅ PASS
+
+### Discoveries (if any)
+- **Gotcha found**: [Unexpected behavior discovered during fix]
+  - Evidence: [What revealed this]
+  - Impact: [Who else might hit this]
+
+### Spec Corrections (if any)
+- **Original assumption**: [What spec/code assumed]
+- **Reality**: [What's actually true]
+- **Evidence**: [Error/docs that prove it]
 ```
 
 ## Your Workflow

@@ -70,6 +70,33 @@ prism_retrieve_memories(
 ✅ Integration tests use real dependencies (test DB)
 ✅ E2E tests verify full workflows
 
+## Completion Report Format
+
+```markdown
+### Tests Implemented
+- [List test files with brief description]
+
+### Coverage Results
+**Coverage:** X% (target: ≥95%)
+**Tests:** X/X passing
+
+### Discoveries (if any)
+- **Gotcha found**: [Testing revealed unexpected behavior]
+  - Evidence: [Test output / error]
+  - Impact: [Implications for implementation]
+
+### Issues Encountered
+[Any problems and resolutions, or NONE]
+
+### Status
+COMPLETE / NEEDS FIXES [if implementation bugs found]
+```
+
+**Report discoveries found during testing:**
+- Tests often reveal edge cases or bugs in implementation
+- Orchestrator needs to know if implementation needs fixes
+- Helps improve implementation quality
+
 ## Why This Exists
 
 Tests prove implementation correctness and enable refactoring with confidence.

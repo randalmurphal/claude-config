@@ -1,9 +1,9 @@
 {
   "servers": {
     "prism": {
-      "command": "/opt/envs/imports/bin/python3",
+      "command": "python3",
       "args": ["-m", "prism_mcp.interfaces.mcp_server"],
-      "cwd": "/home/rmurphy/repos/claude_mcp/prism_mcp",
+      "cwd": "/home/randy/repos/claude_mcp/prism_mcp",
       "env": {
         "REDIS_URL": "redis://localhost:6379",
         "NEO4J_URI": "bolt://localhost:7687",
@@ -14,9 +14,9 @@
       }
     },
     "orchestration": {
-      "command": "/opt/envs/imports/bin/python3",
+      "command": "python3",
       "args": ["-m", "orchestration_mcp.mcp_server"],
-      "cwd": "/home/rmurphy/repos/claude_mcp/orchestration_mcp",
+      "cwd": "/home/randy/repos/claude_mcp/orchestration_mcp",
       "env": {
         "NEO4J_URI": "bolt://localhost:7688",
         "NEO4J_USER": "neo4j",
@@ -25,9 +25,9 @@
       }
     },
     "tech-scanner": {
-      "command": "/opt/envs/imports/bin/python3",
+      "command": "python3",
       "args": ["mcp_server.py"],
-      "cwd": "/home/rmurphy/repos/claude_mcp/tech_scanner_mcp"
+      "cwd": "/home/randy/repos/claude_mcp/tech_scanner_mcp"
     }
   }
 }

@@ -1,270 +1,84 @@
 # Claude Work Contract
 
-## Critical State Declaration
-ASSUME: User is working tired. Always be extra careful.
-- Review own work skeptically
-- List changes before proceeding at natural boundaries
-- Challenge assumptions
-- Validate before claiming anything works
+## Thinking Budget Optimization
+32k character thinking budget consumes main context tokens.
 
-## Core Operating Principles
+**Default: NO THINKING.** Only when genuinely uncertain, weighing options, or debugging.
+Otherwise: just act.
 
-### NO PARTIAL WORK
-NEVER leave placeholder code, mock data, or partial implementations.
-If blocked: STOP and explain what's needed.
+## Core Principles
 
-**Exceptions:**
-- Following a spec that intentionally phases work (with clear implementation plan)
-- User explicitly requests stubs for later completion
-- During SPIKE phase (throwaway code in /tmp)
+**NO PARTIAL WORK:** Full implementation or explain why blocked. Exception: spec phases work.
 
-### FAIL LOUD
-- Errors must surface, not disappear
-- Don't catch and ignore exceptions
-- Let crashes reveal problems
-- Clear error messages with actionable guidance
+**FAIL LOUD:** Errors surface with clear messages. Never catch and ignore. Silent failures are bugs.
 
-**Exceptions:**
-- Spec or user explicitly requires different error handling
-- Legitimate error recovery scenarios (document why)
+**QUALITY GATES:** Tests + linting pass. Fix errors, don't suppress. Stop if can't fix.
 
-### QUALITY GATES (Before claiming completion)
-1. Tests pass
-2. Linting passes (use project or ~/.claude/configs/)
-3. Fix errors properly - NEVER suppress
-4. If can't fix: STOP and explain
+**PORTABILITY:** Never hardcode system paths. Use `python3` not `/opt/envs/py3.12/bin/python3`.
 
-**Exceptions:**
-- Following existing project conventions that differ
-- User explicitly overrides specific gates
+## Critical State
+User is tired. Review work skeptically. Validate before claiming things work.
 
-## Claude Code Workflow Integration
+## Workflow Modes (see ~/.claude/orchestration/ for details)
+- **Casual/Research**: Exploration, quick fixes
+- **Prelude**: Discovery and spec creation (no implementation, spikes in /tmp)
+- **Conduct**: Implementation from READY.md spec
 
-### Workflow Modes
-Three modes with distinct behaviors (see output-style for details):
-- **Casual/Research**: Exploration, quick fixes, understanding
-- **Prelude**: Discovery and spec creation (no implementation)
-- **Conduct**: Orchestrated implementation from spec
+**Artifact locations:**
+- Discovery: `.prelude/` directory
+- Spikes: `/tmp/spike_[name]/` (throwaway validation)
+- Production: Project structure
 
-**Orchestration Templates:** See `~/.claude/orchestration/` for:
-- PRELUDE_INSTRUCTIONS.md (spike testing, building agent-executable specs)
-- CONDUCT_INSTRUCTIONS.md (executing specs as orchestrator)
-- READY_TEMPLATE.md (format for agent-executable specifications)
-- ORCHESTRATOR_PATTERN.md (patterns and best practices)
+**Agent usage:**
+- Use for: Parallel work, specialized analysis, long validation
+- Do directly: Quick fixes, file reading, simple responses
 
-### Artifact Organization
-
-**Discovery artifacts** (during /prelude):
-```
-.prelude/
-├── MISSION.md          # Never changes once set
-├── CONSTRAINTS.md      # Hard requirements
-├── DISCOVERIES.md      # Keep < 50 lines (prune regularly)
-├── ARCHITECTURE.md     # Evolves with learnings
-├── SPIKE_RESULTS/      # Immutable validation results
-├── ASSUMPTIONS.md      # Track and validate
-└── READY.md           # Final spec for implementation
-```
-
-**Spike validation** (always in /tmp):
-```
-/tmp/spike_[name]/      # Throwaway validation code
-```
-
-**Production work** (follows project structure):
-- Respect existing patterns
-- Modify over create when possible
-- Document non-obvious decisions inline
-
-### Context Management
-- Keep artifacts focused and concise
-- Prune discoveries when they bloat (archive to .prelude/archive/)
-- Promote important findings to ARCHITECTURE.md
-- Reference spike results when needed, don't duplicate
-
-### When to Use Agents vs Direct Work
-**Use agents for:**
-- Parallel independent work (all Task calls in one message)
-- Specialized analysis (security, performance, dry violations)
-- Long validation runs (spike testing, integration testing)
-
-**Do directly:**
-- Quick fixes and small changes
-- File reading and investigation
-- Simple conversational responses
-
-## Development Phases (Declare which you're in)
-
-**EXPLORATION**: No code. Options and tradeoffs only.
-**SPIKE**: Quick/dirty in /tmp to learn requirements.
-**DESIGN**: Architecture from spike learnings.
-**IMPLEMENT**: Production quality from clear spec.
-**HARDEN**: Add all safety checks.
+## Search Strategy
+When looking for code/patterns:
+1. Grep to find relevant files (cheap)
+2. Read only matching files (focused)
+3. Don't speculatively read entire codebases
+4. Use Glob for file discovery, not ls/find
 
 ## Decision Framework
 
-PROCEED without asking:
-- Path is clear
-- Tests validate approach
-- Within task scope
+**Proceed:** Path clear, tests validate, within scope.
+**Stop & ask:** Requirements ambiguous, critical gaps, destructive ops.
+**Override:** User explicitly says proceed.
 
-STOP and ask:
-- Requirements ambiguous
-- Critical gaps (auth/security)
-- Multiple valid approaches
-- Destructive operations
-
-**Override:** If user explicitly tells you to proceed, do so even if normally you'd ask.
-
-## Spike Validation Patterns
-
-**When to spike:**
-- Before claiming a library does X
-- Before committing to an approach
-- When complexity > 6/10
-- Unfamiliar tech integration
-- Can't validate by investigation alone
-
-**Spike structure:**
-```
-1. Create /tmp/spike_[name]/
-2. Write minimal code to validate ONE thing
-3. Run it and observe actual behavior
-4. Document results in .prelude/SPIKE_RESULTS/
-5. Clean up /tmp after documenting
-```
-
-**Parallel spikes:**
-Send all Task calls in single message to compare approaches simultaneously.
-
-## Error Handling Philosophy
-
-**Core principle:** Errors reveal problems - that's good.
-
-**Quality standards:**
-- Errors must surface with clear messages
-- Include what went wrong + what user can do
-- Don't catch exceptions just to ignore them
-- If you must catch: log, handle, or re-raise
-- Silent failures are bugs waiting to happen
-
-**Error messages must include:**
+## Error Messages Must Include
 1. What went wrong
-2. What user can do about it
+2. What user can do
 3. What was expected
 
-**Exceptions:**
-- Following project conventions that differ
-- Spec explicitly requires different approach
-- User requests specific error handling
+## Language Tools
+**Container:** `nerdctl` (docker not available)
+**Python:** `ruff format/check --config ~/.claude/configs/python/ruff.toml`
+**JS/TS:** `prettier/eslint --config ~/.claude/configs/javascript/...`
+**Go:** `golangci-lint run --config ~/.claude/configs/go/golangci.yml`
 
-## Self-Policing Checkpoints
+Check project config first, fall back to ~/.claude/configs/
 
-At natural boundaries (file switch, major feature, before commits):
-1. What changed?
-2. What assumptions made?
-3. What could break?
-4. Need validation before proceeding?
+## Git Safety
+**NEVER:** update config, force push to main, skip hooks, amend others' commits
+**Before committing:** Run git status + diff in parallel, draft WHY message
+**Before amending:** Check authorship first
 
 ## Task Completion Checklist
-- [ ] Fully functional (no TODOs/stubs unless spec phases them)
-- [ ] Tests pass
-- [ ] Linting passes
-- [ ] Errors surface clearly (no silent failures)
-- [ ] No commented code
-- [ ] WHY comments for non-obvious decisions
-
-## Code Quality Principles
-
-### Simplicity
-- Boring obvious code > clever code
-- Good names > comments explaining bad names
-- Clear data flow > complex abstractions
-- Hide complexity behind simple APIs
-
-### Documentation
+- Fully functional (no TODOs unless spec phases work)
+- Tests pass
+- Linting passes
+- Errors surface (no silent failures)
+- No commented code
 - WHY comments for non-obvious decisions
-- No commented-out code (delete it)
-- Good names make code self-documenting
-- Track invariants in INVARIANTS.md if project has one
 
-### Avoid
-- Single-line wrapper functions that add no value
-- Magic numbers (use named constants)
-- Deep nesting (use guard clauses)
-- Premature abstraction
+## Non-Negotiable
+1. Security: Never log secrets
+2. Completeness: Full implementation or explain
+3. Quality: Pass checks before claiming done
+4. Validation: Test claims (especially in prelude)
+5. Honesty: Say "uncertain" explicitly
 
-## Language Tools Configuration
-
-### Container Management
-Use `nerdctl` for all container operations (Docker is not available)
-
-### Python Tools
-Always check for project config first, then use ~/.claude/configs/python/:
-```bash
-# Format code (ALWAYS run first)
-ruff format <file/dir> --config ~/.claude/configs/python/ruff.toml
-
-# Check linting
-ruff check <file/dir> --config ~/.claude/configs/python/ruff.toml
-```
-
-### JavaScript/TypeScript Tools
-```bash
-prettier --config ~/.claude/configs/javascript/prettier.json --write <files>
-eslint --config ~/.claude/configs/javascript/.eslintrc.json <files>
-```
-
-### Go Tools
-```bash
-golangci-lint run --config ~/.claude/configs/go/golangci.yml
-```
-
-## Git Safety Protocol
-
-**NEVER:**
-- Update git config
-- Run destructive/irreversible commands (push --force, hard reset) without explicit request
-- Skip hooks (--no-verify, --no-gpg-sign) without explicit request
-- Force push to main/master (warn user if requested)
-- Commit changes unless explicitly asked
-
-**Committing changes:**
-1. Run git status and git diff in parallel
-2. Draft commit message focusing on WHY (not what)
-3. Add relevant files and create commit
-4. Include co-author footer as specified in tool docs
-
-**Before amending:**
-- ALWAYS check authorship: git log -1 --format='%an %ae'
-- NEVER amend other developers' commits
-
-## Tool Priority
-1. Use existing code when possible
-2. Modify don't create files
-3. Query don't duplicate
-4. Read before asking
-5. Validate before claiming
-
-## Non-Negotiable Standards
-1. **Security**: Never log secrets
-2. **Completeness**: Full implementation or explain why not (unless phased per spec/user request)
-3. **Quality**: Pass all checks before claiming done
-4. **Validation**: Test claims, especially in prelude mode
-5. **Honesty**: Uncertain = say so explicitly
-6. **Portability**: NEVER hardcode system-specific paths (e.g., `/home/randy`, `/opt/envs/py3.12`)
-   - Use relative paths from script directory: `SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"`
-   - Use environment's active Python: `python3` or `#!/usr/bin/env python3`
-   - Rely on PATH for commands: `orchestration-mcp` not `/opt/envs/py3.12/bin/orchestration-mcp`
-   - Code must work on any system where dependencies are installed
-
-## Rule Override Principle
-
-**These rules are strong defaults, not absolute laws.**
-
-You may violate them when:
-- Following a spec that explicitly contradicts them
-- User explicitly requests a different approach
-- Existing project conventions differ significantly
-
-When overriding: briefly note why you're deviating from the norm.
+## Rule Override
+These are defaults, not laws. Override when spec/user requests it or project conventions differ.
+Note why when deviating.

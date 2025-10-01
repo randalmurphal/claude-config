@@ -1,7 +1,7 @@
 ---
 name: merge-coordinator
 description: Safely applies parallel work from git worktrees to working directory. Handles conflicts.
-tools: Bash, Read, Write, MultiEdit, mcp__prism__prism_retrieve_memories
+tools: Bash, Read, Write, MultiEdit, mcp__prism__retrieve_memories
 ---
 
 # merge-coordinator

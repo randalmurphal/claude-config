@@ -1,7 +1,7 @@
 ---
 name: investigator
 description: Understand code and find information. Saves main agent context. Use for >3 file investigations.
-tools: Read, Grep, Glob, Bash, mcp__prism__prism_retrieve_memories, mcp__prism__prism_detect_patterns, mcp__prism__prism_query_context
+tools: Read, Grep, Glob, Bash, mcp__prism__retrieve_memories, mcp__prism__detect_patterns, mcp__prism__query_context
 ---
 
 # investigator

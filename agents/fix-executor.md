@@ -1,7 +1,7 @@
 ---
 name: fix-executor
 description: Fix bugs and validation failures. Minimal targeted fixes with regression tests.
-tools: Read, Write, Edit, MultiEdit, Bash, Grep, Glob, mcp__prism__prism_retrieve_memories, mcp__prism__prism_detect_patterns
+tools: Read, Write, Edit, MultiEdit, Bash, Grep, Glob, mcp__prism__retrieve_memories, mcp__prism__detect_patterns
 ---
 
 # fix-executor

@@ -1,7 +1,7 @@
 ---
 name: code-reviewer
 description: Review code for maintainability, clarity, and quality. Finds issues others miss.
-tools: Read, Grep, Glob, mcp__prism__prism_detect_patterns, mcp__prism__prism_retrieve_memories
+tools: Read, Grep, Glob, mcp__prism__detect_patterns, mcp__prism__retrieve_memories
 ---
 
 # code-reviewer

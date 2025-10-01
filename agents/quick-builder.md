@@ -1,7 +1,7 @@
 ---
 name: quick-builder
 description: Simple 1-3 file implementations. Saves main agent context for straightforward features.
-tools: Read, Write, Edit, MultiEdit, Bash, Grep, Glob, mcp__prism__prism_retrieve_memories, mcp__prism__prism_detect_patterns
+tools: Read, Write, Edit, MultiEdit, Bash, Grep, Glob, mcp__prism__retrieve_memories, mcp__prism__detect_patterns
 ---
 
 # quick-builder

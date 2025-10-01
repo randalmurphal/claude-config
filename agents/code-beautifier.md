@@ -1,7 +1,7 @@
 ---
 name: code-beautifier
 description: Transform working code into beautiful, DRY, self-documenting code. Use after functionality works.
-tools: Read, Write, Edit, MultiEdit, Bash, Grep, Glob, mcp__prism__prism_detect_patterns
+tools: Read, Write, Edit, MultiEdit, Bash, Grep, Glob, mcp__prism__detect_patterns
 ---
 
 # code-beautifier

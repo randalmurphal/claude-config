@@ -1,7 +1,7 @@
 ---
 name: architecture-planner
 description: MUST run first for large tasks. Defines ALL common infrastructure upfront to prevent duplication.
-tools: Read, Write, MultiEdit, Glob, Grep, mcp__prism__prism_retrieve_memories, mcp__prism__prism_query_context
+tools: Read, Write, MultiEdit, Glob, Grep, mcp__prism__retrieve_memories, mcp__prism__query_context
 ---
 
 # architecture-planner

@@ -28,6 +28,20 @@
       "command": "python3",
       "args": ["mcp_server.py"],
       "cwd": "/home/randy/repos/claude_mcp/tech_scanner_mcp"
+    },
+    "sequential-thinking": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"]
+    },
+    "obsidian": {
+      "command": "npx",
+      "args": ["-y", "obsidian-mcp-server"],
+      "env": {
+        "OBSIDIAN_API_KEY": "770c4831ee4be35066c6931994d702388759b8091a4bf31277536274a1ea108c",
+        "OBSIDIAN_BASE_URL": "http://127.0.0.1:27123",
+        "OBSIDIAN_VERIFY_SSL": "false",
+        "OBSIDIAN_ENABLE_CACHE": "true"
+      }
     }
   }
 }

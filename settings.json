@@ -4,5 +4,8 @@
     "command": "~/.claude/statusline-command.sh"
   },
   "outputStyle": "daily_driver",
-  "alwaysThinkingEnabled": true
+  "alwaysThinkingEnabled": true,
+  "permissions": {
+    "defaultMode": "bypassPermissions"
+  }
 }

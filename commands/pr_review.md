@@ -33,8 +33,10 @@ else:
     ticket = input
     branch = "develop"  # Default
 
-# Detect which MCP/tool to use
-if gitlab_mcp_available:
+# Detect which tool to use (ordered by preference)
+if gitlab_helpers_available():
+    use_tool = "gitlab_helpers"  # Custom bash functions (preferred)
+elif gitlab_mcp_available:
     use_tool = "gitlab_mcp"
 elif github_mcp_available:
     use_tool = "github_mcp"
@@ -45,13 +47,26 @@ else:
 
 ### 2. Gather Context (PARALLEL)
 
-#### Check MCP Availability
-First, check if GitLab/GitHub MCP is available:
+#### Check Tool Availability
+Priority order:
+1. **GitLab Helper Script** (preferred - lightweight, no MCP needed)
+2. GitLab MCP
+3. GitHub MCP
+4. Git commands (fallback)
+
+```bash
+# Check if GitLab helper script exists
+gitlab_helpers_available() {
+    [[ -f ~/.claude/scripts/gitlab_helpers.sh ]] && return 0 || return 1
+}
+```
+
+If no GitLab helpers or MCP available:
 ```python
-if not gitlab_mcp_available and not github_mcp_available:
-    ask_user: "GitLab/GitHub MCP not available. Continue with git commands? (y/n)"
+if not has_gitlab_access():
+    ask_user: "No GitLab/GitHub access configured. Continue with git commands? (y/n)"
     if user_says_no:
-        return "Review cancelled. Please configure GitLab/GitHub MCP."
+        return "Review cancelled."
     else:
         use_git_fallback = True
 ```
@@ -101,8 +116,59 @@ else:
     # Continue with remote branch analysis only
 ```
 
+#### Using GitLab Helper Script (Preferred)
+
+**Location:** `~/.claude/scripts/gitlab_helpers.sh`
+
+This lightweight script provides direct GitLab API access without loading an 88-tool MCP server (~25-30k token savings).
+
+**Setup (already configured):**
+- Credentials in `~/.claude/.credentials.json` under `.mcp.gitlab`
+- Auto-loads token and API URL
+- Auto-detects project ID from git remote
+
+**Usage Pattern:**
+```bash
+# Step 1: Source the script once
+source ~/.claude/scripts/gitlab_helpers.sh
+
+# Step 2: Call functions (all return JSON)
+MR_JSON=$(gitlab_find_mr_for_ticket "$ticket" "$target_branch")
+MR_IID=$(echo "$MR_JSON" | jq -r '.iid // empty')
+
+if [[ -z "$MR_IID" ]]; then
+    echo "No MR found for $ticket against $target_branch"
+    # Fall back to git commands
+else
+    # Get MR details
+    MR_DETAILS=$(gitlab_get_mr_details "$MR_IID")
+    MR_CHANGES=$(gitlab_get_mr_changes "$MR_IID")
+    MR_COMMITS=$(gitlab_get_mr_commits "$MR_IID")
+
+    # Extract key info
+    MR_TITLE=$(echo "$MR_DETAILS" | jq -r '.title')
+    MR_DESCRIPTION=$(echo "$MR_DETAILS" | jq -r '.description')
+    SOURCE_BRANCH=$(echo "$MR_DETAILS" | jq -r '.source_branch')
+
+    # Get changed files list
+    CHANGED_FILES=$(echo "$MR_CHANGES" | jq -r '.changes[].new_path')
+fi
+```
+
+**Available Functions:**
+
+| Function | Parameters | Returns |
+|----------|-----------|---------|
+| `gitlab_find_mr_for_ticket` | `<ticket> [target_branch]` | MR object or null |
+| `gitlab_get_mr_details` | `<mr_iid>` | Full MR details |
+| `gitlab_get_mr_changes` | `<mr_iid>` | Diff/changes array |
+| `gitlab_get_mr_commits` | `<mr_iid>` | Commits array |
+| `gitlab_get_file` | `<file_path> [branch]` | Raw file contents |
+
+All functions return JSON for easy parsing with `jq`.
+
 #### Standard MCP Flow
-If MCP is available:
+If GitLab/GitHub MCP is available:
 - **Jira**: `mcp__jira__get_issue` for ticket details
 - **GitLab/GitHub**: Find PR for ticket branch against target branch
 

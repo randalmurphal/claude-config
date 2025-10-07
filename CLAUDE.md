@@ -16,6 +16,8 @@ Otherwise: just act.
 
 **PORTABILITY:** Never hardcode system paths. Use `python3` not `/opt/envs/py3.12/bin/python3`.
 
+**NO MASS UPDATES:** Never use scripts/sed/awk for bulk code changes. Use sub-agents (Task tool) to update files manually. Scripts miss context and introduce subtle bugs. Manual updates = eyes on each change.
+
 ## Critical State
 User is tired. Review work skeptically. Validate before claiming things work.
 
@@ -33,126 +35,23 @@ User is tired. Review work skeptically. Validate before claiming things work.
 - Use for: Parallel work, specialized analysis, long validation
 - Do directly: Quick fixes, file reading, simple responses
 
-## Obsidian Note Management
+## Parallel Execution (Critical for Performance)
 
-**CRITICAL: Always check note status before trusting content.**
+**Run independent operations in parallel - single message, multiple tool calls.**
 
-### Note Status System
+**Tools:** Read multiple files, grep multiple patterns, run independent bash commands
+**Agents:** Launch multiple Task tools in one message for parallel work
 
-**Status meanings:**
-- `status: current` - Canonical truth, use this
-- `status: superseded` - Outdated, ignore unless asked for history
-- `status: consolidated` - Knowledge hub combining multiple versions
-- `status: draft` - Work in progress, verify before using
-- `status: archived` - Historical/completed, reference only
+**Why:** Saves context, faster execution, less back-and-forth
 
-### Reading Notes (Mandatory Checks)
+**Example - Bad:**
+- Read file1 → wait → Read file2 → wait → Read file3
 
-1. **Check frontmatter status FIRST** before trusting any note content
-2. **Only use `current` or `consolidated` notes** unless explicitly researching history
-3. **If spec/decision is superseded**, follow `superseded-by` link to current version
-4. **Flag broken state** if project note points to non-current spec
+**Example - Good:**
+- Read file1 + Read file2 + Read file3 (single message)
+- Task(agent1, "implement X") + Task(agent2, "implement Y") (single message)
 
-### Creating/Updating Notes
-
-**When replacing a spec/decision:**
-1. Extract valuable knowledge from old version
-2. Update new note with "What We Kept From vX" section
-3. Mark old version as `superseded` with reason and link to new version
-4. Update old note with "Still Valid" section (anchor: `#Still Valid`)
-5. Update project note to link to new version
-
-**When creating session notes:**
-1. Use template from `templates/session-note.md`
-2. Link to project: `[[projects/PROJECT_NAME]]`
-3. Tag appropriately: `#session #project/NAME`
-4. Document gotchas as discovered
-5. Link to related decisions/tasks
-
-### Search Patterns
-
-- **Current work:** `status:current`
-- **History:** `status:superseded`
-- **Consolidated knowledge:** `status:consolidated`
-- **Active sessions:** `path:sessions/ date:>YYYY-MM-DD`
-- **By project:** `tag:#project/NAME`
-
-### Slash Commands
-
-**`/notes-start [topic]`** - Load complete context before work
-- Queries Obsidian (via ObsidianPilot) + PRISM for all relevant notes
-- Auto-detects topic from session if not specified
-- Presents current state, decisions, gotchas, next steps
-- Fast: SQLite FTS5 search (<0.5s on large vaults)
-- **Use at start of any non-trivial work session**
-
-**`/consolidate [topic]`** - Nuclear option for perfect notes
-- Scans ALL notes on topic (current, superseded, draft)
-- Detects contradictions and determines truth
-- Extracts valuable knowledge from all versions
-- Reorganizes structure (split/merge as needed)
-- Updates specs and fixes broken links
-- Stores consolidated knowledge in PRISM
-- **Uses unlimited tokens to make notes perfect**
-- **Use after multiple spec iterations or when notes feel messy**
-
-**`/notes-update [topic]`** - Capture session findings
-- Analyzes current session for discoveries and decisions
-- Updates relevant documentation automatically
-- Creates ADRs, session notes, gotcha documentation
-- Stores findings in PRISM
-- **Use at end of work sessions to save knowledge**
-
-### Templates (in Obsidian)
-
-Located in `templates/` directory:
-- `project-note.md` - Project overview with task tracking
-- `spec-note.md` - Specification with version tracking
-- `session-note.md` - Daily work log
-- `decision-note.md` - ADR format
-- `consolidated-note.md` - Knowledge hub across versions
-- `superseded-spec.md` - Outdated spec with "Still Valid" sections
-
-### Workflow Integration
-
-**Start of session:**
-```
-/notes-start [topic]   # Load all context
-# Work happens...
-```
-
-**After spec evolution:**
-```
-# Multiple iterations create messy notes
-/consolidate [topic]   # Clean up and organize
-/notes-start [topic]   # Load clean context
-# Continue with perfect context
-```
-
-**During `/conduct`:**
-- Phase boundaries → Update session notes
-- Spec changes → Mark old as superseded, create new with "What We Kept"
-- Decisions → Create ADR notes
-- Gotchas → Document in session notes
-
-### PRISM Integration
-
-Obsidian and PRISM work together:
-- **Obsidian:** Structured notes with explicit links
-- **PRISM:** Semantic memory with cross-session learning
-- **Consolidation:** Extracts from Obsidian → Stores in PRISM ANCHORS
-- **Retrieval:** PRISM memories link back to Obsidian notes
-- **Result:** Both semantic search AND structured documentation
-
-### Rules Summary
-
-1. **Always check status** before using note content
-2. **Use `/notes-start`** at beginning of work sessions
-3. **Use `/consolidate`** when notes get messy or contradictory
-4. **Mark old versions** as superseded with "Still Valid" sections
-5. **Extract knowledge forward** - never lose valuable insights
-6. **Link everything** - notes should form a knowledge graph
-7. **Update PRISM** - consolidated knowledge goes to ANCHORS tier
+**Exception:** Sequential when output of one feeds into next
 
 ## Search Strategy
 When looking for code/patterns:

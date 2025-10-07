@@ -1,259 +1,227 @@
-# /index - Interactive Codebase Interrogation
+# Index Project Command
 
-## Overview
-Intelligent codebase interrogation that extracts knowledge through conversation with you, the domain expert. Generates comprehensive CLAUDE.md documentation that's 100% correct and 100% complete.
+Index a project using Anthropic's contextual retrieval technique.
 
-**This is NOT automated indexing.** This is a collaborative conversation where I extract the knowledge that only exists in your head.
+## Usage
 
-## Command
 ```
-/index <directory>
+/index <project_path>
 ```
 
 ## What This Does
 
-### Phase 1: Preliminary Investigation (I do this)
-1. Scan directory structure and file organization
-2. Quick AST analysis to understand what the code does
-3. Look for existing docs (README, architecture docs)
-4. Form initial hypothesis about the system
-5. Ask you basic orientation questions:
-   - What does this codebase do?
-   - What are the main components?
-   - What are the critical constraints?
-   - Any known gotchas I should be aware of?
+Implements batched two-phase indexing based on Anthropic's research (-49% retrieval failures):
 
-### Phase 2: Generate Starter CLAUDE.md (I do this)
-Create initial documentation with what I learned:
-- System purpose
-- High-level architecture
-- Key components identified
-- Critical constraints you mentioned
-- Known gotchas flagged
+**Phase 1: Generate CLAUDE.md Documents**
+- Spawn investigator agents (via Task tool) to analyze each directory
+- Generate CLAUDE.md files explaining concepts, patterns, gotchas
+- These serve dual purpose: human navigation + embedding context
 
-### Phase 3: Deep Interrogation (Background)
-Kick off aggressive investigation system:
-- Reads code files in detail
-- Extracts all config values
-- Finds all comments (TODO, IMPORTANT, WHY)
-- Detects patterns (retry logic, cleanup, validation)
-- Maps execution flows
-- Identifies knowledge gaps
+**Phase 2: Extract & Contextualize Memories**
+- Extract knowledge from code/docs (decisions, patterns, gotchas)
+- Add 50-100 token context to each memory using CLAUDE.md as "document"
+- Store contextualized memories in PRISM
 
-**I'll tell you how to monitor progress and when it's done.**
+**Batched Processing (for large codebases)**
+- Processes 30 directories at a time to avoid token limits
+- Tracks batch progress in PRISM (resumable if interrupted)
+- Clears intermediate results between batches
+- Full project context preserved for background enrichment
 
-### Phase 4: Synthesis & Presentation (After you tell me it's done)
-I review the interrogation results and:
-1. Show you everything I found (findings summary)
-2. Present the big picture understanding
-3. Map out execution flows and data transformations
-4. Identify what I'm confident about vs uncertain
-5. Highlight potential inconsistencies or assumptions
+**Incremental Updates**
+- Tracks last indexed commit in PRISM
+- Uses git diff to find changed directories
+- Re-indexes only affected directories
+- Supersedes old memories, creates new ones
 
-### Phase 5: Conversational Q&A (The Important Part)
-I ask you hyper-specific questions like:
-```
-Line 46 of tenable_asset_os_ports_services_import.py says:
-"Need to restrict this tool and main import from creating concurrent"
+## Arguments
 
-Questions:
-1. What is "main import"? Another script? Another module?
-2. What SPECIFICALLY breaks if you run both concurrently?
-   - Race condition on shared resource?
-   - Database connection exhaustion?
-   - API rate limit violation?
-3. Why isn't this enforced in code (mutex/lock)?
+- `<project_path>`: Path to project root (default: current directory)
+
+## Examples
+
+```bash
+# Index current project
+/index
+
+# Index specific project
+/index /path/to/my-project
+
+# Index with specific scope
+/index /path/to/project --scope=user
 ```
 
-**NOT like this:**
-```
-Can you confirm this understanding of concurrency?
-```
+## Implementation Steps
 
-### Phase 6: Iterative Refinement (Until Perfect)
-- You answer my questions
-- I spot inconsistencies or bad assumptions
-- I ask follow-ups to probe deeper
-- I update CLAUDE.md with verified knowledge
-- I show you the updated understanding
-- We iterate until you say "yes, that's 100% correct and complete"
+You should:
 
-## Success Criteria
+1. **Validate project path** - ensure it's a git repository
+2. **Initialize components** (REQUIRED):
+   ```python
+   from prism_mcp.indexing import (
+       ProjectIndexer, GitTracker, DirectoryAnalyzer,
+       MemoryExtractor, Contextualizer
+   )
+   from prism_mcp.indexing.claude_code_client import ClaudeCodePrismClient
 
-**100% Correct:**
-- Zero factual errors in CLAUDE.md
-- All technical details verified by you
-- All assumptions validated
-- All edge cases documented
+   # Create PRISM client
+   prism_client = ClaudeCodePrismClient(...)
 
-**100% Complete:**
-- All critical business logic explained
-- All tuning decisions rationalized (why 4 workers? why batch size 500?)
-- All gotchas and constraints documented
-- All failure modes and recovery strategies explained
-- Any agent could read CLAUDE.md and refactor with confidence
+   # Create GitTracker (CRITICAL for resume capability)
+   git_tracker = GitTracker(prism_client)
+
+   # Create other components
+   directory_analyzer = DirectoryAnalyzer(...)
+   memory_extractor = MemoryExtractor(...)
+   contextualizer = Contextualizer(...)
+   indexer = ProjectIndexer(
+       directory_analyzer, memory_extractor, contextualizer, prism_client
+   )
+   ```
+
+3. **Check if already indexed**:
+   - Use `git_tracker.get_last_indexed_commit(project_id, user_id)`
+   - Compare to current commit: `git_tracker.get_current_commit(project_root)`
+   - If same commit → skip entirely (already indexed, no changes)
+   - If different or never indexed → proceed to step 4
+
+4. **Call ProjectIndexer.index_project()**:
+   ```python
+   result = indexer.index_project(
+       project_root=Path(project_path),
+       scope=MemoryScope.GLOBAL,  # or USER/TEAM
+       user_id=user_id,
+       project_id=project_id,
+       batch_size=30,  # Good for large codebases
+       git_tracker=git_tracker,  # CRITICAL - enables resume
+   )
+   ```
+
+   **What happens:**
+   - Checks `git_tracker.get_batch_progress()` for interrupted batches
+   - Resumes from last completed batch (if found)
+   - Processes batches sequentially until done OR token limit hit
+   - Saves progress after each batch
+   - Clears `claude_md_map` between batches (prevents accumulation)
+
+   **Token limit behavior:**
+   - Large codebases (500+ dirs) will hit limits after ~5-10 batches
+   - When hit: progress saved, execution stops (gracefully or error)
+   - Just run `/index` again → automatically resumes
+
+5. **Background enrichment** (automatic):
+   - ProjectIndexer spawns enrichment agent at end
+   - Agent queries ALL memories for project_id (not per-batch)
+   - Extracts cross-directory relationships
+   - Full project context preserved despite batching
+
+6. **Store final metadata**:
+   - GitTracker.store_indexed_commit() supersedes batch progress
+   - Stores current commit SHA for future incremental updates
+
+## Key Principles
+
+- **Fail loud**: Don't store bad memories - fix issues first
+- **Concept-focused**: CLAUDE.md explains WHY, not just WHAT
+- **Task tool for sub-agents**: Spawn in-session agents for analysis
+- **Neo4j relationships**: Link related but separate memories
+- **Backup CLAUDE.md**: Always backup existing files before replacing
+
+## MCP Tools Used
+
+- `mcp__prism__store_memory` - Store contextualized memories
+- `mcp__prism__retrieve_memories` - Check for existing index metadata
+- `mcp__prism__supersede_memory` - Update memories from changed directories
 
 ## Expected Output
 
-### CLAUDE.md Contents
-```markdown
-# [System Name]
+Report indexing progress (with batching for large codebases):
+```
+🔍 Indexing project: /path/to/project
 
-## Purpose
-[What this system does and why]
+📊 Status Check:
+  ✓ Git repository detected
+  ✓ Found 886 directories to index
+  ✓ Processing in 30 batches (30 dirs/batch)
+  ✓ Last indexed: commit abc123 (2 days ago)
 
-## Architecture
-[High-level components and how they interact]
+=== Batch 1/30: Processing directories 1-30/886 ===
+Phase 1: Generating CLAUDE.md files
+  📝 Analyzing prism_mcp/indexing/
+  📝 Analyzing prism_mcp/storage/
+  ...
+  ✓ Batch 1 Phase 1 complete: 28 CLAUDE.md files created
 
-## Critical Constraints
-[Things that MUST NOT be violated]
+Phase 2: Extracting and contextualizing memories
+  🧠 Extracting from prism_mcp/indexing/ (3 memories)
+  🧠 Extracting from prism_mcp/storage/ (5 memories)
+  ...
+  ✓ Batch 1/30 complete: 87 total memories stored, 12 relationships
 
-### Concurrency Restriction (Line 46)
-**WHY:** [Root cause - shared DB connection pool]
-**WHAT BREAKS:** [Deadlock if both run simultaneously]
-**ENFORCEMENT:** [Manual - documented in runbook]
+=== Batch 2/30: Processing directories 31-60/886 ===
+...
 
-## Configuration
+=== Batch 30/30: Processing directories 871-886/886 ===
+...
 
-### Worker Count: 4
-**WHY:** API rate limit is 1000 req/min, each worker makes ~250 req/min
-**WHAT BREAKS IF INCREASED:** API returns 429, entire import fails
-**WHAT BREAKS IF DECREASED:** Import takes >2 hours, misses processing window
+📈 Final Results:
+  Directories analyzed: 886
+  CLAUDE.md files: 832 created
+  Memories: 2,341 extracted, 2,341 stored
+  Relationships: 847 created
+  Failed directories: 3
 
-### Batch Size: 500
-**WHY:** Memory limit - each item uses ~2KB, 500 = 1MB per batch
-**WHAT BREAKS IF INCREASED:** OOM on machines with <8GB RAM
-**WHAT BREAKS IF DECREASED:** Too many API calls, hits rate limit
-
-## Execution Flow
-[Detailed flow with entry points, data transformations, outputs]
-
-## Error Handling
-[What errors can occur, how they're handled, retry strategy]
-
-## Cleanup & Shutdown
-[What gets cleaned up, what happens if cleanup fails]
-
-## Gotchas
-[Known edge cases, operational issues, monitoring alerts]
-
-## Testing
-[How to test, what to verify, known test gaps]
+✅ Indexing complete
+🔄 Spawning background enrichment agent for m32rimm
+✅ Enrichment job queued: enrich_m32rimm_20250106_143022
 ```
 
-## Usage
+## Notes
+
+**Performance:**
+- Large codebases (500+ dirs): expect 3-5 runs of `/index` to complete
+- Each run processes ~5-10 batches before hitting token limits
+- Total time: 30-60 minutes for 1000+ directories
+- Progress auto-saves after each batch
+
+**Resume behavior:**
+- If interrupted (timeout/error/limit): just run `/index` again
+- Automatically resumes from last completed batch
+- Requires GitTracker to be created and passed (see implementation steps)
+
+**How batching prevents token limits:**
+- Processes 30 directories per batch
+- `claude_md_map` cleared after each batch
+- Only batch logs accumulate in main agent context
+- Each batch: ~15-20K tokens, so 5-10 batches before limit
+
+**Other notes:**
+- Uses investigator agents (via Task tool) for directory analysis
+- All CLAUDE.md files are backed up before replacement
+- Background enrichment preserves full project context despite batching
+- Incremental updates are much faster (only changed directories)
+
+## Example: 886-Directory Codebase
 
 ```bash
-# Start interrogation
-/index /home/rmurphy/repos/m32rimm/fisio/fisio/imports/tenable_sc
+# Run 1: Processes batches 1-8, hits token limit
+/index ~/repos/m32rimm
+# ✓ Batch 8/30 complete: 347 total memories stored
 
-# I'll ask preliminary questions
-# I'll generate starter CLAUDE.md
-# I'll kick off deep interrogation
+# Run 2: Resumes automatically
+/index ~/repos/m32rimm
+# ✓ Resuming from batch 9 (previously completed 8 batches)
+# ✓ Batch 16/30 complete: 724 total memories stored
 
-# Monitor progress:
-tail -f /tmp/interrogation_[session_id].log
-# (I'll tell you the exact command)
+# Run 3: Continues...
+/index ~/repos/m32rimm
+# ✓ Resuming from batch 17
+# ✓ Batch 24/30 complete: 1,089 total memories stored
 
-# When you see: "✅ Interrogation complete"
-# Tell me: "it's done"
-
-# Then we have the conversation
-# I ask questions, you answer
-# We refine CLAUDE.md together
-# We iterate until perfect
+# Run 4: Completes
+/index ~/repos/m32rimm
+# ✓ Resuming from batch 25
+# ✓ Batch 30/30 complete: 2,341 total memories stored
+# ✅ Indexing complete
+# 🔄 Spawning background enrichment agent
 ```
-
-## What Makes This Different
-
-**Traditional indexing:**
-- Extracts structure (WHAT the code does)
-- Automated, no human input
-- Fast but shallow
-
-**This approach:**
-- Extracts knowledge (WHY decisions were made)
-- Collaborative conversation
-- Slower but deep and verified
-
-**The goal:** An agent reading CLAUDE.md should know everything you know about this codebase.
-
-## Conversation Examples
-
-### Bad Question (Old Approach)
-```
-What concurrency model does this use?
-```
-
-### Good Question (New Approach)
-```
-I found 4 API workers (constants.py) and a comment at line 46:
-"Need to restrict this tool and main import from creating concurrent"
-
-You mentioned this is a Tenable SC import. Questions:
-
-1. Is "main import" referring to another import script
-   (like the QualysGuard import)?
-
-2. What resource can't be shared between imports?
-   - The shared MongoDB connection pool (max 10 connections)?
-   - API credentials that have rate limits?
-   - File locks on temp directory?
-
-3. Why 4 workers specifically? I calculated:
-   - API rate limit: 1000 req/min
-   - Batch size: 500 items
-   - Processing time: ~2 sec/batch
-   - 4 workers × 250 req/min = 1000 req/min
-   Is this the constraint, or something else?
-```
-
-## Tips for Best Results
-
-**Be specific in your answers:**
-- ❌ "It'll break if you change it"
-- ✅ "The API returns 429 rate limit, entire import fails, no retry logic"
-
-**Explain the WHY:**
-- ❌ "We use 4 workers"
-- ✅ "4 workers because API has 1000 req/min limit, tested that 5 workers triggers 429"
-
-**Document gotchas:**
-- ❌ "Be careful with signals"
-- ✅ "SIGTERM during DB write leaves partial data, must check import_status table on restart"
-
-**Validate my assumptions:**
-- I'll form hypotheses from code
-- Tell me if I'm wrong
-- Explain what I'm missing
-
-## Limitations
-
-- Requires your time (30min - 2hr depending on complexity)
-- Requires you to know the codebase deeply
-- Can't extract knowledge that doesn't exist anywhere (lost tribal knowledge)
-- Works best on codebases you've worked on extensively
-
-## Output Location
-
-- `<directory>/CLAUDE.md` - Main documentation
-- `<directory>/.interrogation/` - Session data, findings, questions
-- `<directory>/.interrogation/round_N.json` - Results from each round
-
-## Integration with PRISM
-
-After CLAUDE.md is finalized:
-- Verified knowledge stored in PRISM ANCHORS tier (permanent)
-- Scoped to exact project/file/line
-- Available for future agents working on this codebase
-- Can generate flow diagrams from stored knowledge
-
-## The Ultimate Test
-
-After interrogation, I should be able to:
-1. Generate complete architecture documentation with diagrams
-2. Explain every business logic decision
-3. Document every edge case and failure mode
-4. Refactor the code confidently without breaking constraints
-
-**If I can't, we iterate more.**

@@ -36,6 +36,23 @@ STOP - do not proceed.
 
 ## Workflow
 
+### Phase -2: Determine Working Directory
+
+**Infer from task description which directory/component is being worked on:**
+- Search for relevant files/directories mentioned in task
+- Check project structure (e.g., monorepo with services/api/, services/auth/)
+- If task mentions specific component/service → that's the working dir
+
+**If unclear after search, ask:**
+"Which directory should I work in? (provide path relative to repo root, or '.' for current)"
+
+**Once determined:**
+- `$WORK_DIR` = that directory
+- Create `.spec/` at `$WORK_DIR/.spec/`
+- All paths relative to `$WORK_DIR`
+
+---
+
 ### Phase -1: Task Analysis
 
 **Check existing state:**

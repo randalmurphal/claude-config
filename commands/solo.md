@@ -39,6 +39,23 @@ description: Streamlined task execution with proper delegation and validation - 
 
 ## Workflow
 
+### Step 0: Determine Working Directory
+
+**Infer from task description which directory/component is being worked on:**
+- Search for relevant files/directories mentioned in task
+- Check project structure (e.g., monorepo with services/api/, services/auth/)
+- If task mentions specific component/service → that's the working dir
+
+**If unclear after search, ask:**
+"Which directory should I work in? (provide path relative to repo root, or '.' for current)"
+
+**Once determined:**
+- `$WORK_DIR` = that directory
+- Create `.spec/` at `$WORK_DIR/.spec/`
+- All paths relative to `$WORK_DIR`
+
+---
+
 ### Step 1: Generate Minimal Spec
 
 **Create `.spec/BUILD_[taskname].md`:**

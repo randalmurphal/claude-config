@@ -1,6 +1,6 @@
 ---
 name: skeleton-builder
-description: Creates implementation skeleton structure with all signatures and interfaces. Primary skeleton builder using Sonnet.
+description: Create code skeleton with all signatures but zero implementation. Use first in conduct/solo.
 tools: Read, Write, MultiEdit, Glob, Grep, mcp__prism__retrieve_memories, mcp__prism__query_context, mcp__prism__detect_patterns
 ---
 

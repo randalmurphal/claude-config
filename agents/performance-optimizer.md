@@ -15,6 +15,12 @@ Main agent will give you:
 - **Performance concern** - Slow endpoint, memory leak, etc. (optional)
 - **Context** - Expected performance, current metrics (optional)
 
+## MANDATORY: Spec Context Check
+**BEFORE starting optimization:**
+1. Check prompt for "Spec: [path]" - read that file for context on performance requirements
+2. If no spec provided, ask main agent for spec location
+3. Refer to spec to ensure optimizations match requirements and don't break contracts
+
 ## Output Format (strict)
 
 ```markdown
@@ -101,7 +107,54 @@ User.query.options(joinedload(User.posts)).all()
 - No async/await when available
 - Serial operations that could be parallel
 
-### 4. Recommend Optimizations
+### 4. STRICT VALIDATION RULES
+
+**Flag ALL of these:**
+
+**Suppressed Performance Warnings:**
+- `# type: ignore` on slow operations (hides typing issues)
+- `# noqa` on complexity warnings (C901, etc.)
+- Disabled linter rules for complexity
+- **Rule:** Fix the actual issue - suppressions hide real problems
+
+**Silent Error Handling That Hides Performance Issues:**
+- `try/except` without logging slow operations
+- `except Exception: pass` on database queries (hides N+1)
+- Generic error handling that masks timeouts
+- **Rule:** Performance failures should be visible - log slow operations
+
+**Defaults That Hide Performance Failures:**
+- Returning empty list when query times out
+- Returning cached/stale data without indicating staleness
+- Default in-memory processing when database times out
+- **Rule:** Timeouts and performance failures should surface as errors
+
+**Examples to FLAG:**
+```python
+# FLAG: Complexity suppression
+def complex_function():  # noqa: C901
+    # 50 lines of nested ifs - fix the complexity!
+    pass
+
+# FLAG: Silent query failure
+try:
+    results = slow_query()  # Takes 5 seconds
+except TimeoutError:
+    return []  # Hides the timeout!
+
+# FLAG: Type ignore on slow operation
+users = load_all_users()  # type: ignore[call-arg]
+# Missing type hints hide that this loads 1M records!
+
+# FLAG: Hiding N+1 with exception handling
+for user in users:
+    try:
+        user.posts  # N+1 query
+    except:
+        pass  # Silently skips, should fix N+1
+```
+
+### 5. Recommend Optimizations
 
 **Prioritize by impact:**
 1. Fix N+1 queries (10-100x improvement)
@@ -115,7 +168,7 @@ User.query.options(joinedload(User.posts)).all()
 - After: 50ms
 - Improvement: 10x faster
 
-### 5. Verify Fixes (if implementing)
+### 6. Verify Fixes (if implementing)
 ```bash
 # Benchmark before/after
 python -m timeit -s "from module import func" "func()"
@@ -131,6 +184,7 @@ pytest benchmarks/ --benchmark-only
 - Causes timeouts/crashes
 - Memory leaks
 - Production performance issues
+- ANY suppressed complexity/performance warnings
 
 **When to flag as opportunity:**
 - 10-50% of execution time
@@ -144,19 +198,22 @@ pytest benchmarks/ --benchmark-only
 ❌ **Break functionality** - Optimization shouldn't change behavior
 ❌ **No benchmarks** - Prove improvement with numbers
 ❌ **Ignore readability** - Fast code is useless if unmaintainable
+❌ **Suppress warnings** - Fix complexity, don't hide it with # noqa
 
 ## Example (Good)
 
-**Main agent prompt:** "API /users endpoint is slow (2 seconds), optimize it"
+**Main agent prompt:** "API /users endpoint is slow (2 seconds), optimize it. Spec: .spec/SPEC.md"
 
 **Your output:**
 ```markdown
 ### 🔴 Critical Bottlenecks (>50% time)
 - `api/users.py:34` - **N+1 query** - Current: 1800ms (90% of request time) - Use eager loading: `User.query.options(joinedload(User.posts, User.comments)).all()` - Expected: 200ms (9x faster)
+- `api/users.py:89` - **Suppressed complexity warning** - `# noqa: C901` on 120-line function - Extract helpers to reduce complexity from 18 to <10
 
 ### 🟡 Optimization Opportunities
 - `api/users.py:45` - **No pagination** - Loading 10K users, 180ms - Add pagination (limit 100): `User.query.limit(100).offset(offset)` - Expected: 20ms (9x faster)
 - `api/serializers.py:12` - **Serialization in loop** - 80ms - Batch serialize with comprehension instead of loop - Expected: 40ms (2x faster)
+- `api/serializers.py:67` - **Silent timeout** - `try/except TimeoutError: return []` hides slow query - Remove try/except, let timeout propagate as error
 
 ### 📊 Profiling Results
 ```
@@ -182,4 +239,4 @@ Top time consumers:
 
 ---
 
-**Remember:** Profile first. Fix bottlenecks. Benchmark improvements. Don't optimize prematurely. Performance AND maintainability matter.
+**Remember:** Profile first. Fix bottlenecks. Benchmark improvements. Don't optimize prematurely. Performance AND maintainability matter. NO SUPPRESSIONS - fix the real issues.

@@ -31,13 +31,18 @@
 **What:** Test individual functions/classes in isolation
 **When:** Written during implementation phase
 **Coverage:** 95% of production code
-**File Organization:** 1 test file per production file
+**File Organization:** 1:1 mapping - one test file per production file
 
 ```
 src/auth/service.py       → tests/unit/test_auth_service.py
 src/auth/models.py        → tests/unit/test_auth_models.py
 src/api/endpoints.py      → tests/unit/test_api_endpoints.py
 ```
+
+**Every public function/method gets tests for:**
+- Happy path (expected input → expected output)
+- Error cases (invalid input → proper exceptions)
+- Edge cases (empty, null, max values, boundary conditions)
 
 **Characteristics:**
 - ✅ Fast (<100ms per test)
@@ -109,7 +114,9 @@ class TestAuthenticate:
 **What:** Test components working together (database, cache, etc.)
 **When:** Written after implementation batches complete
 **Coverage:** 85% of critical integration points
-**File Organization:** 2-4 test files per module/major component
+**File Organization:** 2-4 test files per module (not per file)
+
+**Add to existing integration files rather than creating new ones.**
 
 ```
 Auth module          → tests/integration/test_auth_flow.py
@@ -120,6 +127,8 @@ API module           → tests/integration/test_api_endpoints.py
 
 Payment module       → tests/integration/test_payment_processing.py
 ```
+
+When adding new integration scenarios: check if relevant test file exists, add new test method to it.
 
 **Characteristics:**
 - ✅ Use real dependencies (test database, cache)
@@ -297,7 +306,9 @@ pytest tests/ --cov=src --cov-report=html
 
 ---
 
-## File Naming Conventions
+## File Organization: 1:1 Mapping
+
+**Critical Rule:** One test file per production file (unit tests only)
 
 **Pattern:** `test_<module_name>.py`
 
@@ -406,25 +417,63 @@ async def test_authenticate_success(self, auth_service, mock_user_repo):
     mock_user_repo.find_by_email.assert_called_once()
 ```
 
-### 2. One Assertion Per Test (Usually)
+### 2. Test Organization: Choose Based on Complexity
 
+**Three approaches - pick what fits:**
+
+**Simple Functions: Single Test Function**
 ```python
-# GOOD - focused test
-async def test_returns_token_on_success(self, auth_service):
+async def test_authenticate(self, auth_service):
+    """Test authenticate with all cases."""
+    # Happy path
     token = await auth_service.authenticate("test@example.com", "password")
     assert token.access_token is not None
 
-async def test_token_type_is_bearer(self, auth_service):
-    token = await auth_service.authenticate("test@example.com", "password")
-    assert token.token_type == "bearer"
+    # Error cases
+    with pytest.raises(AuthError, match="Invalid credentials"):
+        await auth_service.authenticate("test@example.com", "wrong")
 
-# ACCEPTABLE - related assertions
-async def test_returns_valid_token(self, auth_service):
-    token = await auth_service.authenticate("test@example.com", "password")
-    assert token.access_token is not None
-    assert token.token_type == "bearer"
-    assert token.expires_in > 0
+    with pytest.raises(AuthError):
+        await auth_service.authenticate("notfound@example.com", "password")
 ```
+**When:** Simple functions, independent cases, signature changes often
+**Pros:** One place to update when function signature changes
+**Cons:** Less clear which case failed
+
+**Complex Functions: Parametrized Tests (Recommended)**
+```python
+@pytest.mark.parametrize("email,password,expected_error", [
+    ("test@example.com", "password", None),  # Happy path
+    ("test@example.com", "wrong", "Invalid credentials"),
+    ("notfound@example.com", "password", "Invalid credentials"),
+    ("", "password", "Email required"),
+])
+async def test_authenticate(self, auth_service, email, password, expected_error):
+    if expected_error:
+        with pytest.raises((AuthError, ValidationError), match=expected_error):
+            await auth_service.authenticate(email, password)
+    else:
+        token = await auth_service.authenticate(email, password)
+        assert token.access_token is not None
+```
+**When:** Many cases, need clear failure reporting
+**Pros:** Single definition + individual case isolation + clear test names
+**Cons:** Slightly more complex syntax
+
+**Critical Functions: Separate Test Methods**
+```python
+class TestAuthenticate:
+    async def test_success_valid_credentials(self, auth_service):
+        token = await auth_service.authenticate("test@example.com", "password")
+        assert token.access_token is not None
+
+    async def test_failure_invalid_password(self, auth_service):
+        with pytest.raises(AuthError, match="Invalid credentials"):
+            await auth_service.authenticate("test@example.com", "wrong")
+```
+**When:** Security-critical code, complex setup per case
+**Pros:** Maximum clarity, can skip/run individual cases easily
+**Cons:** More maintenance when signature changes
 
 ### 3. Descriptive Test Names
 
@@ -432,7 +481,7 @@ async def test_returns_valid_token(self, auth_service):
 # GOOD - clear what's being tested
 async def test_authenticate_success_with_valid_credentials()
 async def test_authenticate_fails_with_invalid_password()
-async def test_authenticate_fails_when_user_not_found()
+async def test_authenticate()  # If covers all cases in one function
 
 # BAD - unclear
 async def test_auth_1()
@@ -440,28 +489,24 @@ async def test_login()
 async def test_failure()
 ```
 
-### 4. Test Error Cases
+### 4. Test Error Cases (Always Test Failure Paths)
 
 ```python
-class TestAuthenticate:
-    async def test_success_valid_credentials(self):
-        """Happy path."""
-        ...
+# Test happy path + all error cases
+async def test_authenticate(self):
+    # Happy path
+    token = await auth_service.authenticate("test@example.com", "password")
+    assert token.access_token is not None
 
-    async def test_failure_invalid_password(self):
-        """Test error handling."""
-        with pytest.raises(AuthError, match="Invalid credentials"):
-            await auth_service.authenticate("test@example.com", "wrong")
+    # Error cases
+    with pytest.raises(AuthError, match="Invalid credentials"):
+        await auth_service.authenticate("test@example.com", "wrong")
 
-    async def test_failure_user_not_found(self):
-        """Test missing user."""
-        with pytest.raises(AuthError):
-            await auth_service.authenticate("notfound@example.com", "password")
+    with pytest.raises(AuthError):
+        await auth_service.authenticate("notfound@example.com", "password")
 
-    async def test_failure_empty_email(self):
-        """Test validation."""
-        with pytest.raises(ValidationError, match="Email required"):
-            await auth_service.authenticate("", "password")
+    with pytest.raises(ValidationError, match="Email required"):
+        await auth_service.authenticate("", "password")
 ```
 
 ### 5. Don't Test Implementation Details

@@ -199,13 +199,13 @@ For each discovery:
 - Complexity understood
 - No contradictions
 
-**If ready, create SPEC.md** (see format in /conduct instructions)
+**If ready, create SPEC.md and component phase specs** (see format below)
 
 **If not ready:** List what's missing
 
 ---
 
-## SPEC.md Format
+## SPEC.md Format (High-Level Architecture)
 
 **10 Required Sections:**
 1. Problem Statement
@@ -220,7 +220,7 @@ For each discovery:
 10. Files to Create/Modify
 
 **3 Optional Sections:**
-11. Testing Strategy (recommended)
+11. Testing Strategy (recommended - see `~/.claude/docs/TESTING_STANDARDS.md`)
 12. Custom Roles
 13. Evolution Log
 
@@ -238,6 +238,103 @@ For each discovery:
 - path/to/file.py
   - Changes: [description]
   - Risk: Low|Med|High
+```
+
+**IMPORTANT:** The "Depends on:" field is CRITICAL. /conduct uses it to build dependency graph and determine component execution order.
+
+---
+
+## Component Phase Specs (SPEC_N_component.md)
+
+**After creating SPEC.md, generate component phase specs for /conduct:**
+
+For each component in dependency order (topologically sorted):
+
+Create `.spec/SPEC_{phase_num}_{component_name}.md`:
+
+```markdown
+# Phase {N}: {Component Name}
+
+## Components in This Phase
+- {file_path}
+  - Purpose: {from SPEC.md}
+  - Complexity: {from SPEC.md}
+
+## Dependencies
+{What this component depends on from previous phases}
+
+## What's Available from Previous Phases
+{Initially empty - /conduct will populate as phases complete}
+
+## Success Criteria
+{Extract from SPEC.md for this component}
+- Component compiles without errors
+- Unit tests pass with 95%+ coverage
+- All validation checks pass
+- No linter warnings
+
+## Known Gotchas
+{Extract from SPEC.md "Known Gotchas" section relevant to this component}
+{/conduct will enhance this as earlier phases complete}
+
+## Implementation Requirements
+{Extract from SPEC.md "Proposed Approach" and "Requirements" relevant to this component}
+
+## Testing Requirements
+{Extract from SPEC.md "Testing Strategy" relevant to this component}
+
+Follow `~/.claude/docs/TESTING_STANDARDS.md`:
+- Unit test: 1:1 file mapping (one test file for this component)
+- Coverage: 95%+ for all public functions
+- Test happy path + error cases + edge cases
+- Choose test organization: single function, parametrized, or separate methods
+
+Edge cases for this component:
+{list relevant edge cases}
+
+Error scenarios for this component:
+{list error scenarios}
+```
+
+**Why generate these during /spec:**
+- You understand the architecture and component boundaries
+- You've validated dependencies through investigation
+- You know which gotchas affect which components
+- /conduct can focus on execution, not architecture decisions
+
+**Result structure:**
+```
+.spec/
+├── MISSION.md
+├── CONSTRAINTS.md
+├── DISCOVERIES.md
+├── ARCHITECTURE.md
+├── ASSUMPTIONS.md
+├── SPEC.md                        # High-level architecture
+├── SPEC_1_foundation.md          # Component 1 details
+├── SPEC_2_database.md            # Component 2 details
+├── SPEC_3_api.md                 # Component 3 details
+├── ...
+└── SPIKE_RESULTS/
+```
+
+**Dependency order example:**
+```
+Component dependencies from SPEC.md:
+- auth.py: depends on (none)
+- database.py: depends on (none)
+- api.py: depends on auth.py, database.py
+- frontend.py: depends on api.py
+
+Topological sort (execution order):
+1. auth.py, database.py (parallel - no dependencies)
+2. api.py (depends on 1)
+3. frontend.py (depends on 2)
+
+Generate:
+- SPEC_1_auth.md + SPEC_1_database.md (can be parallel)
+- SPEC_2_api.md
+- SPEC_3_frontend.md
 ```
 
 ---
@@ -280,33 +377,42 @@ For each discovery:
 
 **What /conduct does with your SPEC.md:**
 1. Parses SPEC.md → extracts components + dependencies
-2. Detects circular dependencies (fails if found)
-3. Creates production + test skeletons
-4. Implements in dependency order
-5. Runs comprehensive testing + validation (6 reviewers)
-6. Uses worktrees for variant exploration
+2. Validates component phase specs exist (SPEC_N_*.md) or generates fallback
+3. Detects circular dependencies (fails if found)
+4. For each component in dependency order:
+   - Creates skeleton
+   - Implements component
+   - Validates & fixes (6 reviewers)
+   - Unit tests (95%+ coverage)
+   - Documents discoveries
+   - Enhances future component specs with learnings
+5. Integration testing after all components
+6. Documentation validation
+7. Uses worktrees for variant exploration
 
 **For simpler tasks:**
 - User can use /solo instead (no spec needed)
 - /solo generates minimal BUILD spec internally
 - /solo is streamlined but still validates properly
 
-**Your job creating SPEC.md:**
+**Your job creating SPEC.md and component phase specs:**
 
 **DO:**
 - Think about component responsibilities/boundaries
-- Document dependencies clearly
+- Document dependencies clearly in "Depends on:" field (CRITICAL for /conduct)
 - Watch for circular dependencies
 - Document architectural decisions with Context/Alternatives/Consequences
 - Use EXACT section names
 - Include "### New Files" and "### Modified Files" subsections
+- Generate SPEC_N_component.md files for each component in dependency order
+- Extract relevant gotchas/requirements per component
 
 **DON'T:**
 - Define exact function signatures (/conduct does this)
 - Write implementation details (/conduct's job)
-- Plan execution order (dependency graph handles this)
 - Over-specify interfaces
 - Use wrong section names
+- Skip "Depends on:" field (causes /conduct to guess dependencies)
 
 ---
 

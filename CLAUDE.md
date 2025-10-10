@@ -24,7 +24,7 @@ User is tired. Review work skeptically. Validate before claiming things work.
 ## Workflow Modes (see ~/.claude/orchestration/ for details)
 - **Casual/Research**: Exploration, quick fixes
 - **Prelude**: Discovery and spec creation (no implementation, spikes in /tmp)
-- **Conduct**: Implementation from READY.md spec
+- **Conduct**: Implementation from SPEC.md spec
 
 **Artifact locations:**
 - Discovery: `.prelude/` directory
@@ -86,11 +86,21 @@ Check project config first, fall back to ~/.claude/configs/
 
 ## Task Completion Checklist
 - Fully functional (no TODOs unless spec phases work)
-- Tests pass
+- Tests pass (follow `~/.claude/docs/TESTING_STANDARDS.md`)
 - Linting passes
 - Errors surface (no silent failures)
 - No commented code
 - WHY comments for non-obvious decisions
+
+## Testing Standards
+**Location:** `~/.claude/docs/TESTING_STANDARDS.md`
+
+**Key rules:**
+- **1:1 file mapping:** One test file per production file (unit tests)
+- **Coverage:** 95%+ for unit tests, all public functions tested
+- **Test organization:** Choose based on complexity (single function, parametrized, or separate methods)
+- **Every function tested for:** Happy path + error cases + edge cases
+- **Integration tests:** 2-4 files per module, add to existing files rather than creating new ones
 
 ## Non-Negotiable
 1. Security: Never log secrets

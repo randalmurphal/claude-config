@@ -1,6 +1,6 @@
 ---
 name: test-skeleton-builder
-description: Creates comprehensive test skeleton structure following unit/integration/e2e pattern with 1:1 mapping enforcement.
+description: Create test skeleton with unit/integration/e2e structure. Use parallel with code skeleton.
 tools: Read, Write, MultiEdit, Glob, Grep, mcp__prism__retrieve_memories, mcp__prism__query_context
 ---
 

@@ -25,9 +25,11 @@ description: Streamlined task execution with proper delegation and validation - 
 ## Your Mission
 
 1. Generate minimal spec for context
-2. Delegate to sub-agents (NO skimping on testing/validation)
-3. Fix-validate loop (3 attempts)
-4. Deliver working, tested, validated code
+2. Implement via sub-agents
+3. Validate & fix loop (get it working first)
+4. Comprehensive testing (lock in behavior)
+5. Documentation validation (ensure accuracy)
+6. Deliver working, tested, validated, documented code
 
 **You are intelligent.** Assess if task is actually straightforward. If not, tell user to use /conduct.
 
@@ -71,7 +73,7 @@ description: Streamlined task execution with proper delegation and validation - 
 
 **Initialize PROGRESS.md** (simpler than /conduct)
 
-**Git commit:** `solo: Spec created`
+**Commit changes** (follow project's commit style from recent commits)
 
 ---
 
@@ -82,11 +84,12 @@ description: Streamlined task execution with proper delegation and validation - 
 Task(implementation-executor, """
 Implement [task description]
 
-Context from BUILD spec:
-[paste relevant sections]
+Spec: $WORK_DIR/.spec/BUILD_[taskname].md
+Workflow: solo
 
-RESPONSE TEMPLATE (use EXACTLY):
-[paste from ~/.claude/templates/agent-responses.md]
+[Additional context if needed]
+
+Agent will read spec automatically - no need to paste spec content.
 """)
 ```
 
@@ -97,86 +100,256 @@ RESPONSE TEMPLATE (use EXACTLY):
 - Gotchas found? → Note in PROGRESS.md
 - Blockers? → ESCALATE or adjust approach
 
-**Git commit:** `solo: Implementation complete`
+**Commit changes**
 
 ---
 
-### Step 3: Testing
+### Step 3: Validation & Fix Loop
 
-**Spawn test-implementer:**
-```
-Task(test-implementer, """
-Implement tests for [task]
+**Goal:** Get implementation working before writing tests.
 
-Production code: [files from step 2]
-Coverage target: 90%
-Follow: ~/.claude/docs/TESTING_STANDARDS.md
-
-RESPONSE TEMPLATE (use EXACTLY):
-[paste from ~/.claude/templates/agent-responses.md]
-""")
-```
-
-**Run & fix:**
-```
-Fix-validate loop (max 3 attempts):
-  Run: pytest tests/ --cov=src --cov-report=term-missing -v
-
-  IF passing + coverage >= 90%:
-    Break
-
-  IF failed:
-    IF attempt < 3:
-      spawn fix-executor with failures
-      wait for fixes
-    IF attempt == 3:
-      ESCALATE: "Cannot fix after 3 attempts"
-```
-
-**Loop details:** `~/.claude/templates/operational.md`
-
-**Git commit:** `solo: Testing complete`
-
----
-
-### Step 4: Validation
-
-**Quick check:**
+**Run validation:**
 ```bash
-pytest tests/ -v && ruff check .
+# Syntax/import checks
+python -m py_compile $WORK_DIR/**/*.py
+# or: tsc --noEmit (for TypeScript)
+
+# Linting
+ruff check $WORK_DIR
 ```
 
-**Spawn 6 reviewers (parallel - NO SKIMPING):**
+**Spawn 6 reviewers in parallel (NO SKIMPING):**
+
+All get spec context:
+```
+Spec: $WORK_DIR/.spec/BUILD_[taskname].md
+Workflow: solo
+```
+
 1. security-auditor
 2. performance-optimizer
 3. code-reviewer (pass 1: complexity, errors, clarity)
 4. code-reviewer (pass 2: responsibility, coupling, type safety)
 5. code-beautifier (DRY, magic numbers, dead code)
-6. documentation-reviewer (comments, naming, TODOs)
-
-**Agent templates:** `~/.claude/templates/agent-responses.md`
+6. code-reviewer (pass 3: documentation, comments, naming)
 
 **Combine findings:**
-- Parse 6 JSON responses
+- Parse all responses (JSON for reviewers, markdown for beautifier)
 - Merge critical + important + minor lists
-- Deduplicate
+- Deduplicate issues
 
-**Combination algorithm:** `~/.claude/templates/operational.md`
+**Fix ALL issues (no skipping):**
+```
+LOOP until validation clean:
+  1. Spawn fix-executor with ALL issues (critical + important + minor)
+     ```
+     Task(fix-executor, """
+     Fix all validation issues.
 
-**Fix critical + important:**
-- Spawn fix-executor with combined list
-- Re-run pytest + ruff
-- Re-run 6 reviewers to verify
-- Loop until clean
+     Spec: $WORK_DIR/.spec/BUILD_[taskname].md
+     Workflow: solo
 
-**Minor issues:**
-- Accept or fix (quick judgment)
+     Critical issues:
+     [list]
 
-**Git commit:** `solo: Validation passed`
+     Important issues:
+     [list]
+
+     Minor issues:
+     [list]
+
+     RULES:
+     - Fix the actual problem, don't add # noqa or ignore comments
+     - If linter error has proper solution (extract method, simplify), do that
+     - Only if NO proper fix exists AND business logic must stay: document why
+     - Maintain business logic while making code cleaner
+
+     Agent will read spec automatically.
+     """)
+     ```
+
+  2. Re-run linting: ruff check $WORK_DIR
+
+  3. Re-run ALL 6 reviewers (verify fixes didn't break anything)
+
+  4. IF new issues found: Continue loop
+     IF validation clean: Break
+     IF loop > 3 attempts: ESCALATE with details
+
+  5. NO ignored errors allowed unless absolutely necessary (document reason)
+```
+
+**Validation complete criteria:**
+- ✅ Zero linter errors (or all documented with justification)
+- ✅ All reviewer critical issues fixed
+- ✅ All reviewer important issues fixed
+- ✅ All reviewer minor issues fixed
+- ✅ No # noqa / # type: ignore / @ts-ignore comments (unless documented exception)
+- ✅ Code compiles/imports successfully
+
+**Commit changes**
 
 ---
 
-### Step 5: Complete
+### Step 4: Testing
+
+**Now that implementation works, lock in behavior with tests.**
+
+**Spawn test-implementer:**
+```
+Task(test-implementer, """
+Implement comprehensive tests for working implementation.
+
+Spec: $WORK_DIR/.spec/BUILD_[taskname].md
+Workflow: solo
+
+Production code: [files from step 2]
+Follow: ~/.claude/docs/TESTING_STANDARDS.md
+
+Key rules:
+- 1:1 file mapping: one test file per production file
+- Coverage: 95%+ for all public functions
+- Test happy path + error cases + edge cases
+- Choose organization: single function (simple), parametrized (many cases), or separate methods (critical)
+
+Implementation is validated and working - tests document behavior.
+
+Agent will read spec automatically.
+""")
+```
+
+**Test & fix loop:**
+```
+LOOP until tests pass with coverage:
+  1. Run tests with coverage:
+     pytest tests/ --cov=$WORK_DIR --cov-report=term-missing -v
+
+  2. IF passing + coverage >= 95%:
+       Break
+
+  3. IF failed:
+       Spawn fix-executor with test failures:
+       ```
+       Task(fix-executor, """
+       Fix test failures.
+
+       Spec: $WORK_DIR/.spec/BUILD_[taskname].md
+       Workflow: solo
+
+       Test output:
+       [paste pytest output]
+
+       Fix implementation bugs found by tests.
+       Maintain business logic.
+       Follow testing standards: ~/.claude/docs/TESTING_STANDARDS.md
+
+       Agent will read spec automatically.
+       """)
+       ```
+       Re-run tests
+
+  4. IF attempt > 3: ESCALATE with failure details
+```
+
+**Commit changes**
+
+---
+
+### Step 5: Documentation Validation
+
+**Goal:** Ensure ALL documentation is accurate and up-to-date.
+
+**Find all documentation in working directory:**
+```bash
+# Find markdown files (README, docs, etc.)
+find $WORK_DIR -name "*.md" -type f
+
+# Common docs to check:
+- README.md
+- $WORK_DIR/.spec/BUILD_*.md
+- CLAUDE.md (if in working dir)
+- Any project-specific docs
+```
+
+**Spawn documentation validators (parallel):**
+
+Option A - Use code-reviewer for all docs:
+```
+Task(code-reviewer, """
+Review ALL documentation for accuracy against implementation.
+
+Spec: $WORK_DIR/.spec/BUILD_[taskname].md
+Workflow: solo
+
+Documentation files to validate:
+[list all .md files found]
+
+For EACH file, check:
+1. Does it accurately reflect current implementation?
+2. Are code examples up-to-date?
+3. Are API signatures correct?
+4. Are there outdated references to removed code?
+5. Does it contradict the spec or implementation?
+
+Flag as CRITICAL:
+- Outdated information that will mislead developers
+- Incorrect code examples
+- References to deleted/renamed functions
+- Contradictions with spec
+
+Flag as IMPORTANT:
+- Missing documentation for new features
+- Incomplete explanations
+- Outdated terminology
+
+Agent will read spec for context.
+""")
+```
+
+Option B - Multiple reviewers for different doc types:
+```
+# For README/user-facing docs
+Task(code-reviewer, "Validate README.md accuracy...")
+
+# For BUILD spec
+Task(code-reviewer, "Validate BUILD spec reflects discoveries...")
+
+# For CLAUDE.md/dev docs
+Task(code-reviewer, "Validate CLAUDE.md patterns still apply...")
+```
+
+**Fix documentation issues:**
+```
+IF documentation issues found:
+  Spawn fix-executor or general-builder to update docs:
+  ```
+  Task(general-builder, """
+  Update documentation to match implementation.
+
+  Spec: $WORK_DIR/.spec/BUILD_[taskname].md
+
+  Documentation fixes needed:
+  [list from validators]
+
+  Update each doc file to accurately reflect current implementation.
+  """)
+  ```
+
+  Re-validate updated docs
+```
+
+**Documentation validation complete criteria:**
+- ✅ All .md files reviewed
+- ✅ No outdated information
+- ✅ Code examples match implementation
+- ✅ BUILD spec includes discoveries from implementation
+- ✅ No contradictions between docs and code
+
+**Commit changes**
+
+---
+
+### Step 6: Complete
 
 **Update BUILD spec:**
 - Add any gotchas discovered
@@ -193,7 +366,7 @@ Quality: All validation passed
 Ready for use.
 ```
 
-**Git commit:** `solo: Complete`
+**Commit changes**
 
 ---
 
@@ -295,7 +468,7 @@ Recommendation: [your suggestion]
 - Test thoroughly (90% coverage minimum)
 - Validate properly (6 reviewers - SAME as /conduct)
 - Fix-validate loops (3 attempts max)
-- Git commit after steps
+- Commit after major steps (follow project's commit style)
 - Escalate to /conduct if complexity discovered
 
 **DON'T:**
@@ -324,9 +497,9 @@ Recommendation: [your suggestion]
 - ✅ High stakes (security, payments, auth)
 
 **Key difference:**
-- /solo: Simpler workflow (5 steps vs 6 phases)
+- /solo: Streamlined workflow (6 steps: spec → impl → validate → test → docs → done)
 - /conduct: Full orchestration (dependency analysis, worktrees, skeletal phase)
-- **BOTH:** Same validation rigor (6 reviewers, comprehensive testing)
+- **BOTH:** Same validation rigor (comprehensive reviewers, testing, documentation)
 
 **When in doubt:** Start with /solo, escalate to /conduct if needed.
 

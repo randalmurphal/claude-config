@@ -13,16 +13,16 @@
 2. Document exact validation commands
 3. Map dependencies and parallel opportunities
 4. Capture gotchas with recovery steps
-5. Produce READY.md using READY_TEMPLATE.md
+5. Produce SPEC.md using SPEC_TEMPLATE.md
 
 **Key principle:** Don't guess - validate everything in /tmp spikes
 
 ### CONDUCT_INSTRUCTIONS.md
 **Use during:** `/conduct` command
-**Purpose:** Execute READY.md as staff engineer orchestrator
+**Purpose:** Execute SPEC.md as staff engineer orchestrator
 
 **Core workflow:**
-1. Read READY.md phases
+1. Read SPEC.md phases
 2. Launch sub-agents for parallel work
 3. Validate between phases
 4. Create checkpoints
@@ -30,7 +30,7 @@
 
 **Key principle:** Follow the spec, validate at every gate
 
-### READY_TEMPLATE.md
+### SPEC_TEMPLATE.md
 **Use during:** `/prelude` output
 **Purpose:** Template for agent-executable specifications
 
@@ -59,14 +59,14 @@
 ```
 1. Read PRELUDE_INSTRUCTIONS.md
 2. Spike test every component
-3. Fill out READY_TEMPLATE.md with findings
+3. Fill out SPEC_TEMPLATE.md with findings
 4. Validate: could another agent execute this?
 ```
 
 ### For /conduct:
 ```
 1. Read CONDUCT_INSTRUCTIONS.md
-2. Parse READY.md execution graph
+2. Parse SPEC.md execution graph
 3. Execute phases with validation
 4. Use MCP for state + git safety only
 ```
@@ -97,7 +97,7 @@
 - No guessing allowed
 
 **Conduct = Execute knowledge**
-- Read READY.md
+- Read SPEC.md
 - Launch agents
 - Validate continuously
 - Trust but verify

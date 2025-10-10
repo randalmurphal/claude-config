@@ -4,7 +4,7 @@
 
 You are NOT writing documentation for humans to read. You are building a precise execution plan for an AGENT ORCHESTRATOR to follow in `/conduct`.
 
-**End Goal:** READY.md (and potentially multiple spec files) that contain EVERYTHING an agent needs to execute the task with zero ambiguity.
+**End Goal:** SPEC.md (and potentially multiple spec files) that contain EVERYTHING an agent needs to execute the task with zero ambiguity.
 
 ## Core Principle: SPIKE EVERYTHING
 
@@ -101,7 +101,7 @@ Component A → [Component B || Component C] → Component D
 - What's the critical path? (longest sequential chain)
 - Where are integration points? (services that communicate)
 
-**Output:** Execution graph in READY.md
+**Output:** Execution graph in SPEC.md
 
 ### 4. Define Validation Strategy (10-20 min)
 
@@ -124,7 +124,7 @@ What commands prove it works?
 - Is exit code reliable?
 - What does failure output look like?
 
-**Output:** Validation commands in READY.md per module
+**Output:** Validation commands in SPEC.md per module
 
 ### 5. Identify Gotchas (10-15 min)
 
@@ -146,9 +146,9 @@ Review spike results and list:
 **Recovery:** Run ./proto/generate.sh, then retry
 ```
 
-### 6. Build READY.md (20-30 min)
+### 6. Build SPEC.md (20-30 min)
 
-**Use template (see READY_TEMPLATE.md)**
+**Use template (see SPEC_TEMPLATE.md)**
 
 **Key sections for agent execution:**
 
@@ -176,17 +176,17 @@ Review spike results and list:
 
 ### 7. Complexity Check
 
-**If READY.md is > 500 lines or > 10 modules:**
+**If SPEC.md is > 500 lines or > 10 modules:**
 
 Split into multiple specs:
 
 ```
 .prelude/
 ├── MISSION.md
-├── READY_INFRASTRUCTURE.md  (databases, queues, deployment)
-├── READY_BACKEND.md          (services, APIs)
-├── READY_FRONTEND.md         (UI, client)
-├── READY_INTEGRATION.md      (tests, validation)
+├── SPEC_INFRASTRUCTURE.md  (databases, queues, deployment)
+├── SPEC_BACKEND.md          (services, APIs)
+├── SPEC_FRONTEND.md         (UI, client)
+├── SPEC_INTEGRATION.md      (tests, validation)
 └── ORCHESTRATION_ORDER.md    (which specs to execute, in what order)
 ```
 
@@ -196,10 +196,10 @@ Split into multiple specs:
 ```markdown
 # Execution Order
 
-1. Execute READY_INFRASTRUCTURE.md (databases, docker setup)
-2. Execute READY_BACKEND.md (services)
-3. Execute READY_FRONTEND.md (UI)
-4. Execute READY_INTEGRATION.md (end-to-end tests)
+1. Execute SPEC_INFRASTRUCTURE.md (databases, docker setup)
+2. Execute SPEC_BACKEND.md (services)
+3. Execute SPEC_FRONTEND.md (UI)
+4. Execute SPEC_INTEGRATION.md (end-to-end tests)
 
 Each is a full /conduct orchestration with phases, validation, checkpoints.
 ```
@@ -437,10 +437,10 @@ spike_jwt_validation.md
 3. ✅ All integration points tested
 4. ✅ Execution graph is clear
 5. ✅ Gotchas documented with recovery steps
-6. ✅ READY.md has exact commands for agent to run
-7. ✅ If you hand READY.md to agent, it could execute with zero questions
+6. ✅ SPEC.md has exact commands for agent to run
+7. ✅ If you hand SPEC.md to agent, it could execute with zero questions
 
-**Test:** Could you give READY.md to another agent and they'd succeed?
+**Test:** Could you give SPEC.md to another agent and they'd succeed?
 
 ## Anti-Patterns (DON'T DO THIS)
 
@@ -448,7 +448,7 @@ spike_jwt_validation.md
 ❌ **"Tests probably pass with pytest"** → Run pytest in spike, confirm
 ❌ **"The user probably wants X"** → Ask, clarify, document in MISSION.md
 ❌ **"This is standard practice"** → Might be, but validate in this context
-❌ **Writing READY.md before spiking** → Spec will have wrong assumptions
+❌ **Writing SPEC.md before spiking** → Spec will have wrong assumptions
 ❌ **Verbose explanations of why** → Agent doesn't need rationale, needs commands
 ❌ **Assuming agent knowledge** → Specify exact import paths, file locations
 
@@ -457,7 +457,7 @@ spike_jwt_validation.md
 Before exiting /prelude:
 
 - [ ] `.prelude/MISSION.md` (why we're building this)
-- [ ] `.prelude/READY.md` (agent-executable spec with all sections)
+- [ ] `.spec/SPEC.md` (agent-executable spec with all sections)
 - [ ] `.prelude/SPIKE_RESULTS/*.md` (all spike findings)
 - [ ] `.prelude/DISCOVERIES.md` (key learnings)
 - [ ] All validation commands tested and work
@@ -465,34 +465,34 @@ Before exiting /prelude:
 - [ ] Every module has Success Criteria checkboxes
 - [ ] Every phase has exact Validation Commands
 - [ ] All gotchas documented with recovery steps
-- [ ] If complex (>10 modules): split into multiple READY_*.md files
-- [ ] Sanity check: hand READY.md to someone else, could they execute?
+- [ ] If complex (>10 modules): split into multiple SPEC_*.md files
+- [ ] Sanity check: hand SPEC.md to someone else, could they execute?
 
-## Final Step: Validate READY.md
+## Final Step: Validate SPEC.md
 
 **Before declaring prelude complete:**
 
-1. Read READY.md as if you're the orchestrator agent
-2. Can you answer these questions from READY.md alone?
+1. Read SPEC.md as if you're the orchestrator agent
+2. Can you answer these questions from SPEC.md alone?
    - What runs first?
    - What can run in parallel?
    - How do I validate each phase?
    - What commands prove it works?
    - What do I do if tests fail?
    - Where are integration points?
-3. If ANY question can't be answered from READY.md → it's incomplete
+3. If ANY question can't be answered from SPEC.md → it's incomplete
 4. If you have to guess or assume → document it explicitly
 
-**Remember:** An agent following READY.md in /conduct should NEVER have to guess or make judgment calls about WHAT to build. Only HOW to fix if something breaks.
+**Remember:** An agent following SPEC.md in /conduct should NEVER have to guess or make judgment calls about WHAT to build. Only HOW to fix if something breaks.
 
-## Example: READY.md Quality Check
+## Example: SPEC.md Quality Check
 
-**Bad READY.md indicator:**
+**Bad SPEC.md indicator:**
 - Agent would ask: "What command validates the database?"
 - Agent would ask: "Which modules can run in parallel?"
 - Agent would ask: "What does 'make sure it works' mean?"
 
-**Good READY.md indicator:**
+**Good SPEC.md indicator:**
 - Agent can copy-paste validation commands
 - Agent knows exact file paths to create
 - Agent has retry strategy for each failure
@@ -510,7 +510,7 @@ Before exiting /prelude:
 3. Map dependencies precisely
 4. Define validation explicitly
 5. Capture gotchas with recovery steps
-6. Build READY.md for AGENT execution
+6. Build SPEC.md for AGENT execution
 7. Validate: could another agent execute this?
 
-**Output: READY.md that's a executable battle plan, not a requirements document.**
+**Output: SPEC.md that's a executable battle plan, not a requirements document.**

@@ -3,7 +3,7 @@
 ## Philosophy
 
 **Orchestrator = Intelligent Staff Engineer**
-- Reads READY.md to understand full picture
+- Reads SPEC.md to understand full picture
 - Makes decisions about execution order
 - Launches sub-agents for grunt work
 - Validates results between phases
@@ -15,7 +15,7 @@
 - Creates checkpoints (git commits)
 - NO intelligence, NO decisions
 
-**READY.md = Source of Truth**
+**SPEC.md = Source of Truth**
 - Implementation phases with order
 - Dependencies and gotchas
 - Success criteria
@@ -28,14 +28,14 @@
 ```python
 # Start task and get task_id
 task = mcp.start_task(
-    description="Build X from READY.md",
+    description="Build X from SPEC.md",
     working_directory="/path/to/project"
 )
 task_id = task['task_id']
 
-# Read READY.md to understand the mission
-ready_md = read_file(f"{working_directory}/.prelude/READY.md")
-phases = extract_phases(ready_md)  # Parse "## Implementation Phases"
+# Read SPEC.md to understand the mission
+spec_md = read_file(f"{working_directory}/.spec/SPEC.md")
+phases = extract_phases(spec_md)  # Parse "## Implementation Phases"
 ```
 
 ### 2. Execute Each Phase Sequentially
@@ -65,10 +65,10 @@ for phase in phases:
 You are implementing the {module} module for {phase.name}.
 
 Working directory: {wt_path}
-READY.md spec: {working_directory}/.prelude/READY.md
+SPEC.md spec: {working_directory}/.spec/SPEC.md
 
 Instructions:
-1. Read READY.md section for {phase.name}
+1. Read SPEC.md section for {phase.name}
 2. Implement all files for {module} as specified
 3. Run tests: {phase.test_command}
 4. Fix any errors
@@ -146,11 +146,11 @@ mcp.complete_task(task_id, commit_changes=True)
 **What orchestrator validates after each phase:**
 
 ### Code Exists
-- Files specified in READY.md are present
+- Files specified in SPEC.md are present
 - No placeholder/mock code
 
 ### Tests Pass
-- Run phase test command (from READY.md)
+- Run phase test command (from SPEC.md)
 - pytest for Python, go test for Go, npm test for JS
 - All tests green
 
@@ -164,9 +164,9 @@ mcp.complete_task(task_id, commit_changes=True)
 - No TODO/FIXME comments (unless spec says phased work)
 
 ### Phase-Specific Checks
-From READY.md "Success Criteria" for each phase
+From SPEC.md "Success Criteria" for each phase
 
-## Parsing READY.md Phases
+## Parsing SPEC.md Phases
 
 ```markdown
 ## Implementation Phases
@@ -212,7 +212,7 @@ Success Criteria:
 - Security audits (security-auditor)
 
 **What orchestrator does directly:**
-- Read READY.md
+- Read SPEC.md
 - Parse phases
 - Make execution decisions
 - Launch agents
@@ -240,7 +240,7 @@ rollback_to_checkpoint(task_id, checkpoint_id)
 
 ## Example: DataFlow Project
 
-**READY.md says:**
+**SPEC.md says:**
 ```
 Phase 1: Proto Definitions & Setup
 Phase 2: Go gRPC Service (Base Layer)
@@ -250,7 +250,7 @@ Phase 5: Integration & Documentation
 ```
 
 **Orchestrator flow:**
-1. Read phases from READY.md
+1. Read phases from SPEC.md
 2. Phase 1: Launch agent for proto module, validate protos + generated code
 3. Phase 2: Launch agent for grpc-service, validate gRPC server + tests
 4. Phase 3: Launch agent for backend, validate FastAPI + gRPC client
@@ -305,7 +305,7 @@ Phase 5: Integration & Documentation
 - Analyzing code complexity
 - Fixing implementation errors
 
-**Uses READY.md as reference:**
+**Uses SPEC.md as reference:**
 - Re-read sections as needed
 - Don't memorize entire spec
 - Trust the spec is correct
@@ -313,7 +313,7 @@ Phase 5: Integration & Documentation
 ## Success Metrics
 
 **Orchestrator succeeded when:**
-- All READY.md phases completed in order
+- All SPEC.md phases completed in order
 - All tests pass
 - No import errors
 - Quality gates green

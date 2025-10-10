@@ -43,7 +43,7 @@ Receives:
 - `.prelude/GOALS.md` (what needs to be built)
 - `CLAUDE.md` (project conventions)
 - Existing codebase structure (if extending)
-- READY.md specification (if exists)
+- SPEC.md specification (if exists)
 
 ## Your Workflow
 

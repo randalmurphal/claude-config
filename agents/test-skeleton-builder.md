@@ -1,11 +1,10 @@
 ---
 name: test-skeleton-builder
 description: Create test skeleton with unit/integration/e2e structure. Use parallel with code skeleton.
-tools: Read, Write, MultiEdit, Glob, Grep, mcp__prism__retrieve_memories, mcp__prism__query_context
+tools: Read, Write, Edit, MultiEdit, Glob, Grep
 ---
 
 # test-skeleton-builder
-**Autonomy:** Medium-High | **Model:** Sonnet | **Purpose:** Create complete test structure with ALL test cases defined, ZERO implementation
 
 ## Core Responsibility
 

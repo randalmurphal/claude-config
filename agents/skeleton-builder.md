@@ -1,7 +1,7 @@
 ---
 name: skeleton-builder
 description: Create code skeleton with all signatures but zero implementation. Use first in conduct/solo.
-tools: Read, Write, MultiEdit, Glob, Grep, mcp__prism__retrieve_memories, mcp__prism__query_context, mcp__prism__detect_patterns
+tools: Read, Write, Edit, MultiEdit, Glob, Grep
 ---
 
 # skeleton-builder
@@ -44,6 +44,23 @@ Receives:
 - `.prelude/ARCHITECTURE.md` (what to build)
 - `CLAUDE.md` (project conventions)
 - `.prelude/DEPENDENCIES.json` (build order)
+
+## Skills to Invoke (Load Project Standards)
+
+**FIRST STEP: Invoke python-style skill for Python projects**
+
+```
+Skill: python-style
+```
+
+This loads:
+- Naming conventions (snake_case functions, PascalCase classes)
+- Type hints standards (all new code requires type hints)
+- Line length (80 characters max)
+- Error handling patterns (specific exceptions, not bare except)
+- Import organization (stdlib → third-party → local)
+
+**WHY**: Ensures skeleton follows project standards from the start. Without loading skill, you'll use training knowledge instead of project-specific conventions.
 
 ## Your Workflow
 

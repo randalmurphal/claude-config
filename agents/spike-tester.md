@@ -1,7 +1,7 @@
 ---
 name: spike-tester
 description: Validate assumptions by writing throwaway code in /tmp. Use before committing to approach.
-tools: Read, Write, Bash, mcp__prism__retrieve_memories
+tools: Read, Write, Bash, Edit, MultiEdit, Grep, Glob
 ---
 
 # spike-tester

@@ -1,11 +1,10 @@
 ---
 name: consolidation-analyzer
 description: Detect DRY violations across parallel module work (NOT for synthesis - use synthesis-architect for that)
-tools: Read, Grep, Write, Glob, mcp__prism__detect_patterns
+tools: Read, Grep, Write, Glob
 ---
 
 # consolidation-analyzer
-**Autonomy:** Medium | **Purpose:** Find duplication and integration points after parallel MODULE work
 
 ## Core Responsibility
 

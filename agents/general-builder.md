@@ -1,7 +1,7 @@
 ---
 name: general-builder
 description: Casual 1-3 file tasks outside orchestrations. Simple work without spec overhead.
-tools: Read, Write, Edit, MultiEdit, Bash, Grep, Glob, mcp__prism__retrieve_memories, mcp__prism__detect_patterns
+tools: Read, Write, Edit, MultiEdit, Bash, Grep, Glob
 ---
 
 # general-builder
@@ -27,6 +27,32 @@ Main agent will give you:
 - **Files** - What to create/modify
 - **Requirements** - Must-haves and constraints
 - **Context** - Existing patterns to follow (optional)
+
+## Skills to Invoke (Load Project Standards)
+
+**FIRST STEP: Invoke relevant skills for project type**
+
+**For Python projects:**
+```
+Skill: python-style
+Skill: testing-standards
+```
+
+**python-style loads**:
+- Naming conventions (snake_case functions, PascalCase classes)
+- Type hints standards (all new code requires type hints)
+- Line length (80 characters max)
+- Error handling patterns (specific exceptions, not bare except)
+- Import organization (stdlib → third-party → local)
+
+**testing-standards loads**:
+- 3-layer testing pyramid (unit → integration → e2e)
+- 1:1 file mapping (one test file per production file)
+- Coverage requirements (95%+ for unit tests)
+- Test organization patterns (single function, parametrized, or separate methods)
+- Fixture patterns and reusability
+
+**WHY**: Ensures implementations follow project standards from the start. Without loading skills, you'll use training knowledge instead of project-specific conventions.
 
 ## Output Format (strict)
 

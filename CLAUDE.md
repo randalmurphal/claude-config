@@ -21,40 +21,30 @@ Otherwise: just act.
 ## Critical State
 User is tired. Review work skeptically. Validate before claiming things work.
 
-## Workflow Modes (see ~/.claude/orchestration/ for details)
+## Workflow Modes
 - **Casual/Research**: Exploration, quick fixes
 - **Prelude**: Discovery and spec creation (no implementation, spikes in /tmp)
 - **Conduct**: Implementation from SPEC.md spec
 
-**Artifact locations:**
-- Discovery: `.prelude/` directory
-- Spikes: `/tmp/spike_[name]/` (throwaway validation)
-- Production: Project structure
+**Artifacts**: Discovery in `.prelude/`, spikes in `/tmp/spike_[name]/`, production in project structure
 
-**Agent usage:**
-- Use for: Parallel work, specialized analysis, long validation
-- Do directly: Quick fixes, file reading, simple responses
+**Agents**: Use for parallel work/specialized analysis/long validation. Do directly: quick fixes/file reading/simple responses.
 
-## Parallel Execution (Critical for Performance)
+## Parallel Execution (Critical)
 
 **Run independent operations in parallel - single message, multiple tool calls.**
 
 **Tools:** Read multiple files, grep multiple patterns, run independent bash commands
-**Agents:** Launch multiple Task tools in one message for parallel work
+**Agents:** Launch multiple Task tools in one message
 
 **Why:** Saves context, faster execution, less back-and-forth
 
-**Example - Bad:**
-- Read file1 → wait → Read file2 → wait → Read file3
-
-**Example - Good:**
-- Read file1 + Read file2 + Read file3 (single message)
-- Task(agent1, "implement X") + Task(agent2, "implement Y") (single message)
+**Example Bad:** Read file1 → wait → Read file2 → wait → Read file3
+**Example Good:** Read file1 + Read file2 + Read file3 (single message)
 
 **Exception:** Sequential when output of one feeds into next
 
 ## Search Strategy
-When looking for code/patterns:
 1. Grep to find relevant files (cheap)
 2. Read only matching files (focused)
 3. Don't speculatively read entire codebases
@@ -73,11 +63,11 @@ When looking for code/patterns:
 
 ## Language Tools
 **Container:** `nerdctl` (docker not available)
-**Python:** `ruff format/check --config ~/.claude/configs/python/ruff.toml`
-**JS/TS:** `prettier/eslint --config ~/.claude/configs/javascript/...`
-**Go:** `golangci-lint run --config ~/.claude/configs/go/golangci.yml`
+**Python:** `ruff format/check`
+**JS/TS:** `prettier/eslint`
+**Go:** `golangci-lint run`
 
-Check project config first, fall back to ~/.claude/configs/
+Check project config first, fall back to `~/.claude/configs/`
 
 ## Git Safety
 **NEVER:** update config, force push to main, skip hooks, amend others' commits
@@ -96,11 +86,11 @@ Check project config first, fall back to ~/.claude/configs/
 **Location:** `~/.claude/docs/TESTING_STANDARDS.md`
 
 **Key rules:**
-- **1:1 file mapping:** One test file per production file (unit tests)
-- **Coverage:** 95%+ for unit tests, all public functions tested
-- **Test organization:** Choose based on complexity (single function, parametrized, or separate methods)
-- **Every function tested for:** Happy path + error cases + edge cases
-- **Integration tests:** 2-4 files per module, add to existing files rather than creating new ones
+- 1:1 file mapping: One test file per production file (unit tests)
+- Coverage: 95%+ for unit tests, all public functions tested
+- Test organization: Choose based on complexity (single function, parametrized, or separate methods)
+- Every function tested for: Happy path + error cases + edge cases
+- Integration tests: 2-4 files per module, add to existing files rather than creating new ones
 
 ## Non-Negotiable
 1. Security: Never log secrets

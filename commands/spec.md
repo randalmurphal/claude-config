@@ -188,7 +188,67 @@ For each discovery:
 - Doesn't serve? → Note as "Future"
 - Tangent? → Ask: "Expand scope?" (default: stay focused)
 
-### Phase 7: Readiness Validation
+### Phase 7: Documentation Library Setup
+
+**Goal:** Create AI-readable documentation structure if it doesn't exist, before finalizing spec.
+
+**Check for existing documentation library:**
+```bash
+# Check for docs/ directory and key files
+ls $WORK_DIR/docs/llms.txt 2>/dev/null
+ls $WORK_DIR/CLAUDE.md 2>/dev/null
+```
+
+**IF documentation library missing OR incomplete:**
+
+1. **Invoke ai-documentation skill** to load best practices:
+   ```
+   Skill: ai-documentation
+   ```
+
+2. **Create minimal documentation structure:**
+   ```
+   $WORK_DIR/
+   ├── CLAUDE.md                # Quick reference (use ~/.claude/docs/AI_DOCUMENTATION_STANDARDS.md templates)
+   └── docs/                    # Optional: For complex tools only
+       ├── llms.txt            # AI navigation index
+       ├── OVERVIEW.md         # <5 min mental model
+       └── business_logic/     # Critical business rules
+   ```
+
+3. **Populate CLAUDE.md** using appropriate template:
+   - **Simple Tool** (~200 lines): Purpose, patterns, config, gotchas
+   - **Complex Tool** (300-400 lines): + architecture, business logic table
+   - Follow hierarchical inheritance (don't duplicate parent content)
+   - Include file:line refs for critical functions
+   - Reference ai-documentation skill for standards
+
+4. **Create llms.txt** (if complex tool with docs/ directory):
+   - Links to all documentation with descriptions
+   - Quick start section at top
+   - Business logic, architecture, guides sections
+
+5. **Defer detailed docs to post-implementation:**
+   - Don't write detailed API_REFERENCE.md yet (functions don't exist)
+   - Don't write HOW_TO.md yet (workflows unknown)
+   - Mark these as "TODO: Create after /conduct Phase N+2"
+
+**Documentation library complete criteria:**
+- ✅ CLAUDE.md exists with basic structure
+- ✅ Follows hierarchical inheritance (no parent duplication)
+- ✅ Line count within target for hierarchy level
+- ✅ llms.txt exists (if docs/ directory created)
+- ✅ Clear TODOs for post-implementation docs
+
+**Note for user:**
+```
+📚 Documentation library created. Detailed docs (API_REFERENCE, HOW_TO, etc.)
+will be generated after implementation in /conduct Phase N+2.
+```
+
+---
+
+### Phase 8: Readiness Validation
 
 **Checklist:**
 - Mission clear, success measurable
@@ -198,6 +258,7 @@ For each discovery:
 - No blocking questions
 - Complexity understood
 - No contradictions
+- Documentation library exists (CLAUDE.md + optional docs/)
 
 **If ready, create SPEC.md and component phase specs** (see format below)
 

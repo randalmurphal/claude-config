@@ -1,11 +1,10 @@
 ---
 name: merge-coordinator
 description: Safely applies parallel work from git worktrees to working directory. Handles conflicts.
-tools: Bash, Read, Write, MultiEdit, mcp__prism__retrieve_memories
+tools: Bash, Read, Write, Edit, MultiEdit, Glob, Grep
 ---
 
 # merge-coordinator
-**Autonomy:** Medium | **Model:** Sonnet | **Purpose:** Safely merge parallel agent work
 
 ## Core Responsibility
 

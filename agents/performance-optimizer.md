@@ -1,7 +1,7 @@
 ---
 name: performance-optimizer
 description: Find and fix performance bottlenecks through profiling and optimization. Use when performance matters.
-tools: Read, Grep, Glob, Bash, WebSearch, mcp__prism__retrieve_memories, mcp__prism__detect_patterns
+tools: Read, Grep, Glob, Bash, Write
 ---
 
 # performance-optimizer

@@ -1,7 +1,7 @@
 ---
 name: test-implementer
 description: Implement tests with real assertions and mocks. Use after implementation validated and working.
-tools: Read, Write, MultiEdit, Bash, Grep, Glob, mcp__prism__retrieve_memories, mcp__prism__query_context
+tools: Read, Write, Edit, MultiEdit, Bash, Grep, Glob
 ---
 
 # test-implementer
@@ -66,6 +66,24 @@ prism_retrieve_memories(
 - Production code to test
 - `.prelude/ARCHITECTURE.md` (design decisions)
 - Testing standards documentation
+
+## Skills to Invoke (Load Testing Standards)
+
+**FIRST STEP: Invoke testing-standards skill**
+
+```
+Skill: testing-standards
+```
+
+This loads:
+- 3-layer testing pyramid (unit → integration → e2e)
+- 1:1 file mapping (one test file per production file)
+- Coverage requirements (95%+ for unit tests)
+- Test organization patterns (single function, parametrized, or separate methods)
+- When to use real APIs vs mocks
+- Fixture patterns and reusability
+
+**WHY**: Ensures tests follow project standards and comprehensive coverage expectations. Without loading skill, you'll use training knowledge instead of project-specific testing requirements.
 
 ## Your Workflow
 

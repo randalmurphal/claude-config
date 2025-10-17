@@ -1,7 +1,7 @@
 ---
 name: security-auditor
 description: Audit code for security vulnerabilities following OWASP Top 10. Use for production-bound code.
-tools: Read, Grep, Glob, Bash, WebSearch, mcp__prism__detect_patterns, mcp__prism__retrieve_memories
+tools: Read, Grep, Glob, Bash, WebSearch, Write
 ---
 
 # security-auditor

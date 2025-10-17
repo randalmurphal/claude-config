@@ -271,71 +271,61 @@ find $WORK_DIR -name "*.md" -type f
 - Any project-specific docs
 ```
 
-**Spawn documentation validators (parallel):**
+**Invoke documentation-validator agent:**
 
-Option A - Use code-reviewer for all docs:
 ```
-Task(code-reviewer, """
-Review ALL documentation for accuracy against implementation.
+validation_result = Task(documentation-validator, """
+Validate ALL documentation for 100% accuracy against implementation.
 
+Working directory: $WORK_DIR
 Spec: $WORK_DIR/.spec/BUILD_[taskname].md
 Workflow: solo
 
-Documentation files to validate:
-[list all .md files found]
+Validation scope:
+- CLAUDE.md (at current level)
+- README.md
+- docs/ directory (all .md files if exists)
+- .spec/BUILD_[taskname].md
 
-For EACH file, check:
-1. Does it accurately reflect current implementation?
-2. Are code examples up-to-date?
-3. Are API signatures correct?
-4. Are there outdated references to removed code?
-5. Does it contradict the spec or implementation?
+Steps:
+1. Invoke ai-documentation skill to load standards
+2. Find all .md files in $WORK_DIR
+3. Validate systematically:
+   - File:line references accurate
+   - Function signatures match code
+   - Architecture claims verified
+   - Constants/values correct
+   - CLAUDE.md structure follows best practices
+4. Return structured JSON with issues categorized
 
-Flag as CRITICAL:
-- Outdated information that will mislead developers
-- Incorrect code examples
-- References to deleted/renamed functions
-- Contradictions with spec
+See ~/.claude/docs/DOCUMENTATION_VALIDATOR_AGENT.md for full methodology.
 
-Flag as IMPORTANT:
-- Missing documentation for new features
-- Incomplete explanations
-- Outdated terminology
-
-Agent will read spec for context.
+Agent will read spec automatically.
 """)
 ```
 
-Option B - Multiple reviewers for different doc types:
+**Fix documentation issues (if found):**
 ```
-# For README/user-facing docs
-Task(code-reviewer, "Validate README.md accuracy...")
-
-# For BUILD spec
-Task(code-reviewer, "Validate BUILD spec reflects discoveries...")
-
-# For CLAUDE.md/dev docs
-Task(code-reviewer, "Validate CLAUDE.md patterns still apply...")
-```
-
-**Fix documentation issues:**
-```
-IF documentation issues found:
-  Spawn fix-executor or general-builder to update docs:
-  ```
+IF validation_result contains CRITICAL or IMPORTANT issues:
   Task(general-builder, """
-  Update documentation to match implementation.
+  Fix documentation issues found by validator.
 
+  Working directory: $WORK_DIR
   Spec: $WORK_DIR/.spec/BUILD_[taskname].md
 
-  Documentation fixes needed:
-  [list from validators]
+  Issues to fix (JSON from validator):
+  [paste validation_result JSON]
 
-  Update each doc file to accurately reflect current implementation.
+  Fix priorities:
+  1. All CRITICAL issues
+  2. All IMPORTANT issues
+  3. MINOR issues if time permits
+
+  Invoke ai-documentation skill for standards.
   """)
-  ```
 
-  Re-validate updated docs
+  # Re-validate after fixes
+  Task(documentation-validator, "Re-validate after fixes...")
 ```
 
 **Documentation validation complete criteria:**
@@ -349,7 +339,85 @@ IF documentation issues found:
 
 ---
 
-### Step 6: Complete
+### Step 6: CLAUDE.md Optimization
+
+**Goal:** Ensure CLAUDE.md files follow hierarchical best practices and don't exceed line count targets.
+
+**Find all CLAUDE.md files in working directory:**
+```bash
+find $WORK_DIR -name "CLAUDE.md" -type f
+```
+
+**Validate CLAUDE.md with documentation-validator:**
+
+```
+# NOTE: documentation-validator in Step 5 already validated CLAUDE.md
+# This step focuses on optimization if issues remain
+
+Task(documentation-validator, """
+Validate CLAUDE.md optimization (focus on line count and structure).
+
+Working directory: $WORK_DIR
+Spec: $WORK_DIR/.spec/BUILD_[taskname].md
+CLAUDE.md file: [path to CLAUDE.md]
+
+Invoke ai-documentation skill to load best practices.
+
+Check:
+1. Line count within target for hierarchy level
+2. No duplication from parent CLAUDE.md
+3. Business logic in table format (not prose)
+4. File structure condensed
+5. Deep-dive content extracted to QUICKREF.md if >400 lines
+
+Return structured JSON with optimization recommendations.
+
+See ~/.claude/docs/DOCUMENTATION_VALIDATOR_AGENT.md for methodology.
+""")
+```
+
+**Fix CLAUDE.md issues:**
+```
+IF CLAUDE.md issues found:
+  For each file with issues:
+    Task(general-builder, """
+    Optimize CLAUDE.md following AI documentation best practices.
+
+    File: [path to CLAUDE.md]
+    Working directory: $WORK_DIR
+    Spec: $WORK_DIR/.spec/BUILD_[taskname].md
+
+    Invoke ai-documentation skill to load best practices.
+
+    Issues to fix:
+    [paste JSON from validator]
+
+    Optimization strategy:
+    1. Remove duplicate content (reference parent CLAUDE.md files)
+    2. Convert prose to tables/bullets (content optimization)
+    3. Extract deep-dive content to QUICKREF.md if >400 lines
+    4. Condense file structure trees
+    5. Ensure line count within target for hierarchy level
+
+    Maintain all critical information - reorganize for AI readability.
+    """)
+
+  # Re-validate
+  Task(documentation-validator, "Re-validate optimized CLAUDE.md files...")
+```
+
+**CLAUDE.md optimization complete criteria:**
+- ✅ All CLAUDE.md files within target line counts
+- ✅ No duplication across hierarchy levels
+- ✅ Business logic in table format (where applicable)
+- ✅ Deep-dive content extracted to QUICKREF.md (if needed)
+- ✅ Hierarchical references working (child → parent)
+
+**Commit changes**
+
+---
+
+### Step 7: Complete
 
 **Update BUILD spec:**
 - Add any gotchas discovered

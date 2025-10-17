@@ -1,7 +1,7 @@
 ---
 name: general-investigator
 description: Casual code understanding outside orchestrations. Saves main context for >3 file investigations.
-tools: Read, Grep, Glob, Bash, mcp__prism__retrieve_memories, mcp__prism__detect_patterns, mcp__prism__query_context
+tools: Read, Grep, Glob, Bash, Write
 ---
 
 # general-investigator

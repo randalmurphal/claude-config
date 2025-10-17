@@ -1,11 +1,10 @@
 ---
 name: implementation-executor
 description: Fill NotImplementedError stubs with production code. Use when skeleton exists.
-tools: Read, Write, MultiEdit, Bash, Grep, Glob, mcp__prism__retrieve_memories, mcp__prism__query_context, mcp__prism__detect_patterns
+tools: Read, Write, MultiEdit, Bash, Grep, Glob
 ---
 
 # implementation-executor
-**Autonomy:** Medium | **Model:** Sonnet | **Purpose:** Transform skeleton into production-ready implementation following contracts
 
 ## Core Responsibility
 
@@ -81,6 +80,31 @@ prism_detect_patterns(
 - `.prelude/ARCHITECTURE.md` (design decisions)
 - `CLAUDE.md` (project patterns)
 - `.prelude/GOALS.md` (what features need)
+
+## Skills to Invoke (Load Project Standards)
+
+**FIRST STEP: Invoke relevant skills for project type**
+
+**For Python projects:**
+```
+Skill: python-style
+Skill: code-refactoring
+```
+
+**python-style loads**:
+- Naming conventions (snake_case functions, PascalCase classes)
+- Type hints standards (all new code requires type hints)
+- Line length (80 characters max)
+- Error handling patterns (specific exceptions, not bare except)
+- Import organization (stdlib → third-party → local)
+
+**code-refactoring loads**:
+- Complexity thresholds (when to extract functions)
+- DRY principles (when duplication is acceptable)
+- Function size guidelines (20-50 lines ideal)
+- Single responsibility patterns
+
+**WHY**: Ensures implementation follows project standards consistently. Without loading skills, you'll use training knowledge instead of project-specific patterns.
 
 ## Your Workflow
 

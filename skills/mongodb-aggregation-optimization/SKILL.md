@@ -1,34 +1,34 @@
 ---
 name: MongoDB Aggregation Pipeline Optimization
-description: Optimize MongoDB aggregation pipelines for M32RIMM/FISIO including early filtering, index usage, array operators vs $unwind, $lookup optimization, and subscription-scoped queries. Use when writing aggregation queries, debugging slow pipelines, or analyzing portfolio risk scores.
+description: General MongoDB aggregation pipeline optimization techniques including early filtering, index usage, array operators vs $unwind, $lookup optimization, and performance debugging. Use when writing aggregation queries for ANY MongoDB project, debugging slow pipelines, or analyzing query performance. For M32RIMM-specific patterns, use mongodb-m32rimm-patterns skill.
 allowed-tools: [Read, Grep, Bash]
 ---
 
 # MongoDB Aggregation Pipeline Optimization
 
-Practical optimization patterns for MongoDB aggregation pipelines in
-M32RIMM/FISIO. Focus on performance, subscription isolation, and query
-efficiency.
+General optimization patterns for MongoDB aggregation pipelines. Applicable to ANY MongoDB project, regardless of domain or schema.
+
+**Project-Specific Skills**:
+- For M32RIMM/FISIO patterns, see `mongodb-m32rimm-patterns` skill (subscription isolation, businessObjects queries, DV/Asset aggregations)
+
+---
 
 ## 1. Pipeline Stage Ordering (MOST CRITICAL)
 
-**Early filtering rule**: Place `$match` as early as possible to reduce
-data volume.
+**Early filtering rule**: Place `$match` as early as possible to reduce data volume.
 
 **Optimal stage order**:
 ```
-$match → $project → $addFields → $lookup → $unwind → $group → $sort →
-$limit
+$match → $project → $addFields → $lookup → $unwind → $group → $sort → $limit
 ```
 
-**Why this matters**: MongoDB processes pipeline stages sequentially.
-Filtering 1M docs to 10K BEFORE $lookup saves 990K unnecessary joins.
+**Why this matters**: MongoDB processes pipeline stages sequentially. Filtering 1M docs to 10K BEFORE $lookup saves 990K unnecessary joins.
 
 ### Performance Impact
 
 | Optimization | Speedup | Example |
 |--------------|---------|---------|
-| Early $match | 10-100x | Filter by subscription first |
+| Early $match | 10-100x | Filter by tenant/status first |
 | Project before lookup | 5-20x | Reduce field count before join |
 | Covered queries | 5-10x | Return data from index only |
 | Array operators vs $unwind | 5-10x | Filter arrays without unwinding |
@@ -38,17 +38,17 @@ Filtering 1M docs to 10K BEFORE $lookup saves 990K unnecessary joins.
 
 ```javascript
 // BAD - filters AFTER expensive operations
-db.businessObjects.aggregate([
-    {$lookup: {from: 'businessObjects', ...}},  // Joins ALL docs
-    {$unwind: '$related'},
-    {$match: {'info.owner.subID': sub_id}}      // Filters last
+db.orders.aggregate([
+    {$lookup: {from: 'customers', ...}},  // Joins ALL docs
+    {$unwind: '$items'},
+    {$match: {status: 'pending'}}         // Filters last
 ])
 
 // GOOD - filters early, reduces data before expensive ops
-db.businessObjects.aggregate([
-    {$match: {'info.owner.subID': sub_id}},     // Filter first
-    {$project: {_id: 1, 'related.assets': 1}},  // Reduce fields
-    {$lookup: {from: 'businessObjects', ...}}   // Join smaller set
+db.orders.aggregate([
+    {$match: {status: 'pending'}},        // Filter first
+    {$project: {_id: 1, items: 1}},       // Reduce fields
+    {$lookup: {from: 'customers', ...}}   // Join smaller set
 ])
 ```
 
@@ -58,91 +58,30 @@ MongoDB can move `$match` before `$project` when safe:
 ```javascript
 // Written as:
 [
-    {$project: {_id: 1, 'md.type': 1, 'info.owner.subID': 1}},
-    {$match: {'info.owner.subID': sub_id, 'md.type': 'assets'}}
+    {$project: {_id: 1, status: 1, amount: 1}},
+    {$match: {status: 'pending', amount: {$gt: 100}}}
 ]
 
 // MongoDB optimizes to:
 [
-    {$match: {'info.owner.subID': sub_id, 'md.type': 'assets'}},
-    {$project: {_id: 1, 'md.type': 1, 'info.owner.subID': 1}}
+    {$match: {status: 'pending', amount: {$gt: 100}}},
+    {$project: {_id: 1, status: 1, amount: 1}}
 ]
 ```
 
 **BUT**: Don't rely on this. Write explicit early $match for clarity.
 
-## 2. Subscription Isolation Patterns (REQUIRED)
+---
 
-**ALWAYS filter by subscription ID first**:
-```javascript
-{
-    $match: {
-        'info.owner.subID': sub_id,  // MUST be first filter
-        'md.type': 'detectedVulnerabilities'
-    }
-}
-```
-
-### Compound Index Strategy
-
-Create indexes with subscription ID first:
-```javascript
-// Index definition
-db.businessObjects.createIndex({
-    'info.owner.subID': 1,
-    'info.status': 1,
-    'md.date.updated': -1
-})
-
-// Query uses index efficiently
-db.businessObjects.aggregate([
-    {$match: {
-        'info.owner.subID': 'abc123',
-        'info.status': 'Open'
-    }},
-    {$sort: {'md.date.updated': -1}}
-])
-```
-
-**Benefits**: 10-100x speedup on large collections (query uses index
-scan instead of collection scan).
-
-### Multi-Tenant Query Pattern
-
-```javascript
-// ALWAYS include subscription filter in every stage
-pipeline = [
-    // Initial filter - REQUIRED
-    {$match: {
-        'info.owner.subID': sub_id,
-        'md.type': 'detectedVulnerabilities',
-        'info.status': 'Open'
-    }},
-
-    // Lookups must also filter by subscription
-    {$lookup: {
-        from: 'businessObjects',
-        let: {asset_ids: '$related.assets'},
-        pipeline: [
-            {$match: {
-                $expr: {$in: ['$_id', '$$asset_ids']},
-                'info.owner.subID': sub_id  // Filter in lookup
-            }}
-        ],
-        as: 'asset_docs'
-    }}
-]
-```
-
-## 3. Index Usage & Covered Queries
+## 2. Index Usage & Covered Queries
 
 ### Check Index Usage
 
 ```javascript
 // Explain aggregation execution
-db.businessObjects.explain('executionStats').aggregate([
-    {$match: {'info.owner.subID': sub_id, 'md.type': 'assets'}},
-    {$project: {_id: 1, 'md.type': 1}}
+db.collection.explain('executionStats').aggregate([
+    {$match: {status: 'active', category: 'electronics'}},
+    {$project: {_id: 1, name: 1}}
 ])
 
 // Key fields to check:
@@ -163,48 +102,74 @@ db.businessObjects.explain('executionStats').aggregate([
 **Example**:
 ```javascript
 // Index
-db.businessObjects.createIndex({
-    'info.owner.subID': 1,
-    'md.type': 1,
-    'md.date.updated': -1
+db.products.createIndex({
+    category: 1,
+    status: 1,
+    updated_at: -1
 })
 
 // Covered query - returns only indexed fields
-db.businessObjects.aggregate([
+db.products.aggregate([
     {$match: {
-        'info.owner.subID': sub_id,
-        'md.type': 'assets'
+        category: 'electronics',
+        status: 'active'
     }},
     {$project: {
         _id: 1,
-        'md.type': 1,
-        'md.date.updated': 1
+        category: 1,
+        status: 1,
+        updated_at: 1
     }},
-    {$sort: {'md.date.updated': -1}}
+    {$sort: {updated_at: -1}}
 ])
 ```
 
 **Performance**: 5-10x faster than document scans.
 
-## 4. Array Operators vs $unwind/$group Anti-Pattern
+### Index Strategy Best Practices
 
-**AVOID**: `$unwind → $group` for array transformations (blocking
-stage, slow).
+1. **Filter fields first**: Most selective filters at start of compound index
+2. **Sort fields last**: Include sort fields at end of compound index
+3. **Include projection fields**: Add projected fields for covered queries
+4. **Avoid index bloat**: Don't index every field (diminishing returns)
 
-**USE**: Array operators (`$filter`, `$map`, `$reduce`, `$arrayElemAt`,
-`$size`).
+```javascript
+// Good compound index design
+db.orders.createIndex({
+    tenant_id: 1,        // Filter: highest selectivity
+    status: 1,           // Filter: medium selectivity
+    created_at: -1       // Sort field last
+})
+
+// Query uses index efficiently
+db.orders.aggregate([
+    {$match: {
+        tenant_id: 'abc123',
+        status: 'pending'
+    }},
+    {$sort: {created_at: -1}}
+])
+```
+
+---
+
+## 3. Array Operators vs $unwind/$group Anti-Pattern
+
+**AVOID**: `$unwind → $group` for array transformations (blocking stage, slow).
+
+**USE**: Array operators (`$filter`, `$map`, `$reduce`, `$arrayElemAt`, `$size`).
 
 ### Anti-Pattern Example
 
 ```javascript
 // BAD - unwind explodes documents, then regroups
-db.businessObjects.aggregate([
-    {$match: {'info.owner.subID': sub_id, 'md.type': 'assets'}},
-    {$unwind: '$related.detectedVulnerabilities'},
-    {$match: {'related.detectedVulnerabilities.severity': 'High'}},
+db.products.aggregate([
+    {$match: {category: 'electronics'}},
+    {$unwind: '$tags'},
+    {$match: {'tags': 'sale'}},
     {$group: {
         _id: '$_id',
-        high_dvs: {$push: '$related.detectedVulnerabilities'}
+        sale_tags: {$push: '$tags'}
     }}
 ])
 ```
@@ -213,14 +178,14 @@ db.businessObjects.aggregate([
 
 ```javascript
 // GOOD - filter array in place
-db.businessObjects.aggregate([
-    {$match: {'info.owner.subID': sub_id, 'md.type': 'assets'}},
+db.products.aggregate([
+    {$match: {category: 'electronics'}},
     {$project: {
         _id: 1,
-        high_dvs: {
+        sale_tags: {
             $filter: {
-                input: '$related.detectedVulnerabilities',
-                cond: {$eq: ['$$this.severity', 'High']}
+                input: '$tags',
+                cond: {$eq: ['$$this', 'sale']}
             }
         }
     }}
@@ -232,30 +197,39 @@ db.businessObjects.aggregate([
 ```javascript
 // Filter array elements
 {$filter: {
-    input: '$related.assets',
-    cond: {$eq: ['$$this.status', 'Active']}
+    input: '$items',
+    cond: {$eq: ['$$this.status', 'active']}
 }}
 
 // Transform array elements
 {$map: {
-    input: '$related.vulnerabilities',
-    in: {id: '$$this._id', cvss: '$$this.cvss_score'}
+    input: '$products',
+    in: {id: '$$this._id', price: '$$this.price'}
 }}
 
 // Get first/last element
-{$arrayElemAt: ['$related.assets', 0]}  // First
-{$arrayElemAt: ['$related.assets', -1]} // Last
+{$arrayElemAt: ['$items', 0]}   // First
+{$arrayElemAt: ['$items', -1]}  // Last
 
 // Array size
-{$size: '$related.detectedVulnerabilities'}
+{$size: '$items'}
 
 // Check if array has elements
-{$gt: [{$size: '$related.assets'}, 0]}
+{$gt: [{$size: '$items'}, 0]}
+
+// Reduce (aggregate array into single value)
+{$reduce: {
+    input: '$items',
+    initialValue: 0,
+    in: {$add: ['$$value', '$$this.price']}
+}}
 ```
 
 **Performance**: 5-10x faster for large arrays (1000+ elements).
 
-## 5. $lookup Optimization
+---
+
+## 4. $lookup Optimization
 
 **Index foreign collection**: Ensure lookup field has index.
 
@@ -267,10 +241,10 @@ db.businessObjects.aggregate([
 
 ```javascript
 {$lookup: {
-    from: 'businessObjects',
-    localField: 'related.assets',
+    from: 'customers',
+    localField: 'customer_id',
     foreignField: '_id',
-    as: 'asset_docs'
+    as: 'customer'
 }}
 ```
 
@@ -278,23 +252,22 @@ db.businessObjects.aggregate([
 
 ```javascript
 {$lookup: {
-    from: 'businessObjects',
-    let: {asset_ids: '$related.assets'},
+    from: 'customers',
+    let: {customer_id: '$customer_id'},
     pipeline: [
         // Filter early in lookup
         {$match: {
-            $expr: {$in: ['$_id', '$$asset_ids']},
-            'info.owner.subID': sub_id,
-            'info.status': 'Active'
+            $expr: {$eq: ['$_id', '$$customer_id']},
+            status: 'active'
         }},
         // Project only needed fields
         {$project: {
             _id: 1,
-            'data.name': 1,
-            'data.ipAddresses': 1
+            name: 1,
+            email: 1
         }}
     ],
-    as: 'asset_docs'
+    as: 'customer'
 }}
 ```
 
@@ -302,53 +275,50 @@ db.businessObjects.aggregate([
 
 ```javascript
 // MUST have index on lookup field
-db.businessObjects.createIndex({'_id': 1})  // Usually exists
-db.businessObjects.createIndex({
+db.customers.createIndex({'_id': 1})  // Usually exists
+db.customers.createIndex({
     '_id': 1,
-    'info.owner.subID': 1
+    'status': 1
 })
 
 // Check index usage
-db.businessObjects.explain('executionStats').aggregate([...])
+db.collection.explain('executionStats').aggregate([...])
 ```
 
-### M32RIMM Lookup Pattern
+### Multiple Lookup Optimization
 
 ```javascript
-// Join DVs to Assets
-db.businessObjects.aggregate([
-    {$match: {
-        'info.owner.subID': sub_id,
-        'md.type': 'detectedVulnerabilities',
-        'info.status': 'Open'
-    }},
-    {$lookup: {
-        from: 'businessObjects',
-        let: {asset_ids: '$related.assets'},
-        pipeline: [
-            {$match: {
-                $expr: {$in: ['$_id', '$$asset_ids']},
-                'info.owner.subID': sub_id
-            }},
-            {$project: {
-                _id: 1,
-                'data.name': 1,
-                'data.ipAddresses': 1,
-                'data.operatingSystem': 1
-            }}
-        ],
-        as: 'assets'
-    }},
-    {$project: {
-        _id: 1,
-        asset: {$arrayElemAt: ['$assets', 0]}  // DV has one asset
-    }}
+// BAD - sequential lookups
+db.orders.aggregate([
+    {$lookup: {from: 'customers', ...}},
+    {$lookup: {from: 'products', ...}},
+    {$lookup: {from: 'shipping', ...}}
 ])
+
+// BETTER - combine lookups where possible
+db.orders.aggregate([
+    {$lookup: {
+        from: 'customers',
+        let: {customer_id: '$customer_id'},
+        pipeline: [
+            {$match: {$expr: {$eq: ['$_id', '$$customer_id']}}},
+            // Nested lookup within first lookup (if needed)
+            {$lookup: {from: 'addresses', ...}}
+        ],
+        as: 'customer'
+    }},
+    {$lookup: {from: 'products', ...}}
+])
+
+// BEST - denormalize if data rarely changes
+// Store customer name/email in orders collection
 ```
 
 **Performance**: 10-50x faster with indexed lookup field.
 
-## 6. $group Optimization
+---
+
+## 5. $group Optimization
 
 **Group before sort**: Reduce data volume before sorting.
 
@@ -360,23 +330,23 @@ db.businessObjects.aggregate([
 
 ```javascript
 // BAD - accumulates large arrays
-db.businessObjects.aggregate([
-    {$match: {'info.owner.subID': sub_id}},
+db.orders.aggregate([
+    {$match: {status: 'completed'}},
     {$group: {
-        _id: '$md.type',
-        docs: {$push: '$$ROOT'}  // Entire documents
+        _id: '$customer_id',
+        orders: {$push: '$$ROOT'}  // Entire documents
     }},
     {$sort: {count: -1}}
 ])
 
 // GOOD - accumulate only needed data
-db.businessObjects.aggregate([
-    {$match: {'info.owner.subID': sub_id}},
+db.orders.aggregate([
+    {$match: {status: 'completed'}},
     {$group: {
-        _id: '$md.type',
+        _id: '$customer_id',
         count: {$sum: 1},
-        first_doc_id: {$first: '$_id'},
-        last_updated: {$max: '$md.date.updated'}
+        first_order_id: {$first: '$_id'},
+        last_order_date: {$max: '$created_at'}
     }},
     {$sort: {count: -1}}
 ])
@@ -387,47 +357,45 @@ db.businessObjects.aggregate([
 MongoDB has 100MB memory limit for blocking stages ($group, $sort):
 ```javascript
 // Enable disk usage for large aggregations
-db.businessObjects.aggregate(
+db.collection.aggregate(
     pipeline,
     {allowDiskUse: true}
 )
 ```
 
-**M32RIMM pattern** (from vendor_scores.py):
+### Nested Grouping Pattern
+
 ```javascript
-// Group twice - first by category, then by vendor
-db.businessObjects.aggregate([
-    {$match: {
-        '_id': {$in: vendor_ids},
-        'info.owner.subID': sub_id
-    }},
-    {$unwind: '$related.procedures'},
-    {$lookup: {...}},  // Join procedures
-    {$group: {  // First group: vendor + category
+// Group twice - first by subcategory, then by category
+db.products.aggregate([
+    {$match: {status: 'active'}},
+    {$group: {  // First group: category + subcategory
         _id: {
-            v_id: '$_id',
-            p_category: '$proc.category'
+            category: '$category',
+            subcategory: '$subcategory'
         },
-        raw_score: {$sum: '$proc.score'},
-        max_score: {$sum: '$proc.max_score'}
+        count: {$sum: 1},
+        avg_price: {$avg: '$price'}
     }},
-    {$group: {  // Second group: vendor only
-        _id: '$_id.v_id',
-        data: {
+    {$group: {  // Second group: category only
+        _id: '$_id.category',
+        subcategories: {
             $push: {
-                category: '$_id.p_category',
-                raw_score: '$raw_score',
-                max_score: '$max_score'
+                name: '$_id.subcategory',
+                count: '$count',
+                avg_price: '$avg_price'
             }
-        }
+        },
+        total: {$sum: '$count'}
     }}
 ], {allowDiskUse: true})
 ```
 
-## 7. Materialized Views with $merge/$out
+---
 
-**Use case**: Heavy aggregations run frequently (portfolio risk scores,
-trend analysis).
+## 6. Materialized Views with $merge/$out
+
+**Use case**: Heavy aggregations run frequently (dashboards, reports).
 
 ### $merge vs $out
 
@@ -441,22 +409,24 @@ trend analysis).
 ### $merge Pattern
 
 ```javascript
-// Materialize portfolio risk scores
-db.businessObjects.aggregate([
+// Materialize daily sales summary
+db.orders.aggregate([
     {$match: {
-        'info.owner.subID': sub_id,
-        'md.type': 'detectedVulnerabilities'
+        status: 'completed',
+        created_at: {$gte: ISODate('2025-01-01')}
     }},
     {$group: {
         _id: {
-            sub_id: '$info.owner.subID',
-            severity: '$data.severity'
+            year: {$year: '$created_at'},
+            month: {$month: '$created_at'},
+            day: {$dayOfMonth: '$created_at'}
         },
-        count: {$sum: 1},
-        last_updated: {$max: '$md.date.updated'}
+        total_sales: {$sum: '$amount'},
+        order_count: {$sum: 1},
+        last_updated: {$max: '$updated_at'}
     }},
     {$merge: {
-        into: 'portfolioScores',
+        into: 'dailySales',
         on: '_id',
         whenMatched: 'replace',
         whenNotMatched: 'insert'
@@ -468,16 +438,14 @@ db.businessObjects.aggregate([
 
 ```javascript
 // Full refresh of aggregated data
-db.businessObjects.aggregate([
-    {$match: {
-        'info.owner.subID': sub_id,
-        'md.type': 'assets'
-    }},
+db.products.aggregate([
+    {$match: {status: 'active'}},
     {$group: {
-        _id: '$data.operatingSystem',
-        count: {$sum: 1}
+        _id: '$category',
+        count: {$sum: 1},
+        avg_price: {$avg: '$price'}
     }},
-    {$out: 'assetsByOS'}  // Replaces collection
+    {$out: 'productsByCategory'}  // Replaces collection
 ])
 ```
 
@@ -485,19 +453,18 @@ db.businessObjects.aggregate([
 
 ```python
 # Run during low-load periods
-def refresh_materialized_views(config, sub_id):
-    """Refresh materialized views for portfolio metrics."""
-    db = get_db(config)
-
-    # Heavy aggregation - run off-hours
+def refresh_materialized_views(db):
+    """Refresh materialized views for dashboard metrics."""
     pipeline = [...]
-    db.businessObjects.aggregate(
-        pipeline + [{$merge: {into: 'portfolioScores', ...}}],
+    db.orders.aggregate(
+        pipeline + [{$merge: {into: 'dailySales', ...}}],
         allowDiskUse=True
     )
 ```
 
-## 8. Slot-Based Execution Engine (MongoDB 5.0+)
+---
+
+## 7. Slot-Based Execution Engine (MongoDB 5.0+)
 
 **Automatic performance improvement** for certain stage combinations.
 
@@ -516,159 +483,14 @@ def refresh_materialized_views(config, sub_id):
 db.adminCommand({getParameter: 1, internalQuerySlotBasedExecutionEngine: 1})
 ```
 
-## 9. Common M32RIMM Aggregation Patterns
+---
 
-### Pattern 1: DV Count by Severity
-
-```javascript
-// Count DVs per severity for subscription
-db.businessObjects.aggregate([
-    {$match: {
-        'info.owner.subID': sub_id,
-        'md.type': 'detectedVulnerabilities',
-        'info.status': 'Open'
-    }},
-    {$group: {
-        _id: '$data.severity',
-        count: {$sum: 1},
-        avg_cvss: {$avg: '$data.cvss_base_score'}
-    }},
-    {$sort: {count: -1}}
-])
-```
-
-### Pattern 2: Asset Vulnerability Distribution
-
-```javascript
-// Count vulns per asset
-db.businessObjects.aggregate([
-    {$match: {
-        'info.owner.subID': sub_id,
-        'md.type': 'detectedVulnerabilities',
-        'info.status': 'Open'
-    }},
-    {$project: {
-        asset_id: {$arrayElemAt: ['$related.assets', 0]}
-    }},
-    {$group: {
-        _id: '$asset_id',
-        vuln_count: {$sum: 1}
-    }},
-    {$sort: {vuln_count: -1}},
-    {$limit: 10}  // Top 10 most vulnerable
-])
-```
-
-### Pattern 3: Trend Analysis (Time-Based Grouping)
-
-```javascript
-// DV count per week for last 90 days
-const ninety_days_ago = new Date();
-ninety_days_ago.setDate(ninety_days_ago.getDate() - 90);
-
-db.businessObjects.aggregate([
-    {$match: {
-        'info.owner.subID': sub_id,
-        'md.type': 'detectedVulnerabilities',
-        'md.date.created': {$gte: ninety_days_ago}
-    }},
-    {$group: {
-        _id: {
-            year: {$year: '$md.date.created'},
-            week: {$week: '$md.date.created'}
-        },
-        count: {$sum: 1}
-    }},
-    {$sort: {'_id.year': 1, '_id.week': 1}}
-])
-```
-
-### Pattern 4: Portfolio Risk Score
-
-```javascript
-// Aggregate CVSS scores weighted by asset criticality
-db.businessObjects.aggregate([
-    {$match: {
-        'info.owner.subID': sub_id,
-        'md.type': 'detectedVulnerabilities',
-        'info.status': 'Open',
-        'data.cvss_base_score': {$exists: true}
-    }},
-    {$lookup: {
-        from: 'businessObjects',
-        let: {asset_ids: '$related.assets'},
-        pipeline: [
-            {$match: {
-                $expr: {$in: ['$_id', '$$asset_ids']},
-                'info.owner.subID': sub_id
-            }},
-            {$project: {
-                _id: 1,
-                criticality: '$data.criticality'
-            }}
-        ],
-        as: 'asset'
-    }},
-    {$project: {
-        cvss: '$data.cvss_base_score',
-        criticality: {$arrayElemAt: ['$asset.criticality', 0]}
-    }},
-    {$group: {
-        _id: null,
-        weighted_score: {
-            $sum: {$multiply: ['$cvss', '$criticality']}
-        },
-        total_dvs: {$sum: 1}
-    }},
-    {$project: {
-        portfolio_risk: {$divide: ['$weighted_score', '$total_dvs']}
-    }}
-])
-```
-
-### Pattern 5: Compliance Reporting
-
-```javascript
-// Group compliance findings by control family
-db.businessObjects.aggregate([
-    {$match: {
-        'info.owner.subID': sub_id,
-        'md.type': 'detectedVulnerabilities',
-        'data.vuln_type': 'compliance',
-        'info.status': 'Open'
-    }},
-    {$lookup: {
-        from: 'businessObjects',
-        let: {kv_ids: '$related.vulnerabilities'},
-        pipeline: [
-            {$match: {
-                $expr: {$in: ['$_id', '$$kv_ids']},
-                'info.owner.subID': sub_id
-            }},
-            {$project: {
-                control_family: '$data.control_family'
-            }}
-        ],
-        as: 'kvs'
-    }},
-    {$unwind: '$kvs'},
-    {$group: {
-        _id: '$kvs.control_family',
-        finding_count: {$sum: 1},
-        high_severity: {
-            $sum: {$cond: [{$eq: ['$data.severity', 'High']}, 1, 0]}
-        }
-    }},
-    {$sort: {finding_count: -1}}
-])
-```
-
-## 10. Debugging Slow Pipelines
+## 8. Debugging Slow Pipelines
 
 ### Step 1: Explain Query
 
 ```javascript
-db.businessObjects.explain('executionStats').aggregate([...])
+db.collection.explain('executionStats').aggregate([...])
 ```
 
 **Key metrics**:
@@ -707,137 +529,176 @@ db.setProfilingLevel(0)
 pipeline = [
     {$match: {...}},  # Test this first
 ]
-result = db.businessObjects.aggregate(pipeline)
+result = db.collection.aggregate(pipeline)
 print(f"Stage 1: {len(list(result))} docs")
 
 pipeline.append({$project: {...}})  # Add next stage
-result = db.businessObjects.aggregate(pipeline)
+result = db.collection.aggregate(pipeline)
 print(f"Stage 2: {len(list(result))} docs")
 
 # Continue until bottleneck found
 ```
 
-## 11. Anti-Patterns to Avoid
+### Step 5: MongoDB Compass Visual Explain
+
+Use MongoDB Compass for visual pipeline analysis:
+1. Copy pipeline to Compass
+2. Click "Explain" tab
+3. View stage-by-stage execution plan
+4. Identify bottlenecks (COLLSCAN, large doc transfers)
+
+---
+
+## 9. Common Patterns & Examples
+
+### Pattern 1: Count by Category
+
+```javascript
+db.products.aggregate([
+    {$match: {status: 'active'}},
+    {$group: {
+        _id: '$category',
+        count: {$sum: 1},
+        avg_price: {$avg: '$price'}
+    }},
+    {$sort: {count: -1}}
+])
+```
+
+### Pattern 2: Top N Results
+
+```javascript
+// Top 10 customers by order count
+db.orders.aggregate([
+    {$match: {status: 'completed'}},
+    {$group: {
+        _id: '$customer_id',
+        order_count: {$sum: 1},
+        total_spent: {$sum: '$amount'}
+    }},
+    {$sort: {order_count: -1}},
+    {$limit: 10}
+])
+```
+
+### Pattern 3: Time-Based Aggregation
+
+```javascript
+// Orders per week for last 90 days
+const ninety_days_ago = new Date();
+ninety_days_ago.setDate(ninety_days_ago.getDate() - 90);
+
+db.orders.aggregate([
+    {$match: {
+        created_at: {$gte: ninety_days_ago}
+    }},
+    {$group: {
+        _id: {
+            year: {$year: '$created_at'},
+            week: {$week: '$created_at'}
+        },
+        count: {$sum: 1},
+        total: {$sum: '$amount'}
+    }},
+    {$sort: {'_id.year': 1, '_id.week': 1}}
+])
+```
+
+### Pattern 4: Join and Aggregate
+
+```javascript
+// Order totals with customer info
+db.orders.aggregate([
+    {$match: {status: 'completed'}},
+    {$lookup: {
+        from: 'customers',
+        let: {customer_id: '$customer_id'},
+        pipeline: [
+            {$match: {$expr: {$eq: ['$_id', '$$customer_id']}}},
+            {$project: {_id: 1, name: 1, email: 1}}
+        ],
+        as: 'customer'
+    }},
+    {$project: {
+        _id: 1,
+        amount: 1,
+        customer: {$arrayElemAt: ['$customer', 0]}
+    }}
+])
+```
+
+### Pattern 5: Conditional Aggregation
+
+```javascript
+// Count orders by status category
+db.orders.aggregate([
+    {$group: {
+        _id: null,
+        pending: {$sum: {$cond: [{$eq: ['$status', 'pending']}, 1, 0]}},
+        completed: {$sum: {$cond: [{$eq: ['$status', 'completed']}, 1, 0]}},
+        cancelled: {$sum: {$cond: [{$eq: ['$status', 'cancelled']}, 1, 0]}}
+    }}
+])
+```
+
+---
+
+## 10. Anti-Patterns to Avoid
 
 **DON'T**:
 - $match after $lookup (filter before lookup)
 - $unwind → $group for array transformations (use array operators)
-- Missing subscription ID filter (query entire collection)
 - Querying without indexes (collection scans are slow)
 - Multiple sequential $lookup stages (denormalize or combine)
 - Bare $group without $match (groups entire collection)
 - $sort before $limit without index (sorts everything)
 - Projecting all fields before $lookup (transfer unnecessary data)
+- Ignoring allowDiskUse for large aggregations (100MB memory limit)
 
 **DO**:
-- Filter by subscription ID first
+- Filter early (smallest dataset possible)
 - Use indexed fields in $match
 - Project only needed fields
 - Use array operators for array manipulation
 - Combine lookups when possible
 - Enable allowDiskUse for large aggregations
 - Check explain() output before deploying
+- Create compound indexes for common query patterns
 
-## 12. M32RIMM-Specific Notes
+---
 
-### Collection Size Considerations
-
-- **businessObjects**: 10M+ documents in production
-- **Always filter by subscription**: Reduces dataset by ~1000x
-- **Use indexes**: Query time from minutes to milliseconds
-- **Test with explain()**: Validate performance before deploy
-
-### Existing Indexes
-
-```javascript
-// Common businessObjects indexes
-{
-    'info.owner.subID': 1,
-    'md.type': 1,
-    'md.date.updated': -1
-}
-
-{
-    'info.owner.subID': 1,
-    'info.status': 1
-}
-
-{
-    '_id': 1,
-    'info.owner.subID': 1
-}
-```
-
-### Real-World Examples from Codebase
-
-**slow_aggregator.py** (line 813):
-```python
-# Out-of-date BOs aggregation
-pipeline = [
-    match,  # Subscription filter FIRST
-    {'$project': {'_id': True, 'md.date.updated': True}},
-    {'$lookup': {
-        'from': collection,
-        'localField': '_id',
-        'foreignField': '_id',
-        'as': 'grid'
-    }},
-    {'$unwind': {
-        'path': '$grid',
-        'preserveNullAndEmptyArrays': True
-    }},
-    # Compare timestamps to find out-of-date docs
-]
-```
-
-**vendor_scores.py** (line 438):
-```python
-# Vendor score aggregation with nested groups
-pipeline = [
-    {'$match': {
-        '_id': {'$in': vendor_ids},
-        'info.owner.subID': sub_id,  # Subscription filter
-        'related.procedures.0': {'$exists': True}
-    }},
-    {'$project': {...}},  # Reduce fields before unwind
-    {'$unwind': '$rel_procs'},
-    {'$lookup': {...}},  # Join procedures with pipeline filter
-    {'$group': {...}},  # Group by vendor + category
-    {'$group': {...}}   # Group by vendor only
-]
-```
-
-## Performance Benchmarks
+## Performance Benchmarks (Generic Patterns)
 
 | Optimization | Before | After | Speedup |
 |--------------|--------|-------|---------|
-| Early $match by subscription | 45s | 0.5s | 90x |
+| Early $match (1M → 10K docs) | 45s | 0.5s | 90x |
 | Covered query (indexed fields only) | 2.3s | 0.2s | 11x |
 | Array $filter vs $unwind/$group | 8.1s | 0.9s | 9x |
 | Indexed $lookup | 120s | 2.4s | 50x |
 | Project before $lookup | 15s | 1.8s | 8x |
 
-**Measured on**: businessObjects collection with 12M documents,
-subscription with ~10K docs.
+**Note**: Actual performance depends on collection size, hardware, and data distribution.
+
+---
 
 ## Quick Reference Card
 
 ```javascript
-// 1. ALWAYS filter by subscription first
-{$match: {'info.owner.subID': sub_id, 'md.type': 'assets'}}
+// 1. Filter early (most selective filters first)
+{$match: {tenant_id: 'abc', status: 'active'}}
 
 // 2. Project before expensive operations
-{$project: {_id: 1, 'related.assets': 1}}
+{$project: {_id: 1, needed_field: 1}}
 
 // 3. Use array operators (not $unwind/$group)
-{$filter: {input: '$related.dvs', cond: {...}}}
+{$filter: {input: '$items', cond: {...}}}
 
 // 4. Optimize lookups with pipeline
 {$lookup: {
     from: 'collection',
     let: {...},
     pipeline: [
-        {$match: {$expr: {...}, 'info.owner.subID': sub_id}}
+        {$match: {$expr: {...}, status: 'active'}}
     ],
     as: 'result'
 }}
@@ -847,18 +708,59 @@ db.collection.explain('executionStats').aggregate([...])
 
 // 6. Enable disk usage for large aggregations
 db.collection.aggregate(pipeline, {allowDiskUse: true})
+
+// 7. Use covered queries when possible
+// Only project indexed fields
+
+// 8. Group before sort (reduce data volume)
+{$group: {...}}, {$sort: {...}}
 ```
+
+---
+
+## MongoDB Version Considerations
+
+### MongoDB 4.4+
+- $accumulator and $function for custom aggregations
+- $merge stage for incremental updates
+- Union with $unionWith
+
+### MongoDB 5.0+
+- Slot-based execution engine (automatic optimization)
+- Time series collections optimizations
+- $setWindowFields for window functions
+
+### MongoDB 6.0+
+- Encrypted aggregation pipelines
+- Improved $lookup performance
+- Better memory management
+
+**Check version**: `db.version()`
+
+---
 
 ## Remember
 
-**Priorities**:
-1. **Filter by subscription FIRST** - Reduces dataset by 1000x
+**General Priorities**:
+1. **Filter early** - Smallest dataset possible before expensive operations
 2. **Use indexes** - Query time from minutes to milliseconds
-3. **Early filtering** - Less data = faster processing
-4. **Test with explain()** - Validate before deploying
+3. **Test with explain()** - Validate index usage before deploying
+4. **Profile slow queries** - Find bottlenecks in production
 
 **When in doubt**:
-- Check existing aggregations in codebase
-- Use explain() to verify index usage
+- Start with explain() to check index usage
 - Test on production-sized data
 - Profile slow queries to find bottlenecks
+- Use MongoDB Compass for visual pipeline analysis
+
+---
+
+## See Also
+
+- **MongoDB Documentation**: [Aggregation Pipeline Optimization](https://docs.mongodb.com/manual/core/aggregation-pipeline-optimization/)
+- **Project-Specific Skills**:
+  - `mongodb-m32rimm-patterns`: M32RIMM/FISIO-specific aggregation patterns (subscription isolation, businessObjects, DV/Asset queries)
+- **Related Topics**:
+  - Index design best practices
+  - Query performance tuning
+  - Schema design for aggregation efficiency

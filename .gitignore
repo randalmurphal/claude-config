@@ -51,7 +51,7 @@ local/
 # Node modules (if any MCP servers get installed locally)
 node_modules/
 
-statusline.sh
+statusline-command.sh
 
 # Backup files
 *.bak
@@ -64,3 +64,5 @@ file-history/
 
 settings.json
 debug/
+
+session-env/

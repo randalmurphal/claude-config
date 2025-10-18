@@ -1,5 +1,0 @@
-"""Orchestration service clients."""
-
-from orchestration_mcp.clients.prism import PrismClient
-
-__all__ = ["PrismClient"]

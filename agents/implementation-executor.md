@@ -77,9 +77,9 @@ prism_detect_patterns(
 
 - **SPEC FILE** (primary source - check prompt for path)
 - Skeleton files (with NotImplementedError)
-- `.prelude/ARCHITECTURE.md` (design decisions)
+- `.spec/ARCHITECTURE.md` (design decisions)
 - `CLAUDE.md` (project patterns)
-- `.prelude/GOALS.md` (what features need)
+- `.spec/GOALS.md` (what features need)
 
 ## Skills to Invoke (Load Project Standards)
 

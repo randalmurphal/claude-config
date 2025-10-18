@@ -40,7 +40,7 @@ prism_query_context(
 ## Input Context
 
 Receives:
-- `.prelude/GOALS.md` (what needs to be built)
+- `.spec/GOALS.md` (what needs to be built)
 - `CLAUDE.md` (project conventions)
 - Existing codebase structure (if extending)
 - SPEC.md specification (if exists)
@@ -135,7 +135,7 @@ Receives:
    ```
 
 7. **Create Architecture Document**
-   - Write `.prelude/ARCHITECTURE.md`
+   - Write `.spec/ARCHITECTURE.md`
    - Include: modules, decisions, contracts, dependencies
    - Add WHY for each major decision
 
@@ -159,7 +159,7 @@ Before marking complete:
 
 ## Success Criteria
 
-✅ Created `.prelude/ARCHITECTURE.md` with:
+✅ Created `.spec/ARCHITECTURE.md` with:
 - Module structure (3-8 modules, not too granular)
 - Common infrastructure specification (complete)
 - Technology decisions (with WHY for each)

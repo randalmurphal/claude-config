@@ -35,7 +35,7 @@ This directory contains Claude Code configuration, hooks, orchestration patterns
 
 ### Orchestration Patterns (Agent Instructions)
 - `/home/rmurphy/.claude/orchestration/README.md` - Orchestration overview (115 lines)
-- `/home/rmurphy/.claude/orchestration/PRELUDE_INSTRUCTIONS.md` - Discovery phase for /spec (515 lines)
+- `/home/rmurphy/.claude/orchestration/SPEC_INSTRUCTIONS.md` - Discovery phase for /spec (515 lines)
 - `/home/rmurphy/.claude/orchestration/CONDUCT_INSTRUCTIONS.md` - Execution phase for /conduct (752 lines)
 - `/home/rmurphy/.claude/orchestration/ORCHESTRATOR_PATTERN.md` - General orchestration patterns (217 lines)
 - `/home/rmurphy/.claude/orchestration/READY_TEMPLATE.md` - Final spec readiness validation (270 lines)
@@ -129,7 +129,7 @@ This directory contains Claude Code configuration, hooks, orchestration patterns
 
 ### Planning Complex Feature
 1. Start with `/home/rmurphy/.claude/commands/spec.md` - Investigation phase
-2. Reference `/home/rmurphy/.claude/orchestration/PRELUDE_INSTRUCTIONS.md` - Spike testing approach
+2. Reference `/home/rmurphy/.claude/orchestration/SPEC_INSTRUCTIONS.md` - Spike testing approach
 3. Then use `/home/rmurphy/.claude/commands/conduct.md` - Full orchestration
 
 ### Implementing from SPEC.md
@@ -194,7 +194,7 @@ This directory contains Claude Code configuration, hooks, orchestration patterns
 │   └── index.md
 │
 ├── orchestration/              # Agent orchestration (5 files)
-│   ├── PRELUDE_INSTRUCTIONS.md
+│   ├── SPEC_INSTRUCTIONS.md
 │   ├── CONDUCT_INSTRUCTIONS.md
 │   ├── ORCHESTRATOR_PATTERN.md
 │   ├── READY_TEMPLATE.md
@@ -244,7 +244,7 @@ This directory contains Claude Code configuration, hooks, orchestration patterns
 - Developer writing docs → docs/ + templates/
 
 **By phase:**
-- Discovery → spec.md + PRELUDE_INSTRUCTIONS.md
+- Discovery → spec.md + SPEC_INSTRUCTIONS.md
 - Planning → SPEC.md format in templates/
 - Implementation → conduct.md + CONDUCT_INSTRUCTIONS.md
 - Validation → TESTING_STANDARDS.md + review agents

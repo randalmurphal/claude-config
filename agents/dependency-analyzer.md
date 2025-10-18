@@ -40,7 +40,7 @@ prism_detect_patterns(
 ## Input Context
 
 Receives:
-- `.prelude/ARCHITECTURE.md` (planned structure)
+- `.spec/ARCHITECTURE.md` (planned structure)
 - Existing codebase (if extending)
 - Skeleton files (if in skeleton phase)
 - Module list to analyze
@@ -201,8 +201,8 @@ Receives:
    ```
 
 7. **Save Artifacts**
-   - Write `.prelude/DEPENDENCIES.json` (machine-readable graph)
-   - Write `.prelude/DEPENDENCY_ANALYSIS.md` (human-readable report)
+   - Write `.spec/DEPENDENCIES.json` (machine-readable graph)
+   - Write `.spec/DEPENDENCY_ANALYSIS.md` (human-readable report)
    - Generate visual graph (if graphviz available)
 
 ## Constraints (What You DON'T Do)
@@ -225,12 +225,12 @@ Before marking complete:
 
 ## Success Criteria
 
-✅ Generated `.prelude/DEPENDENCIES.json` with:
+✅ Generated `.spec/DEPENDENCIES.json` with:
 - Complete import graph (nodes + edges)
 - Build order (topologically sorted levels)
 - Circular dependency detection results
 
-✅ Generated `.prelude/DEPENDENCY_ANALYSIS.md` with:
+✅ Generated `.spec/DEPENDENCY_ANALYSIS.md` with:
 - Build order with levels
 - Parallelization strategy
 - Issues detected (circular deps, missing deps)

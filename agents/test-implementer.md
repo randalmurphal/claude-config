@@ -64,7 +64,7 @@ prism_retrieve_memories(
 - **SPEC FILE** (primary source - check prompt for path)
 - Test skeleton files (with NotImplementedError)
 - Production code to test
-- `.prelude/ARCHITECTURE.md` (design decisions)
+- `.spec/ARCHITECTURE.md` (design decisions)
 - Testing standards documentation
 
 ## Skills to Invoke (Load Testing Standards)

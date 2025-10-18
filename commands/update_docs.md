@@ -299,7 +299,7 @@ See ~/.claude/docs/DOCUMENTATION_VALIDATOR_AGENT.md for methodology.
 **If CLAUDE.md issues found:**
 
 ```python
-Task(general-builder, """
+Task(documentation-writer, """
 Optimize CLAUDE.md following AI documentation best practices.
 
 Files with issues: [list CLAUDE.md files needing optimization]

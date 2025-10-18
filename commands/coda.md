@@ -111,10 +111,10 @@ When another developer needs to understand current state:
 - Structures information for **immediate use**
 - Can be used as the **first message** in a new conversation
 
-## Integration with /conduct and /prelude
+## Integration with /conduct and /spec
 
 The symphony of commands:
-- **`/prelude`** - Sets up and prepares the task specification
+- **`/spec`** - Sets up and prepares the task specification
 - **`/conduct`** - Orchestrates the execution
 - **`/coda`** - Concludes with a summary of main themes
 

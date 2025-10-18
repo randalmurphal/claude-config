@@ -41,9 +41,9 @@ prism_query_context(
 ## Input Context
 
 Receives:
-- `.prelude/ARCHITECTURE.md` (what to build)
+- `.spec/ARCHITECTURE.md` (what to build)
 - `CLAUDE.md` (project conventions)
-- `.prelude/DEPENDENCIES.json` (build order)
+- `.spec/DEPENDENCIES.json` (build order)
 
 ## Skills to Invoke (Load Project Standards)
 
@@ -66,7 +66,7 @@ This loads:
 
 1. **Read Architecture**
    ```python
-   architecture = read_file(".prelude/ARCHITECTURE.md")
+   architecture = read_file(".spec/ARCHITECTURE.md")
    modules = extract_modules(architecture)
    contracts = extract_contracts(architecture)
    ```

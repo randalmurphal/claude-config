@@ -429,9 +429,9 @@ User action needed:
 
 ## Appendix: Spike Test Results
 
-**Spike tests performed during /prelude:**
+**Spike tests performed during /spec:**
 
-1. **[Component tested]** (spike location: `.prelude/SPIKE_RESULTS/[name].md`)
+1. **[Component tested]** (spike location: `.spec/SPIKE_RESULTS/[name].md`)
    - **Finding:** [Key discovery]
    - **Validation:** [Command that proves it works]
 
@@ -460,7 +460,7 @@ User action needed:
 
 | Date | Change | Reason |
 |------|--------|--------|
-| [YYYY-MM-DD] | Initial spec | First prelude completion |
+| [YYYY-MM-DD] | Initial spec | First spec completion |
 | [YYYY-MM-DD] | [Change] | [Why it changed] |
 
 ---

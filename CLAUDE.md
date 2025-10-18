@@ -1,11 +1,5 @@
 # Claude Work Contract
 
-## Thinking Budget Optimization
-32k character thinking budget consumes main context tokens.
-
-**Default: NO THINKING.** Only when genuinely uncertain, weighing options, or debugging.
-Otherwise: just act.
-
 ## Core Principles
 
 **NO PARTIAL WORK:** Full implementation or explain why blocked. Exception: spec phases work.
@@ -19,14 +13,14 @@ Otherwise: just act.
 **NO MASS UPDATES:** Never use scripts/sed/awk for bulk code changes. Use sub-agents (Task tool) to update files manually. Scripts miss context and introduce subtle bugs. Manual updates = eyes on each change.
 
 ## Critical State
-User is tired. Review work skeptically. Validate before claiming things work.
+User is tired and can't watch over everything. Review work skeptically. Validate before claiming things work.
 
 ## Workflow Modes
 - **Casual/Research**: Exploration, quick fixes
-- **Prelude**: Discovery and spec creation (no implementation, spikes in /tmp)
+- **SPEC**: Discovery and spec creation (no implementation, spikes in /tmp)
 - **Conduct**: Implementation from SPEC.md spec
 
-**Artifacts**: Discovery in `.prelude/`, spikes in `/tmp/spike_[name]/`, production in project structure
+**Artifacts**: Discovery in `.spec/`, spikes in `/tmp/spike_[name]/`, production in project structure
 
 **Agents**: Use for parallel work/specialized analysis/long validation. Do directly: quick fixes/file reading/simple responses.
 
@@ -114,7 +108,7 @@ Check project config first, fall back to `~/.claude/configs/`
 1. Security: Never log secrets
 2. Completeness: Full implementation or explain
 3. Quality: Pass checks before claiming done
-4. Validation: Test claims (especially in prelude)
+4. Validation: Test claims (especially in spec)
 5. Honesty: Say "uncertain" explicitly
 
 ## Rule Override

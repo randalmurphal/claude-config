@@ -19,7 +19,7 @@
 - Implementation phases with order
 - Dependencies and gotchas
 - Success criteria
-- All human/Claude intelligence from /prelude
+- All human/Claude intelligence from /spec
 
 ## Orchestrator Workflow
 

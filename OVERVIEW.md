@@ -59,7 +59,7 @@ User Task
 - Integrate with agent definitions
 
 **Orchestration Patterns** (orchestration/):
-- PRELUDE_INSTRUCTIONS.md - Discovery phase (spike testing, investigation)
+- SPEC_INSTRUCTIONS.md - Discovery phase (spike testing, investigation)
 - CONDUCT_INSTRUCTIONS.md - Execution phase (dependency-aware implementation)
 - ORCHESTRATOR_PATTERN.md - General orchestration principles
 
@@ -173,7 +173,7 @@ Project configs take priority, these are fallbacks.
 ### Workflow Example: Complex Feature (/spec + /conduct)
 
 1. **User**: `/spec add real-time event processing with gRPC`
-2. **Spec Phase** (spec.md + PRELUDE_INSTRUCTIONS.md):
+2. **Spec Phase** (spec.md + SPEC_INSTRUCTIONS.md):
    - Initial assessment (3-5 questions)
    - Auto-investigation (read existing code)
    - Challenge mode (find ≥3 concerns)
@@ -295,7 +295,7 @@ Project configs take priority, these are fallbacks.
 
 **Orchestrating a task**:
 1. Read command file (solo.md, spec.md, or conduct.md)
-2. Read orchestration instructions (PRELUDE_INSTRUCTIONS.md or CONDUCT_INSTRUCTIONS.md)
+2. Read orchestration instructions (SPEC_INSTRUCTIONS.md or CONDUCT_INSTRUCTIONS.md)
 3. Reference agent definitions when spawning sub-agents
 4. Use templates for spec and response formats
 

@@ -28,7 +28,7 @@ prism_retrieve_memories(
 ## Input Context
 
 - Code skeleton from skeleton-builder
-- `.prelude/GOALS.md` (success criteria → tests)
+- `.spec/GOALS.md` (success criteria → tests)
 - `CLAUDE.md` (testing conventions)
 
 ## Your Workflow

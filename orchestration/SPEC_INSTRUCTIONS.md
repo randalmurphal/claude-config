@@ -1,4 +1,4 @@
-# /prelude - Discovery Phase Instructions
+# /spec - Discovery Phase Instructions
 
 ## Your Role: Staff Architect Building Agent-Executable Specs
 
@@ -24,7 +24,7 @@ mkdir -p /tmp/spike_grpc_py311
 cd /tmp/spike_grpc_py311
 # Create minimal test
 # Run it
-# Document result in .prelude/SPIKE_RESULTS/grpc_py311.md
+# Document result in .spec/SPIKE_RESULTS/grpc_py311.md
 # Delete spike after documenting
 ```
 
@@ -38,7 +38,7 @@ cd /tmp/spike_grpc_py311
 - What are the hard constraints? (languages, frameworks, deployment)
 - What's the success definition?
 
-**Output:** `.prelude/MISSION.md`
+**Output:** `.spec/MISSION.md`
 ```markdown
 # Mission
 
@@ -73,7 +73,7 @@ Build real-time event processing system demonstrating enterprise microservice pa
    - Integration points
 
 3. **Save spike results:**
-   `.prelude/SPIKE_RESULTS/component_name.md`
+   `.spec/SPIKE_RESULTS/component_name.md`
 
 **Questions to answer per component:**
 - What's the minimal working example?
@@ -181,7 +181,7 @@ Review spike results and list:
 Split into multiple specs:
 
 ```
-.prelude/
+.spec/
 ├── MISSION.md
 ├── SPEC_INFRASTRUCTURE.md  (databases, queues, deployment)
 ├── SPEC_BACKEND.md          (services, APIs)
@@ -298,7 +298,7 @@ ls go/  # Check files created
 # Document result
 ```
 
-**Result saved to `.prelude/SPIKE_RESULTS/proto_generation.md`:**
+**Result saved to `.spec/SPIKE_RESULTS/proto_generation.md`:**
 ```markdown
 # Proto Generation Spike
 
@@ -403,7 +403,7 @@ kill %1
 
 **Everything learned during spikes goes into:**
 
-`.prelude/DISCOVERIES.md` (running log)
+`.spec/DISCOVERIES.md` (running log)
 ```markdown
 # Discoveries
 
@@ -420,7 +420,7 @@ kill %1
 **Confidence:** High (documented in SQLite docs + tested)
 ```
 
-`.prelude/SPIKE_RESULTS/` (detailed findings)
+`.spec/SPIKE_RESULTS/` (detailed findings)
 ```
 spike_grpc_keepalive.md
 spike_sqlite_concurrency.md
@@ -430,7 +430,7 @@ spike_jwt_validation.md
 
 ## When to Stop Exploring
 
-**You're done with /prelude when:**
+**You're done with /spec when:**
 
 1. ✅ Every component has been spike tested
 2. ✅ Validation commands proven to work
@@ -454,12 +454,12 @@ spike_jwt_validation.md
 
 ## Output Checklist
 
-Before exiting /prelude:
+Before exiting /spec:
 
-- [ ] `.prelude/MISSION.md` (why we're building this)
+- [ ] `.spec/MISSION.md` (why we're building this)
 - [ ] `.spec/SPEC.md` (agent-executable spec with all sections)
-- [ ] `.prelude/SPIKE_RESULTS/*.md` (all spike findings)
-- [ ] `.prelude/DISCOVERIES.md` (key learnings)
+- [ ] `.spec/SPIKE_RESULTS/*.md` (all spike findings)
+- [ ] `.spec/DISCOVERIES.md` (key learnings)
 - [ ] All validation commands tested and work
 - [ ] Execution graph is clear and unambiguous
 - [ ] Every module has Success Criteria checkboxes
@@ -470,7 +470,7 @@ Before exiting /prelude:
 
 ## Final Step: Validate SPEC.md
 
-**Before declaring prelude complete:**
+**Before declaring spec complete:**
 
 1. Read SPEC.md as if you're the orchestrator agent
 2. Can you answer these questions from SPEC.md alone?
@@ -503,7 +503,7 @@ Before exiting /prelude:
 
 ## Summary
 
-**Prelude is NOT about writing docs. It's about building executable knowledge.**
+**Spec is NOT about writing docs. It's about building executable knowledge.**
 
 1. Spike test EVERYTHING
 2. Document exact commands that work

@@ -1,11 +1,11 @@
 # Orchestration Templates
 
-**Agent-optimized specifications for /prelude and /conduct workflows**
+**Agent-optimized specifications for /spec and /conduct workflows**
 
 ## Files
 
-### PRELUDE_INSTRUCTIONS.md
-**Use during:** `/prelude` command
+### SPEC_INSTRUCTIONS.md
+**Use during:** `/spec` command
 **Purpose:** Build agent-executable specifications through spike testing
 
 **Core workflow:**
@@ -31,7 +31,7 @@
 **Key principle:** Follow the spec, validate at every gate
 
 ### SPEC_TEMPLATE.md
-**Use during:** `/prelude` output
+**Use during:** `/spec` output
 **Purpose:** Template for agent-executable specifications
 
 **Sections:**
@@ -55,9 +55,9 @@
 
 ## Quick Reference
 
-### For /prelude:
+### For /spec:
 ```
-1. Read PRELUDE_INSTRUCTIONS.md
+1. Read SPEC_INSTRUCTIONS.md
 2. Spike test every component
 3. Fill out SPEC_TEMPLATE.md with findings
 4. Validate: could another agent execute this?
@@ -91,7 +91,7 @@
 
 ## Philosophy
 
-**Prelude = Build knowledge**
+**Spec = Build knowledge**
 - Spike test to understand
 - Document for agent execution
 - No guessing allowed

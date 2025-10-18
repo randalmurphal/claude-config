@@ -82,6 +82,24 @@ Check project config first, fall back to `~/.claude/configs/`
 - No commented code
 - WHY comments for non-obvious decisions
 
+## Skills Usage
+
+**Proactively load relevant skills** - don't rely on default knowledge when specialized guidance exists.
+
+**When to load**: At start of relevant work, not halfway through.
+**Why**: Skills contain specific standards and context that override general knowledge.
+
+**How to check available skills**: Check skill descriptions in the Skill tool's available_skills list.
+
+**Usage pattern**:
+- Writing Python? Load `python-style` first.
+- Writing tests? Load `testing-standards` first.
+- Spawning agents? Load `agent-prompting` first.
+- Working on MongoDB? Load `mongodb-aggregation-optimization` first.
+- Writing docs? Load `ai-documentation` first.
+
+**Be generous with skill loading** - if a skill exists for the domain, use it.
+
 ## Testing Standards
 **Location:** `~/.claude/docs/TESTING_STANDARDS.md`
 

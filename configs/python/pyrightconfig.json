@@ -1,0 +1,30 @@
+{
+  "include": [
+    "src",
+    "fisio",
+    "tests"
+  ],
+  "exclude": [
+    "**/node_modules",
+    "**/__pycache__",
+    "**/.pytest_cache",
+    "**/.venv",
+    "**/venv",
+    "**/.tox",
+    "**/build",
+    "**/dist"
+  ],
+  "typeCheckingMode": "basic",
+  "reportMissingImports": true,
+  "reportMissingTypeStubs": false,
+  "reportUnusedImport": false,
+  "reportUnusedVariable": false,
+  "reportDuplicateImport": true,
+  "reportOptionalMemberAccess": true,
+  "reportOptionalCall": true,
+  "reportOptionalOperand": true,
+  "reportOptionalSubscript": true,
+  "reportPrivateImportUsage": false,
+  "pythonVersion": "3.11",
+  "pythonPlatform": "Linux"
+}

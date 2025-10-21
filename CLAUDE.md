@@ -57,11 +57,16 @@ User is tired and can't watch over everything. Review work skeptically. Validate
 
 ## Language Tools
 **Container:** `nerdctl` (docker not available)
-**Python:** `ruff format/check`
+**Python:** `ruff format/check` (linting) + `pyright` (type checking)
 **JS/TS:** `prettier/eslint`
 **Go:** `golangci-lint run`
 
 Check project config first, fall back to `~/.claude/configs/`
+
+**Python tooling:**
+- Ruff replaces: pylint, black, isort, flake8
+- Pyright replaces: mypy
+- **For detailed guidance:** Load `python-linting` skill (usage, config, common patterns, troubleshooting)
 
 ## Git Safety
 **NEVER:** update config, force push to main, skip hooks, amend others' commits
@@ -71,7 +76,8 @@ Check project config first, fall back to `~/.claude/configs/`
 ## Task Completion Checklist
 - Fully functional (no TODOs unless spec phases work)
 - Tests pass (follow `~/.claude/docs/TESTING_STANDARDS.md`)
-- Linting passes
+- Linting passes (ruff) - see `python-linting` skill
+- Type checking passes (pyright) - see `python-linting` skill
 - Errors surface (no silent failures)
 - No commented code
 - WHY comments for non-obvious decisions
@@ -86,13 +92,55 @@ Check project config first, fall back to `~/.claude/configs/`
 **How to check available skills**: Check skill descriptions in the Skill tool's available_skills list.
 
 **Usage pattern**:
-- Writing Python? Load `python-style` first.
-- Writing tests? Load `testing-standards` first.
-- Spawning agents? Load `agent-prompting` first.
-- Working on MongoDB? Load `mongodb-aggregation-optimization` first.
-- Writing docs? Load `ai-documentation` first.
+- **Writing Python?** Load `python-style` (code patterns) AND `python-linting` (ruff/pyright usage) first.
+- **Writing tests?** Load `testing-standards` first.
+- **Spawning agents?** Load `agent-prompting` first. **MANDATORY before spawning any sub-agents.**
+- **Working on MongoDB?** Load `mongodb-aggregation-optimization` first.
+- **Writing docs?** Load `ai-documentation` first.
+- **Linting errors?** Load `python-linting` for ruff/pyright troubleshooting.
 
 **Be generous with skill loading** - if a skill exists for the domain, use it.
+
+## Agent Delegation (Critical)
+
+**BEFORE spawning ANY sub-agents:**
+1. **Load `agent-prompting` skill** - contains critical inline standards for each agent type
+2. **Review "Critical Inline Standards by Agent Type" section** - know what to include in prompts
+3. **Include critical standards inline** - copy relevant standards into agent prompt
+4. **Specify skill loads** - tell agent which skills to load (testing-standards, python-style, ai-documentation)
+
+**Why this matters:**
+- Sub-agents don't automatically know corrected standards (try/except only for connections, logging.getLogger, mock everything external)
+- Inline standards in prompt override default knowledge
+- Ensures consistent quality across all delegated work
+
+**Example:**
+```
+# WRONG - vague prompt
+Task(implementation-executor, "Implement rate limiting")
+
+# RIGHT - includes critical standards
+Task(implementation-executor, """
+Implement rate limiting.
+
+Spec: $WORK_DIR/.spec/BUILD_rate_limit.md
+
+CRITICAL STANDARDS:
+- Logging: import logging; LOG = logging.getLogger(__name__)
+- try/except ONLY for connection errors
+- Type hints required, 80 char limit
+- DO NOT run tests
+
+Load python-style skill if needed.
+
+[task-specific context]
+""")
+```
+
+**agent-prompting skill contains:**
+- Critical inline standards for each agent type (implementation, test, fix, review, documentation)
+- Prompt templates with examples
+- Common pitfalls and anti-patterns
 
 ## Testing Standards
 **Location:** `~/.claude/docs/TESTING_STANDARDS.md`

@@ -123,7 +123,7 @@ def get_asset_id(self, dv: dict) -> str | None:
 
 ## Exception Handling
 
-**NO try/except unless actually necessary**
+**ONLY use try/except for connection errors**
 
 ```python
 # BAD - unnecessary try/except (dict.get never raises)
@@ -137,7 +137,7 @@ def get_severity(record: dict) -> str:
 def get_severity(record: dict) -> str:
     return record.get('severity', '0')
 
-# GOOD - try/except for actual error recovery
+# GOOD - try/except for connection errors only
 def fetch_from_api(url: str) -> dict:
     try:
         response = requests.get(url, timeout=30)
@@ -149,29 +149,36 @@ def fetch_from_api(url: str) -> dict:
     except requests.HTTPError as e:
         LOG.error(f"HTTP error {e.response.status_code}: {url}")
         raise
+    except requests.ConnectionError as e:
+        LOG.error(f"Connection error: {url}")
+        raise
 ```
 
-**When to use try/except**:
-- API calls (network failures, timeouts)
-- File I/O (missing files, permissions)
-- External system interactions (database, cache)
-- Parsing untrusted data (JSON, XML, CSV)
+**When to use try/except** (ONLY connection errors):
+- Network calls (requests, httpx, aiohttp)
+- Database connections (pymongo, psycopg2, sqlalchemy)
+- External API calls (any network I/O)
+- Cache connections (redis, memcached)
 
 **When NOT to use try/except**:
 - dict.get() operations (returns None safely)
 - list/dict access with defaults
-- Type conversions with validation first
+- File I/O (let it fail with clear error)
+- JSON parsing (let it fail with clear error)
+- Type conversions (validate first, let it fail if invalid)
 - Safe standard library operations
 
-**Specific exceptions only**:
+**Specific exceptions only** (never bare except):
 ```python
-# GOOD - specific exceptions
+# GOOD - specific connection exceptions
 try:
     result = api_call()
 except requests.Timeout:
     handle_timeout()
 except requests.HTTPError:
     handle_http_error()
+except requests.ConnectionError:
+    handle_connection_error()
 
 # BAD - bare except masks bugs
 try:
@@ -184,15 +191,15 @@ except:
 
 **Setup** (once per class/module):
 ```python
-from fisio.common.log import setup_logger
+import logging
 
-# In class
+# At module level (preferred)
+LOG = logging.getLogger(__name__)
+
+# In class (if needed)
 class AssetProcessor:
     def __init__(self, config, sub_id):
-        self.log = setup_logger(__name__)
-
-# At module level
-LOG = setup_logger(__name__)
+        self.log = logging.getLogger(__name__)
 ```
 
 **Logging Levels**:

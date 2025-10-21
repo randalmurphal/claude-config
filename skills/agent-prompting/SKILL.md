@@ -1062,6 +1062,228 @@ If no issues: "No quality issues found."
 
 ---
 
+## Critical Inline Standards by Agent Type
+
+**IMPORTANT:** When spawning sub-agents, include these critical inline standards in your prompts. These override general knowledge and ensure consistent quality.
+
+### Implementation Agents (implementation-executor, general-builder, skeleton-builder)
+
+```
+CRITICAL STANDARDS (inline in prompt):
+- Logging: import logging; LOG = logging.getLogger(__name__)
+- try/except ONLY for connection errors (network, database, cache, external APIs)
+  - Network: requests.Timeout, requests.ConnectionError, requests.HTTPError
+  - Database: pymongo errors, sqlalchemy errors, redis errors
+  - NEVER wrap: dict.get(), file I/O, JSON parsing, type conversions
+- Type hints required for all new code
+- 80 char line limit (ruff enforced)
+- snake_case functions/vars, PascalCase classes, UPPER_CASE constants
+- No # noqa / # type: ignore without documented reason
+- No single-line wrapper functions that add no value
+- No commented code (delete it)
+- DO NOT run tests unless explicitly instructed
+
+OPTIONAL SKILL LOAD:
+- python-style (detailed patterns if needed)
+```
+
+### Test Agents (test-implementer, test-skeleton-builder)
+
+```
+CRITICAL STANDARDS (inline in prompt):
+- 1:1 file mapping: tests/unit/test_<module>.py for src/<module>.py
+- 95% coverage minimum for unit tests
+- AAA pattern (Arrange-Act-Assert)
+- Mock EVERYTHING external to the function being tested:
+  - Mock: database calls, API calls, file I/O, cache operations
+  - Mock: OTHER INTERNAL FUNCTIONS called by the function under test
+  - Test function in ISOLATION, not with its dependencies
+  - Unit tests = pure isolation, integration tests = real dependencies
+- Descriptive names: test_<function>_<scenario> or test_<function> (if single)
+- Use parametrized tests: @pytest.mark.parametrize for multiple cases
+- Integration tests: 2-4 files per module (ADD to existing, don't create new)
+- DO NOT run tests unless explicitly instructed
+- NO shortcuts or workarounds in test implementation
+
+SKILL TO LOAD:
+- testing-standards (fixture patterns, E2E structure)
+```
+
+### Spike Tester
+
+```
+CRITICAL STANDARDS (inline in prompt):
+- All work in /tmp/spike_<name>/
+- Write LEGITIMATE tests - NO half-assed tests, NO workarounds allowed
+- If you can't test something properly, EXPLAIN WHY in detail
+- Tests must use proper mocking, proper assertions, proper structure
+- Same quality standards as production tests (just throwaway location)
+- Document findings clearly with evidence from test results
+
+SKILL TO LOAD:
+- testing-standards (test structure, mocking patterns)
+```
+
+### Review Agents (security-auditor, performance-optimizer, code-reviewer, code-beautifier)
+
+```
+CRITICAL STANDARDS (inline in prompt):
+- Check for improper try/except usage (wrapping safe operations)
+- Check logging (should use logging.getLogger(__name__))
+- Check type hints (required for new code)
+- Check 80 char line limit, no # noqa without reason
+- ONLY valid JSON response - NO prose, NO markdown
+
+Response format:
+{
+  "status": "COMPLETE",
+  "critical": [{"file": "path/to/file.py", "line": 123, "issue": "...", "fix": "..."}],
+  "important": [...],
+  "minor": [...]
+}
+
+OPTIONAL SKILL LOADS:
+- python-style (code-reviewer)
+- vulnerability-triage (security-auditor)
+- mongodb-aggregation-optimization (performance-optimizer if MongoDB)
+```
+
+### Fix Agents (fix-executor)
+
+```
+CRITICAL STANDARDS (inline in prompt):
+- Fix issues PROPERLY - no workarounds, no shortcuts, no half-measures
+- Follow all code quality standards:
+  - Logging: logging.getLogger(__name__)
+  - try/except ONLY for connection errors
+  - Type hints required, 80 char limit
+- DO NOT use # noqa / # type: ignore as a "fix"
+- DO NOT wrap safe operations in try/except to silence warnings
+- If fix requires architectural changes, ESCALATE with:
+  - What the issue is
+  - Why proper fix needs architectural decision
+  - Options available
+  - Your recommendation
+- Max 3 attempts, then ESCALATE with clear explanation
+
+OPTIONAL SKILL LOADS:
+- python-style (if fixing naming/logging)
+- code-refactoring (if fixing complexity)
+```
+
+### Documentation Agents (documentation-writer)
+
+```
+CRITICAL STANDARDS (inline in prompt):
+MUST LOAD SKILL BEFORE STARTING:
+- ai-documentation (hierarchical inheritance, line count targets, structure patterns)
+
+Standards from skill:
+- Concise over comprehensive (map not tutorial)
+- Structure over prose (tables, bullets >>> paragraphs)
+- Location references with file:line_number
+- 100-200 line target for most docs (300-400 max for complex)
+- Hierarchical inheritance (never duplicate parent content)
+```
+
+### Analysis Agents (general-investigator, Explore)
+
+```
+CRITICAL STANDARDS (inline in prompt):
+- Start narrow, expand if needed (progressive disclosure)
+- Use Grep (cheap) before Read (focused)
+- Don't read >5 files without reporting findings first
+- Include file:line references in all findings
+
+No mandatory skill loads (read-only exploration)
+```
+
+---
+
+## Prompt Template with Inline Standards
+
+**Example implementation-executor prompt:**
+
+```
+Task(implementation-executor, """
+Implement rate limiting for authentication endpoints.
+
+Spec: $WORK_DIR/.spec/BUILD_rate_limit.md
+Workflow: solo
+
+CRITICAL STANDARDS:
+- Logging: import logging; LOG = logging.getLogger(__name__)
+- try/except ONLY for connection errors (network, DB, cache)
+- Type hints required, 80 char limit
+- No # noqa without documented reason
+- DO NOT run tests
+
+Load python-style skill if needed.
+
+Context:
+- Auth endpoints in src/auth/endpoints.py
+- Existing Redis connection in src/db/redis.py
+- Rate limit: 5 requests/minute per IP
+
+Agent will read spec automatically.
+""")
+```
+
+**Example test-implementer prompt:**
+
+```
+Task(test-implementer, """
+Implement comprehensive tests for rate limiting.
+
+Spec: $WORK_DIR/.spec/BUILD_rate_limit.md
+Workflow: solo
+
+CRITICAL STANDARDS:
+- 1:1 file mapping: tests/unit/test_rate_limiter.py
+- 95% coverage minimum
+- Mock EVERYTHING external to function being tested:
+  - Redis calls, time.time(), other internal functions
+- DO NOT run tests
+- NO shortcuts or workarounds
+
+Load testing-standards skill.
+
+Production code: src/auth/rate_limiter.py
+
+Agent will read spec automatically.
+""")
+```
+
+**Example fix-executor prompt:**
+
+```
+Task(fix-executor, """
+Fix all validation issues.
+
+Spec: $WORK_DIR/.spec/BUILD_rate_limit.md
+Workflow: solo
+
+Critical issues:
+- src/auth/rate_limiter.py:45 - Wrapping dict.get in try/except
+- src/auth/rate_limiter.py:67 - Using # noqa to silence type error
+
+Important issues:
+- src/auth/rate_limiter.py:23 - Magic number 300 without explanation
+
+CRITICAL RULES:
+- Fix PROPERLY - no workarounds
+- DO NOT use # noqa as a "fix"
+- DO NOT wrap safe operations in try/except
+- If architectural issue, ESCALATE with options
+
+Load python-style skill if needed.
+
+Agent will read spec automatically.
+""")
+```
+
+---
+
 ## Bottom Line
 
 **Writing effective agent prompts is a skill - practice makes perfect.**

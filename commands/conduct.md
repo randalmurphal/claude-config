@@ -38,7 +38,24 @@ STOP - do not proceed.
 
 ## Workflow
 
-### Phase -2: Determine Working Directory
+### Phase -2.0: Load Agent Prompting Skill
+
+**CRITICAL: Load before spawning any sub-agents.**
+
+```
+Skill: agent-prompting
+```
+
+**This skill contains:**
+- Critical inline standards for each agent type
+- What to include in prompts (logging, try/except, mocking, etc.)
+- Prompt templates with examples
+
+**You will use this throughout all phases to write effective agent prompts.**
+
+---
+
+### Phase -1.5: Determine Working Directory
 
 **Infer from task description which directory/component is being worked on:**
 - Search for relevant files/directories mentioned in task
@@ -164,8 +181,8 @@ Create `.spec/SPEC_{phase_num}_{component_name}.md`:
 
 #### Step 1: Skeleton
 
-**Create skeleton:**
-- Spawn skeleton-builder for production file:
+**Create skeleton (spawn both in parallel):**
+- skeleton-builder for production file:
 ```
 Task(skeleton-builder, """
 Create skeleton for {component}.
@@ -173,17 +190,25 @@ Create skeleton for {component}.
 Spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
 Workflow: conduct
 
+CRITICAL STANDARDS (from agent-prompting skill):
+- Type hints required, 80 char limit
+- Logging: import logging; LOG = logging.getLogger(__name__)
+
 Read spec for requirements and dependencies.
 """)
 ```
 
-- Spawn test-skeleton-builder for test file (parallel):
+- test-skeleton-builder for test file:
 ```
 Task(test-skeleton-builder, """
 Create test skeleton for {component}.
 
 Spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
 Workflow: conduct
+
+CRITICAL STANDARDS (from agent-prompting skill):
+- 1:1 file mapping: tests/unit/test_<module>.py
+- AAA pattern structure
 
 Read spec for requirements and dependencies.
 """)
@@ -201,7 +226,7 @@ python -m py_compile {component_file}
 
 #### Step 2: Implementation
 
-**Spawn implementation-executor:**
+**Spawn implementation-executor with critical standards:**
 ```
 Task(implementation-executor, """
 Implement {component}.
@@ -209,7 +234,14 @@ Implement {component}.
 Spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
 Workflow: conduct
 
-Read spec for complete requirements.
+CRITICAL STANDARDS (from agent-prompting skill):
+- Logging: import logging; LOG = logging.getLogger(__name__)
+- try/except ONLY for connection errors (network, DB, cache)
+- Type hints required, 80 char limit
+- No # noqa without documented reason
+- DO NOT run tests
+
+Load python-style skill if needed.
 
 Available from previous phases:
 {List completed components this depends on}
@@ -246,16 +278,30 @@ ruff check $WORK_DIR/{component}
 
 **Spawn 6 reviewers in parallel (NO SKIMPING):**
 
-All get spec context:
+Include critical standards from agent-prompting skill:
 ```
 Spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
 Workflow: conduct
+
+CRITICAL STANDARDS:
+- Check for improper try/except (wrapping safe operations)
+- Check logging (should use logging.getLogger(__name__))
+- Check type hints, 80 char limit, no # noqa without reason
+- ONLY valid JSON response
+
+Response format:
+{
+  "status": "COMPLETE",
+  "critical": [{"file": "...", "line": N, "issue": "...", "fix": "..."}],
+  "important": [...],
+  "minor": [...]
+}
 ```
 
 Single message with 6 Task calls:
-1. security-auditor
-2. performance-optimizer
-3. code-reviewer (pass 1: complexity, errors, clarity)
+1. security-auditor (optional skill: vulnerability-triage)
+2. performance-optimizer (optional skill: mongodb-aggregation-optimization if MongoDB)
+3. code-reviewer (pass 1: complexity, errors, clarity) (optional skill: python-style)
 4. code-reviewer (pass 2: responsibility, coupling, type safety)
 5. code-beautifier (DRY, magic numbers, dead code)
 6. code-reviewer (pass 3: documentation, comments, naming)
@@ -268,7 +314,7 @@ Single message with 6 Task calls:
 **Fix ALL issues (no skipping):**
 ```
 LOOP until validation clean:
-  1. Spawn fix-executor with ALL issues (critical + important + minor)
+  1. Spawn fix-executor with ALL issues and critical standards:
      ```
      Task(fix-executor, """
      Fix all validation issues for {component}.
@@ -285,11 +331,22 @@ LOOP until validation clean:
      Minor issues:
      [list]
 
-     RULES:
-     - Fix the actual problem, don't add # noqa or ignore comments
-     - If linter error has proper solution (extract method, simplify), do that
-     - Only if NO proper fix exists AND business logic must stay: document why
-     - Maintain business logic while making code cleaner
+     CRITICAL RULES (from agent-prompting skill):
+     - Fix PROPERLY - no workarounds, no shortcuts
+     - Follow all code quality standards:
+       - Logging: logging.getLogger(__name__)
+       - try/except ONLY for connection errors
+       - Type hints required, 80 char limit
+     - DO NOT use # noqa / # type: ignore as a "fix"
+     - DO NOT wrap safe operations in try/except
+     - If architectural issue, ESCALATE with:
+       - What the issue is
+       - Why proper fix needs architectural decision
+       - Options available
+       - Your recommendation
+     - Max 3 attempts, then ESCALATE
+
+     Load python-style or code-refactoring skill if needed.
 
      Agent will read spec automatically.
      """)
@@ -322,7 +379,7 @@ LOOP until validation clean:
 
 **Now that component works, lock in behavior with tests.**
 
-**Spawn test-implementer:**
+**Spawn test-implementer with critical standards:**
 ```
 Task(test-implementer, """
 Implement comprehensive unit tests for working component.
@@ -331,8 +388,19 @@ Spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
 Workflow: conduct
 
 Production code: {component_file}
-Coverage target: 95%+
-Follow: ~/.claude/docs/TESTING_STANDARDS.md
+
+CRITICAL STANDARDS (from agent-prompting skill):
+- 1:1 file mapping: tests/unit/test_<module>.py
+- 95% coverage minimum
+- AAA pattern (Arrange-Act-Assert)
+- Mock EVERYTHING external to the function being tested:
+  - Database calls, API calls, file I/O, cache operations
+  - OTHER INTERNAL FUNCTIONS called by the function under test
+  - Test function in ISOLATION, not with its dependencies
+- DO NOT run tests
+- NO shortcuts or workarounds
+
+Load testing-standards skill.
 
 Component is validated and working - tests document behavior.
 
@@ -361,8 +429,12 @@ LOOP until tests pass with coverage:
        Test output:
        [paste pytest output]
 
-       Fix implementation bugs found by tests.
-       Maintain business logic.
+       CRITICAL RULES (from agent-prompting skill):
+       - Fix PROPERLY - no workarounds
+       - Maintain business logic
+       - Follow code standards: logging.getLogger, try/except only for connections
+
+       Load python-style skill if needed.
 
        Agent will read spec automatically.
        """)
@@ -452,7 +524,7 @@ Ready for dependent components.
 
 **All components working individually, now test interactions.**
 
-**Spawn test-implementer:**
+**Spawn test-implementer with critical standards:**
 ```
 Task(test-implementer, """
 Implement integration tests for multi-component interactions.
@@ -465,6 +537,15 @@ All components are implemented and unit tested:
 
 Test cross-component workflows:
 {extract from SPEC.md "Testing Strategy" - integration scenarios}
+
+CRITICAL STANDARDS (from agent-prompting skill):
+- Integration tests: 2-4 files per module (ADD to existing, don't create new)
+- Use REAL dependencies (test database, cache) - NOT mocks
+- Test components working together
+- DO NOT run tests
+- NO shortcuts or workarounds
+
+Load testing-standards skill.
 
 Coverage target: End-to-end scenarios from SPEC.md
 
@@ -493,8 +574,12 @@ LOOP until integration tests pass:
        Test output:
        [paste pytest output]
 
-       Fix bugs in component interactions.
-       Components are individually tested, issue is integration.
+       CRITICAL RULES (from agent-prompting skill):
+       - Fix PROPERLY - no workarounds
+       - Components are individually tested, issue is integration
+       - Follow code standards: logging.getLogger, try/except only for connections
+
+       Load python-style skill if needed.
 
        Agent will read spec automatically.
        """)
@@ -535,25 +620,23 @@ Working directory: $WORK_DIR
 Spec: $WORK_DIR/.spec/SPEC.md
 Workflow: conduct
 
+CRITICAL: Load ai-documentation skill before starting.
+
 Validation scope:
 - CLAUDE.md (at current level)
 - README.md
 - docs/ directory (all .md files if exists)
 - .spec/ files (SPEC.md, SPEC_*.md phase specs)
 
-Steps:
-1. Invoke ai-documentation skill to load standards
-2. Find all .md files in $WORK_DIR
-3. Validate systematically (6-step methodology):
-   - File:line references accurate
-   - Function signatures match code
-   - Architecture claims verified
-   - Constants/values correct
-   - CLAUDE.md structure follows best practices
-   - No duplication from parent CLAUDE.md
-4. Return structured JSON response with issues categorized
+Validate systematically:
+- File:line references accurate
+- Function signatures match code
+- Architecture claims verified
+- Constants/values correct
+- CLAUDE.md structure follows best practices
+- No duplication from parent CLAUDE.md
 
-See ~/.claude/docs/DOCUMENTATION_VALIDATOR_AGENT.md for full methodology.
+Return structured JSON with issues categorized.
 
 Agent will read spec automatically.
 """)
@@ -576,7 +659,7 @@ IF validation_result contains CRITICAL or IMPORTANT issues:
   2. All IMPORTANT issues (missing docs, outdated terms)
   3. MINOR issues if time permits
 
-  Invoke ai-documentation skill for standards.
+  CRITICAL: Load ai-documentation skill before starting.
   """)
 
   # Re-validate after fixes
@@ -615,7 +698,7 @@ Validate CLAUDE.md optimization (focus on line count and structure).
 Working directory: $WORK_DIR
 CLAUDE.md file: [path to CLAUDE.md]
 
-Invoke ai-documentation skill to load best practices.
+CRITICAL: Load ai-documentation skill before starting.
 
 Check:
 1. Line count within target for hierarchy level
@@ -625,8 +708,6 @@ Check:
 5. Deep-dive content extracted to QUICKREF.md if >400 lines
 
 Return structured JSON with optimization recommendations.
-
-See ~/.claude/docs/DOCUMENTATION_VALIDATOR_AGENT.md for methodology.
 """)
 ```
 
@@ -640,7 +721,7 @@ IF CLAUDE.md issues found:
     File: [path to CLAUDE.md]
     Working directory: $WORK_DIR
 
-    Invoke ai-documentation skill to load best practices.
+    CRITICAL: Load ai-documentation skill before starting.
 
     Issues to fix:
     [paste JSON from validator]

@@ -41,7 +41,24 @@ description: Streamlined task execution with proper delegation and validation - 
 
 ## Workflow
 
-### Step 0: Determine Working Directory
+### Step 0.0: Load Agent Prompting Skill
+
+**CRITICAL: Load before spawning any sub-agents.**
+
+```
+Skill: agent-prompting
+```
+
+**This skill contains:**
+- Critical inline standards for each agent type
+- What to include in prompts (logging, try/except, mocking, etc.)
+- Prompt templates with examples
+
+**You will use this throughout the workflow to write effective agent prompts.**
+
+---
+
+### Step 0.5: Determine Working Directory
 
 **Infer from task description which directory/component is being worked on:**
 - Search for relevant files/directories mentioned in task
@@ -79,7 +96,7 @@ description: Streamlined task execution with proper delegation and validation - 
 
 ### Step 2: Implementation
 
-**Spawn implementation-executor:**
+**Spawn implementation-executor with critical standards inline** (from agent-prompting skill):
 ```
 Task(implementation-executor, """
 Implement [task description]
@@ -87,9 +104,18 @@ Implement [task description]
 Spec: $WORK_DIR/.spec/BUILD_[taskname].md
 Workflow: solo
 
-[Additional context if needed]
+CRITICAL STANDARDS (from agent-prompting skill):
+- Logging: import logging; LOG = logging.getLogger(__name__)
+- try/except ONLY for connection errors (network, DB, cache)
+- Type hints required, 80 char limit
+- No # noqa without documented reason
+- DO NOT run tests
 
-Agent will read spec automatically - no need to paste spec content.
+Load python-style skill if needed.
+
+[Additional task-specific context]
+
+Agent will read spec automatically.
 """)
 ```
 
@@ -120,15 +146,30 @@ ruff check $WORK_DIR
 
 **Spawn 6 reviewers in parallel (NO SKIMPING):**
 
-All get spec context:
+Include critical standards from agent-prompting skill:
 ```
 Spec: $WORK_DIR/.spec/BUILD_[taskname].md
 Workflow: solo
+
+CRITICAL STANDARDS:
+- Check for improper try/except (wrapping safe operations)
+- Check logging (should use logging.getLogger(__name__))
+- Check type hints, 80 char limit, no # noqa without reason
+- ONLY valid JSON response
+
+Response format:
+{
+  "status": "COMPLETE",
+  "critical": [{"file": "...", "line": N, "issue": "...", "fix": "..."}],
+  "important": [...],
+  "minor": [...]
+}
 ```
 
-1. security-auditor
-2. performance-optimizer
-3. code-reviewer (pass 1: complexity, errors, clarity)
+Single message with 6 Task calls:
+1. security-auditor (optional skill: vulnerability-triage)
+2. performance-optimizer (optional skill: mongodb-aggregation-optimization if MongoDB)
+3. code-reviewer (pass 1: complexity, errors, clarity) (optional skill: python-style)
 4. code-reviewer (pass 2: responsibility, coupling, type safety)
 5. code-beautifier (DRY, magic numbers, dead code)
 6. code-reviewer (pass 3: documentation, comments, naming)
@@ -141,7 +182,7 @@ Workflow: solo
 **Fix ALL issues (no skipping):**
 ```
 LOOP until validation clean:
-  1. Spawn fix-executor with ALL issues (critical + important + minor)
+  1. Spawn fix-executor with ALL issues and critical standards:
      ```
      Task(fix-executor, """
      Fix all validation issues.
@@ -158,11 +199,22 @@ LOOP until validation clean:
      Minor issues:
      [list]
 
-     RULES:
-     - Fix the actual problem, don't add # noqa or ignore comments
-     - If linter error has proper solution (extract method, simplify), do that
-     - Only if NO proper fix exists AND business logic must stay: document why
-     - Maintain business logic while making code cleaner
+     CRITICAL RULES (from agent-prompting skill):
+     - Fix PROPERLY - no workarounds, no shortcuts
+     - Follow all code quality standards:
+       - Logging: logging.getLogger(__name__)
+       - try/except ONLY for connection errors
+       - Type hints required, 80 char limit
+     - DO NOT use # noqa / # type: ignore as a "fix"
+     - DO NOT wrap safe operations in try/except
+     - If architectural issue, ESCALATE with:
+       - What the issue is
+       - Why proper fix needs architectural decision
+       - Options available
+       - Your recommendation
+     - Max 3 attempts, then ESCALATE
+
+     Load python-style or code-refactoring skill if needed.
 
      Agent will read spec automatically.
      """)
@@ -195,7 +247,7 @@ LOOP until validation clean:
 
 **Now that implementation works, lock in behavior with tests.**
 
-**Spawn test-implementer:**
+**Spawn test-implementer with critical standards:**
 ```
 Task(test-implementer, """
 Implement comprehensive tests for working implementation.
@@ -204,13 +256,20 @@ Spec: $WORK_DIR/.spec/BUILD_[taskname].md
 Workflow: solo
 
 Production code: [files from step 2]
-Follow: ~/.claude/docs/TESTING_STANDARDS.md
 
-Key rules:
-- 1:1 file mapping: one test file per production file
-- Coverage: 95%+ for all public functions
-- Test happy path + error cases + edge cases
-- Choose organization: single function (simple), parametrized (many cases), or separate methods (critical)
+CRITICAL STANDARDS (from agent-prompting skill):
+- 1:1 file mapping: tests/unit/test_<module>.py for src/<module>.py
+- 95% coverage minimum
+- AAA pattern (Arrange-Act-Assert)
+- Mock EVERYTHING external to the function being tested:
+  - Database calls, API calls, file I/O, cache operations
+  - OTHER INTERNAL FUNCTIONS called by the function under test
+  - Test function in ISOLATION, not with its dependencies
+- Integration tests: 2-4 files per module (ADD to existing, don't create new)
+- DO NOT run tests
+- NO shortcuts or workarounds
+
+Load testing-standards skill.
 
 Implementation is validated and working - tests document behavior.
 
@@ -239,9 +298,12 @@ LOOP until tests pass with coverage:
        Test output:
        [paste pytest output]
 
-       Fix implementation bugs found by tests.
-       Maintain business logic.
-       Follow testing standards: ~/.claude/docs/TESTING_STANDARDS.md
+       CRITICAL RULES (from agent-prompting skill):
+       - Fix PROPERLY - no workarounds
+       - Maintain business logic
+       - Follow code standards: logging.getLogger, try/except only for connections
+
+       Load python-style skill if needed.
 
        Agent will read spec automatically.
        """)
@@ -281,24 +343,22 @@ Working directory: $WORK_DIR
 Spec: $WORK_DIR/.spec/BUILD_[taskname].md
 Workflow: solo
 
+CRITICAL: Load ai-documentation skill before starting.
+
 Validation scope:
 - CLAUDE.md (at current level)
 - README.md
 - docs/ directory (all .md files if exists)
 - .spec/BUILD_[taskname].md
 
-Steps:
-1. Invoke ai-documentation skill to load standards
-2. Find all .md files in $WORK_DIR
-3. Validate systematically:
-   - File:line references accurate
-   - Function signatures match code
-   - Architecture claims verified
-   - Constants/values correct
-   - CLAUDE.md structure follows best practices
-4. Return structured JSON with issues categorized
+Validate systematically:
+- File:line references accurate
+- Function signatures match code
+- Architecture claims verified
+- Constants/values correct
+- CLAUDE.md structure follows best practices
 
-See ~/.claude/docs/DOCUMENTATION_VALIDATOR_AGENT.md for full methodology.
+Return structured JSON with issues categorized.
 
 Agent will read spec automatically.
 """)
@@ -321,7 +381,7 @@ IF validation_result contains CRITICAL or IMPORTANT issues:
   2. All IMPORTANT issues
   3. MINOR issues if time permits
 
-  Invoke ai-documentation skill for standards.
+  CRITICAL: Load ai-documentation skill before starting.
   """)
 
   # Re-validate after fixes
@@ -361,7 +421,7 @@ Working directory: $WORK_DIR
 Spec: $WORK_DIR/.spec/BUILD_[taskname].md
 CLAUDE.md file: [path to CLAUDE.md]
 
-Invoke ai-documentation skill to load best practices.
+CRITICAL: Load ai-documentation skill before starting.
 
 Check:
 1. Line count within target for hierarchy level
@@ -371,8 +431,6 @@ Check:
 5. Deep-dive content extracted to QUICKREF.md if >400 lines
 
 Return structured JSON with optimization recommendations.
-
-See ~/.claude/docs/DOCUMENTATION_VALIDATOR_AGENT.md for methodology.
 """)
 ```
 
@@ -387,7 +445,7 @@ IF CLAUDE.md issues found:
     Working directory: $WORK_DIR
     Spec: $WORK_DIR/.spec/BUILD_[taskname].md
 
-    Invoke ai-documentation skill to load best practices.
+    CRITICAL: Load ai-documentation skill before starting.
 
     Issues to fix:
     [paste JSON from validator]

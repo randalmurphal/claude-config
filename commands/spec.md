@@ -32,7 +32,24 @@ description: Transform vague intent into precise, executable specifications thro
 
 ## Workflow
 
-### Phase -2: Determine Working Directory
+### Phase -2.0: Load Agent Prompting Skill
+
+**CRITICAL: Load before spawning any sub-agents (investigators, spike-testers).**
+
+```
+Skill: agent-prompting
+```
+
+**This skill contains:**
+- Critical inline standards for each agent type
+- What to include in prompts (especially spike-tester requirements)
+- Prompt templates with examples
+
+**You will use this throughout /spec when spawning investigators and spike-testers.**
+
+---
+
+### Phase -1.5: Determine Working Directory
 
 **Infer from task description which directory/component is being worked on:**
 - Search for relevant files/directories mentioned in task
@@ -79,9 +96,22 @@ description: Transform vague intent into precise, executable specifications thro
 
 **Parallel investigation for unknowns:**
 ```
-Task(investigator, "Investigate auth flow")
-Task(investigator, "Investigate database schema")
-Task(investigator, "Investigate error handling patterns")
+Send SINGLE message with MULTIPLE Task calls:
+
+Task(general-investigator, """
+Investigate auth flow.
+
+CRITICAL STANDARDS (from agent-prompting skill):
+- Start narrow, expand if needed
+- Use Grep before Read
+- Don't read >5 files without reporting
+- Include file:line references
+
+Objective: Understand how JWT authentication works in this codebase.
+""")
+
+Task(general-investigator, "Investigate database schema...")
+Task(general-investigator, "Investigate error handling patterns...")
 ```
 
 **Present:**
@@ -139,12 +169,33 @@ Validation: ASK USER | CHECKED | NEEDS SPIKE
 - Multiple approaches
 - Can't validate by investigation
 
-**Multiple spikes (parallel):**
+**Multiple spikes (parallel) with critical standards:**
 ```
 Send SINGLE message with MULTIPLE Task calls:
-Task(spike-tester, "Validate approach A")
-Task(spike-tester, "Validate approach B")
-Task(spike-tester, "Validate approach C")
+
+Task(spike-tester, """
+Validate approach A: [specific assumption to test]
+
+CRITICAL STANDARDS (from agent-prompting skill):
+- All work in /tmp/spike_<name>/
+- Write LEGITIMATE tests - NO half-assed tests, NO workarounds allowed
+- If you can't test something properly, EXPLAIN WHY in detail
+- Tests must use proper mocking, proper assertions, proper structure
+- Same quality standards as production tests (just throwaway location)
+- Document findings clearly with evidence from test results
+
+Load testing-standards skill.
+
+Goal: [what to prove/disprove]
+""")
+
+Task(spike-tester, """
+Validate approach B: [specific assumption to test]
+
+[Same critical standards as above]
+
+Goal: [what to prove/disprove]
+""")
 ```
 
 **Save:** `.spec/SPIKE_RESULTS/NNN_description.md`

@@ -513,21 +513,80 @@ async def test_authenticate_uses_secure_password_hashing():
 
 ### 5. Mock Properly
 
-```python
-# GOOD - mock external dependencies
-@pytest.fixture
-def mock_external_api():
-    with patch('src.services.external_api.ExternalAPI') as mock:
-        mock.fetch_data.return_value = {"status": "ok"}
-        yield mock
+**CRITICAL: Mock everything external to the function being tested, including other internal functions.**
 
-# BAD - mocking internal logic
+Unit tests should test ONLY the function itself, not its dependencies.
+
+```python
+# GOOD - mock all dependencies external to the function
 @pytest.fixture
-def mock_auth_logic():
-    with patch('src.auth.service.AuthService._validate_password') as mock:
-        # Don't mock internal logic - test the real thing!
-        yield mock
+def mock_user_repo():
+    """Mock user repository (external to authenticate function)"""
+    repo = Mock()
+    repo.find_by_email = AsyncMock(return_value=User(id="123", email="test@example.com"))
+    return repo
+
+@pytest.fixture
+def mock_password_hasher():
+    """Mock password verification (external to authenticate function)"""
+    hasher = Mock()
+    hasher.verify = Mock(return_value=True)
+    return hasher
+
+async def test_authenticate_success(mock_user_repo, mock_password_hasher):
+    """Test authenticate function in isolation"""
+    auth_service = AuthService(user_repo=mock_user_repo, hasher=mock_password_hasher)
+
+    # Test ONLY authenticate, not user_repo.find_by_email or hasher.verify
+    token = await auth_service.authenticate("test@example.com", "password")
+
+    assert token.access_token is not None
+    mock_user_repo.find_by_email.assert_called_once_with("test@example.com")
+    mock_password_hasher.verify.assert_called_once()
+
+# GOOD - even mock internal helper functions when testing orchestration function
+def test_process_user_data():
+    """Test process_user_data orchestration logic only"""
+    with patch('src.services.user_service._validate_user') as mock_validate:
+        with patch('src.services.user_service._transform_user') as mock_transform:
+            with patch('src.services.user_service._save_user') as mock_save:
+                mock_validate.return_value = True
+                mock_transform.return_value = {"id": "123"}
+
+                # Test ONLY the orchestration logic, not helper implementations
+                result = process_user_data({"email": "test@example.com"})
+
+                mock_validate.assert_called_once()
+                mock_transform.assert_called_once()
+                mock_save.assert_called_once_with({"id": "123"})
+
+# BAD - testing multiple functions together (not a unit test)
+async def test_authenticate_integration():
+    """This is an integration test, not a unit test"""
+    # Using real user_repo and real password hasher
+    auth_service = AuthService(user_repo=UserRepository(db), hasher=PasswordHasher())
+    token = await auth_service.authenticate("test@example.com", "password")
+    # This tests authenticate + find_by_email + password verification together
 ```
+
+**What to mock:**
+- Database/repository calls
+- External API calls
+- File I/O operations
+- Cache operations
+- Other internal functions called by the function under test
+- Password hashers, crypto operations
+- Time/date functions (if testing time-sensitive logic)
+
+**What NOT to mock:**
+- The function you're testing
+- Simple data transformations (let them run)
+- Pure functions with no side effects (unless part of external dependency)
+
+**Testing strategy:**
+- **Unit tests**: Mock everything external to the function (test function in isolation)
+- **Integration tests**: Use real dependencies to test components working together
+- **E2E tests**: No mocks, test complete workflows
 
 ---
 

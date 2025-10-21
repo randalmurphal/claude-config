@@ -26,11 +26,12 @@ STOP - do not proceed.
 
 1. Parse SPEC.md and build dependency graph
 2. Generate per-component phase specs
-3. Execute each component phase: Skeleton → Implement → Validate/Fix Loop → Unit Test → Checkpoint
-4. Enhance future phase specs with discoveries from completed phases
-5. Integration testing after all components complete
-6. Documentation validation
-7. Deliver working, tested, validated, documented system
+3. Execute each component: Skeleton → Task-by-Task Implementation → Full Validation
+4. Enhance future phase specs with discoveries
+5. Merge .spec learnings into permanent documentation
+6. [Optional] Testing if user requested
+7. Cleanup .spec/ directory
+8. Deliver working, validated, documented system
 
 **You are autonomous.** Don't ask permission between phases.
 
@@ -38,7 +39,7 @@ STOP - do not proceed.
 
 ## Workflow
 
-### Phase -2.0: Load Agent Prompting Skill
+### Phase -2: Load Agent Prompting Skill
 
 **CRITICAL: Load before spawning any sub-agents.**
 
@@ -103,6 +104,7 @@ For each file in "Files to Create/Modify":
 
 **Initialize tracking:**
 - Create PROGRESS.md (see `~/.claude/templates/operational.md`)
+- Create DISCOVERIES.md (empty, will populate during implementation)
 - TodoWrite: Component-level tracking
 
 **Commit changes**
@@ -150,8 +152,12 @@ Create `.spec/SPEC_{phase_num}_{component_name}.md`:
 {Extract from SPEC.md "Known Gotchas" section}
 {Will be enhanced as phases complete}
 
-## Implementation Requirements
-{Extract from SPEC.md "Proposed Approach" and "Requirements"}
+## Implementation Phases
+{Extract from SPEC.md "Implementation Phases" section}
+
+Tasks per phase:
+- {task 1}
+- {task 2}
 
 ## Testing Requirements
 {Extract from SPEC.md "Testing Strategy"}
@@ -179,10 +185,9 @@ Create `.spec/SPEC_{phase_num}_{component_name}.md`:
 
 **For each component:**
 
-#### Step 1: Skeleton
+#### Step 1: Skeleton (Sequential: prod → test)
 
-**Create skeleton (spawn both in parallel):**
-- skeleton-builder for production file:
+**Create production skeleton FIRST:**
 ```
 Task(skeleton-builder, """
 Create skeleton for {component}.
@@ -194,11 +199,17 @@ CRITICAL STANDARDS (from agent-prompting skill):
 - Type hints required, 80 char limit
 - Logging: import logging; LOG = logging.getLogger(__name__)
 
-Read spec for requirements and dependencies.
+Read spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
 """)
 ```
 
-- test-skeleton-builder for test file:
+**Wait for completion, validate syntax:**
+```bash
+python -m py_compile {component_file}
+# or: tsc --noEmit (TypeScript)
+```
+
+**THEN create test skeleton (needs prod skeleton to reference):**
 ```
 Task(test-skeleton-builder, """
 Create test skeleton for {component}.
@@ -206,224 +217,471 @@ Create test skeleton for {component}.
 Spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
 Workflow: conduct
 
+Production skeleton: {component_file}
+
 CRITICAL STANDARDS (from agent-prompting skill):
 - 1:1 file mapping: tests/unit/test_<module>.py
 - AAA pattern structure
 
-Read spec for requirements and dependencies.
+Read spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
 """)
 ```
 
-**Validate syntax:**
-```bash
-python -m py_compile {component_file}
-# or: tsc --noEmit (TypeScript)
+**Update PROGRESS.md with skeleton completion**
+
+**Commit changes**
+
+---
+
+#### Step 2: Task-by-Task Implementation
+
+**Read implementation phases and tasks from SPEC_{N}_{component}.md:**
+```markdown
+## Implementation Phases
+### Phase 1: Foundation (2h estimate)
+Tasks:
+- Implement data models
+- Implement validation logic
+
+### Phase 2: API (1h estimate)
+Tasks:
+- Implement endpoint handlers
+- Add error handling
+```
+
+**For EACH task in EACH phase:**
+
+**Determine if tasks can run in parallel:**
+- If tasks are independent (no dependencies between them) → spawn implementation-executors in PARALLEL
+- If tasks have dependencies → run sequentially
+
+```
+1. Implement task:
+   Task(implementation-executor, """
+   Implement: {task description}
+
+   Spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
+   Workflow: conduct
+   Phase: {phase name}
+   Task: {task name}
+
+   CRITICAL STANDARDS (from agent-prompting skill):
+   - Logging: import logging; LOG = logging.getLogger(__name__)
+   - try/except ONLY for connection errors (network, DB, cache)
+   - Type hints required, 80 char limit
+   - No # noqa without documented reason
+   - DO NOT run tests
+
+   Load python-style skill.
+
+   Available from previous components:
+   {List completed components this depends on}
+
+   Read spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
+   Focus on: {phase name} → {task name}
+   """)
+
+2. Validate task (2 code-reviewers in PARALLEL - single message with 2 Task calls):
+
+   Task(code-reviewer, """
+   Review: {task description}
+
+   Spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
+   Workflow: conduct
+
+   Focus: Code quality, logic correctness, standards compliance
+
+   Load python-style skill.
+
+   Return JSON: {"status": "COMPLETE", "critical": [...], "important": [...], "minor": [...]}
+   """)
+
+   Task(code-reviewer, """
+   Review: {task description}
+
+   Spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
+   Workflow: conduct
+
+   Focus: Edge cases, error handling, coupling
+
+   Return JSON: {"status": "COMPLETE", "critical": [...], "important": [...], "minor": [...]}
+   """)
+
+3. Fix issues (if found):
+   IF critical or important issues:
+     LOOP (max 2 attempts):
+       Task(fix-executor, """
+       Fix task validation issues.
+
+       Spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
+       Task: {task description}
+
+       Issues: [paste combined JSON from 2 reviewers]
+
+       CRITICAL RULES (from agent-prompting skill):
+       - Fix PROPERLY - no workarounds
+       - Follow code standards: logging.getLogger, try/except only for connections
+       - Max 2 attempts, then ESCALATE
+
+       Load python-style skill.
+
+       Read spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
+       """)
+
+       Re-run 2 code-reviewers in parallel (verify fixes)
+
+       IF clean: Break
+       IF attempt >= 2: ESCALATE
+
+4. Update tracking:
+   - PROGRESS.md: Mark task complete
+   - DISCOVERIES.md: Note any gotchas/learnings from this task
+
+5. Commit changes for this task
+
+NEXT task...
+```
+
+**After ALL tasks in component complete:**
+
+Update DISCOVERIES.md with component summary:
+```markdown
+## Component: {component_name} (Phase {N})
+
+### Implementation Notes
+- {consolidated learnings from all tasks}
+- {gotchas encountered}
+- {deviations from spec}
+
+### API Surface
+- {public functions/classes}
+- {usage examples}
+- {known limitations}
 ```
 
 **Commit changes**
 
 ---
 
-#### Step 2: Implementation
+#### Step 3: Full Component Validation
 
-**Spawn implementation-executor with critical standards:**
+**Goal:** Comprehensive validation of entire component after all tasks complete.
+
+**Run linting + 6 reviewers in PARALLEL (single message with 7 operations):**
+
+```bash
+# Operation 1: Linting (run alongside reviewers)
+ruff check $WORK_DIR/{component} && pyright $WORK_DIR/{component}
 ```
-Task(implementation-executor, """
-Implement {component}.
 
-Spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
-Workflow: conduct
+```
+# Operations 2-7: Spawn 6 reviewers (same message as linting)
 
-CRITICAL STANDARDS (from agent-prompting skill):
-- Logging: import logging; LOG = logging.getLogger(__name__)
-- try/except ONLY for connection errors (network, DB, cache)
-- Type hints required, 80 char limit
-- No # noqa without documented reason
-- DO NOT run tests
+Common for all reviewers:
+- Spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
+- Workflow: conduct
+- Return JSON: {"status": "COMPLETE", "critical": [...], "important": [...], "minor": [...]}
 
-Load python-style skill if needed.
+Task(security-auditor, """
+Audit {component} for security vulnerabilities.
 
-Available from previous phases:
-{List completed components this depends on}
+Load vulnerability-triage skill.
 
-Agent will read spec automatically.
+Review entire component for: injection risks, auth bypasses, data exposure, crypto issues.
+""")
+
+Task(performance-optimizer, """
+Review {component} for performance issues.
+
+Load mongodb-aggregation-optimization skill if MongoDB code detected.
+
+Review for: N+1 queries, missing indexes, inefficient algorithms, memory leaks.
+""")
+
+Task(code-reviewer, """
+Review {component}: complexity, errors, clarity.
+
+Load python-style skill.
+
+Focus: cyclomatic complexity, error handling, code clarity, maintainability.
+""")
+
+Task(code-reviewer, """
+Review {component}: responsibility, coupling, type safety.
+
+Focus: SRP violations, tight coupling, type hint coverage, interface clarity.
+""")
+
+Task(code-beautifier, """
+Review {component}: DRY violations, magic numbers, dead code.
+
+Focus: code duplication, hardcoded values, unused imports/variables, formatting.
+""")
+
+Task(code-reviewer, """
+Review {component}: documentation, comments, naming.
+
+Focus: docstring coverage, comment quality, variable naming, function naming.
 """)
 ```
 
-**Wait for completion, check status COMPLETE**
-
-**Review result:**
-- Files created make sense?
-- Gotchas found? → Note in DISCOVERIES.md
-- Spec corrections? → Document in DISCOVERIES.md
-- Blockers? → ESCALATE or adjust approach
-
-**Commit changes**
-
----
-
-#### Step 3: Validate & Fix Loop
-
-**Goal:** Get component working before writing tests.
-
-**Run validation:**
-```bash
-# Syntax/import checks
-python -m py_compile $WORK_DIR/{component}/*.py
-# or: tsc --noEmit (for TypeScript)
-
-# Linting
-ruff check $WORK_DIR/{component}
-```
-
-**Spawn 6 reviewers in parallel (NO SKIMPING):**
-
-Include critical standards from agent-prompting skill:
-```
-Spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
-Workflow: conduct
-
-CRITICAL STANDARDS:
-- Check for improper try/except (wrapping safe operations)
-- Check logging (should use logging.getLogger(__name__))
-- Check type hints, 80 char limit, no # noqa without reason
-- ONLY valid JSON response
-
-Response format:
-{
-  "status": "COMPLETE",
-  "critical": [{"file": "...", "line": N, "issue": "...", "fix": "..."}],
-  "important": [...],
-  "minor": [...]
-}
-```
-
-Single message with 6 Task calls:
-1. security-auditor (optional skill: vulnerability-triage)
-2. performance-optimizer (optional skill: mongodb-aggregation-optimization if MongoDB)
-3. code-reviewer (pass 1: complexity, errors, clarity) (optional skill: python-style)
-4. code-reviewer (pass 2: responsibility, coupling, type safety)
-5. code-beautifier (DRY, magic numbers, dead code)
-6. code-reviewer (pass 3: documentation, comments, naming)
-
-**Combine findings:**
-- Parse all responses
-- Merge critical + important + minor lists
+**Combine all findings:**
+- Merge linting errors + 6 reviewer responses
+- Consolidate critical + important + minor
 - Deduplicate issues
 
-**Fix ALL issues (no skipping):**
+**Fix ALL issues (max 3 attempts):**
 ```
 LOOP until validation clean:
-  1. Spawn fix-executor with ALL issues and critical standards:
-     ```
+  1. Spawn fix-executor:
      Task(fix-executor, """
      Fix all validation issues for {component}.
 
      Spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
      Workflow: conduct
 
-     Critical issues:
-     [list]
-
-     Important issues:
-     [list]
-
-     Minor issues:
-     [list]
+     Critical: [list]
+     Important: [list]
+     Minor: [list]
 
      CRITICAL RULES (from agent-prompting skill):
-     - Fix PROPERLY - no workarounds, no shortcuts
-     - Follow all code quality standards:
-       - Logging: logging.getLogger(__name__)
-       - try/except ONLY for connection errors
-       - Type hints required, 80 char limit
-     - DO NOT use # noqa / # type: ignore as a "fix"
-     - DO NOT wrap safe operations in try/except
-     - If architectural issue, ESCALATE with:
-       - What the issue is
-       - Why proper fix needs architectural decision
-       - Options available
-       - Your recommendation
-     - Max 3 attempts, then ESCALATE
+     - Fix PROPERLY - no workarounds
+     - NO # noqa / # type: ignore as "fixes"
+     - If architectural issue: ESCALATE immediately
+     - Max 3 attempts
 
-     Load python-style or code-refactoring skill if needed.
+     Load python-style skill.
+     Load code-refactoring skill if complexity issues.
 
-     Agent will read spec automatically.
+     Read spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
      """)
-     ```
 
-  2. Re-run linting: ruff check $WORK_DIR/{component}
+  2. Re-run linting + 6 reviewers in PARALLEL (single message - verify fixes)
 
-  3. Re-run ALL 6 reviewers (verify fixes didn't break anything)
+  3. IF clean: Break
+     IF new issues AND attempt < 3: Continue loop
+     IF attempt >= 3: ESCALATE
 
-  4. IF new issues found: Continue loop
-     IF validation clean: Break
-     IF loop > 3 attempts: ESCALATE with details
-
-  5. NO ignored errors allowed unless absolutely necessary (document reason)
+  4. Update PROGRESS.md with validation status
 ```
 
 **Validation complete criteria:**
-- ✅ Zero linter errors (or all documented with justification)
-- ✅ All reviewer critical issues fixed
-- ✅ All reviewer important issues fixed
-- ✅ All reviewer minor issues fixed
-- ✅ No # noqa / # type: ignore / @ts-ignore comments (unless documented exception)
-- ✅ Code compiles/imports successfully
+- ✅ Zero linting errors
+- ✅ All critical issues fixed
+- ✅ All important issues fixed
+- ✅ All minor issues fixed (or documented why skipped)
 
 **Commit changes**
 
 ---
 
-#### Step 4: Unit Testing
+#### Step 4: Enhance Future Phase Specs
 
-**Now that component works, lock in behavior with tests.**
+**Update future component specs with discoveries from this component:**
 
-**Spawn test-implementer with critical standards:**
 ```
-Task(test-implementer, """
-Implement comprehensive unit tests for working component.
+For each remaining phase spec (SPEC_{M}_{component}.md where M > N):
+  IF that component depends on current component:
+    Update "What's Available from Previous Phases" section:
 
-Spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
+    - Add current component's API surface
+    - Add gotchas from DISCOVERIES.md that affect future component
+    - Add usage examples if relevant
+
+    Example:
+    ```markdown
+    ## What's Available from Previous Phases
+
+    ### Phase {N}: {current_component}
+    - function_name(params) -> return_type
+      - Location: file.py:123
+      - Purpose: What it does
+      - Gotcha: Known edge case
+      - Example: usage_example()
+    ```
+```
+
+**Commit changes**
+
+---
+
+#### Step 5: Component Checkpoint
+
+**Component fully complete:**
+- ✅ Skeleton created (prod + test)
+- ✅ All tasks implemented and validated
+- ✅ Full component validation passed
+- ✅ Discoveries documented
+- ✅ Future phase specs enhanced
+
+**Summary:**
+```
+✅ Component {N}: {component_name} complete!
+
+Files: X created, Y modified
+Tasks: Z completed
+Quality: All validation passed
+Discoveries: [brief summary]
+
+Ready for dependent components.
+```
+
+**Update TodoWrite: Mark component complete**
+
+**Commit changes**
+
+**NEXT component in dependency order...**
+
+---
+
+### Phase N+1: Documentation (Merge .spec to Permanent Docs)
+
+**Goal:** Merge all learnings from .spec/ into permanent documentation before cleanup.
+
+**Invoke documentation-reviewer to validate ALL current documentation:**
+
+```
+validation_result = Task(documentation-reviewer, """
+Validate ALL documentation systematically against implementation.
+
+Working directory: $WORK_DIR
+Spec: $WORK_DIR/.spec/SPEC.md
 Workflow: conduct
 
-Production code: {component_file}
+All components implemented and tested. Validate docs match reality.
 
-CRITICAL STANDARDS (from agent-prompting skill):
-- 1:1 file mapping: tests/unit/test_<module>.py
-- 95% coverage minimum
-- AAA pattern (Arrange-Act-Assert)
-- Mock EVERYTHING external to the function being tested:
-  - Database calls, API calls, file I/O, cache operations
-  - OTHER INTERNAL FUNCTIONS called by the function under test
-  - Test function in ISOLATION, not with its dependencies
-- DO NOT run tests
-- NO shortcuts or workarounds
+Load ai-documentation skill.
 
-Load testing-standards skill.
+Find all .md files in $WORK_DIR, validate each systematically:
+- CLAUDE.md
+- README.md
+- docs/ directory
+- .spec/ files
 
-Component is validated and working - tests document behavior.
+Check:
+- File:line references accurate
+- Function signatures match code
+- Code examples work
+- CLAUDE.md line counts within targets
+- No duplication from parent CLAUDE.md
+- Business logic claims verified
 
-Agent will read spec automatically.
+Return JSON with issues categorized by severity.
 """)
 ```
 
-**Test & fix loop:**
+**Fix documentation issues (if found):**
+```
+IF validation_result contains CRITICAL or IMPORTANT issues:
+
+  # Group issues by file if multiple files need fixes
+  issues_by_file = group_issues_by_file(validation_result)
+
+  # Spawn general-builder per file (PARALLEL if multiple files)
+  FOR each file with issues:
+    Task(general-builder, """
+    Fix documentation issues in {file}.
+
+    Working directory: $WORK_DIR
+    Spec: $WORK_DIR/.spec/SPEC.md
+
+    Issues to fix (JSON from reviewer):
+    [paste issues for this file]
+
+    Fix priorities:
+    1. All CRITICAL issues (incorrect refs, signatures, contradictions)
+    2. All IMPORTANT issues (missing docs, outdated terms, line count violations)
+    3. MINOR issues if time permits
+
+    Load ai-documentation skill.
+
+    IMPORTANT: Merge learnings from .spec/DISCOVERIES.md into permanent docs.
+    """)
+
+  # Re-validate after fixes
+  Task(documentation-reviewer, """
+  Re-validate all documentation after fixes.
+
+  Working directory: $WORK_DIR
+  Spec: $WORK_DIR/.spec/SPEC.md
+
+  Load ai-documentation skill.
+
+  Return JSON with remaining issues (if any).
+  """)
+```
+
+**Documentation validation complete criteria:**
+- ✅ All .md files reviewed
+- ✅ No CRITICAL or IMPORTANT issues remaining
+- ✅ .spec/DISCOVERIES.md learnings merged into permanent docs
+- ✅ File:line references accurate
+- ✅ Function signatures match code
+- ✅ Code examples work
+- ✅ CLAUDE.md line counts within targets
+
+**Commit changes**
+
+---
+
+### Phase N+2: [OPTIONAL] Testing
+
+**Only run if user explicitly requested tests OR SPEC.md specifies testing requirements.**
+
+**Check if testing requested:**
+```
+IF user said "create tests" OR "write tests" OR SPEC.md has "Testing Strategy" section:
+  Proceed with testing
+ELSE:
+  Skip to Phase N+3
+```
+
+#### Unit Testing (per component)
+
+**If multiple components with independent tests → spawn test-implementers in PARALLEL:**
+
+```
+FOR each component in component_order:
+  Task(test-implementer, """
+  Implement comprehensive unit tests for {component}.
+
+  Spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
+  Workflow: conduct
+
+  Production code: {component_file}
+
+  CRITICAL STANDARDS (from agent-prompting skill):
+  - 1:1 file mapping: tests/unit/test_<module>.py
+  - 95% coverage minimum
+  - AAA pattern (Arrange-Act-Assert)
+  - Mock EVERYTHING external to the function being tested:
+    - Database calls, API calls, file I/O, cache operations
+    - OTHER INTERNAL FUNCTIONS called by the function under test
+    - Test function in ISOLATION, not with its dependencies
+  - DO NOT run tests
+
+  Load testing-standards skill.
+
+  Component is validated and working - tests document behavior.
+
+  Read spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
+  """)
+```
+
+**Test & fix loop (per component):**
 ```
 LOOP until tests pass with coverage:
   1. Run tests with coverage:
-     pytest tests/{component}/ --cov=$WORK_DIR/{component} --cov-report=term-missing -v
+     pytest tests/unit/ --cov=$WORK_DIR --cov-report=term-missing -v
 
   2. IF passing + coverage >= 95%:
        Break
 
   3. IF failed:
-       Spawn fix-executor with test failures:
-       ```
        Task(fix-executor, """
-       Fix test failures for {component}.
+       Fix test failures.
 
-       Spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
+       Spec: $WORK_DIR/.spec/SPEC.md
        Workflow: conduct
 
        Test output:
@@ -434,11 +692,11 @@ LOOP until tests pass with coverage:
        - Maintain business logic
        - Follow code standards: logging.getLogger, try/except only for connections
 
-       Load python-style skill if needed.
+       Load python-style skill.
 
-       Agent will read spec automatically.
+       Read spec: $WORK_DIR/.spec/SPEC.md
        """)
-       ```
+
        Re-run tests
 
   4. IF attempt > 3: ESCALATE with failure details
@@ -448,83 +706,17 @@ LOOP until tests pass with coverage:
 
 ---
 
-#### Step 5: Document Discoveries & Enhance Future Phase Specs
+#### Integration Testing (only if SPEC.md specifies)
 
-**Update DISCOVERIES.md:**
-```markdown
-## Component: {component_name} (Phase {N})
-
-### Discoveries
-- {what was learned during implementation}
-- {gotchas encountered}
-- {spec corrections made}
-
-### API Surface
-- {public functions/classes available}
-- {usage examples}
-- {known limitations}
+**Check if integration tests specified in SPEC.md:**
+```
+IF SPEC.md "Testing Strategy" section includes integration test scenarios:
+  Proceed with integration testing
+ELSE:
+  Skip integration testing
 ```
 
-**Enhance future phase specs:**
-```
-For each remaining phase spec (SPEC_{M}_{component}.md where M > N):
-  IF that component depends on current component:
-    Update "What's Available from Previous Phases" section:
-    - Add current component's API surface
-    - Add gotchas from DISCOVERIES.md that affect future component
-    - Add usage examples if relevant
-```
-
-**Example enhancement:**
-```markdown
-# Phase 3: API Routes (SPEC_3_api.md)
-
-## What's Available from Previous Phases
-- Phase 1: auth module
-  - auth.verify_token(token: str) -> User
-  - auth.create_token(user_id: str) -> str
-  - Gotcha: verify_token expects 'Bearer' prefix in token string
-  - Example: user = auth.verify_token(f"Bearer {token}")
-
-- Phase 2: database module
-  - db.query(sql: str, params: dict) -> List[Row]
-  - db.save(table: str, data: dict) -> int
-  - Gotcha: Connection pool must be initialized before first query
-```
-
-**Commit changes**
-
----
-
-#### Step 6: Checkpoint Component
-
-**Component fully complete:**
-- ✅ Validated (all issues fixed)
-- ✅ Unit tested (95%+ coverage)
-- ✅ Discoveries documented
-- ✅ Future phase specs enhanced
-
-**Summary:**
-```
-✅ Component {N}: {component_name} complete!
-
-Files: X created, Y modified
-Tests: Z passing (W% coverage)
-Quality: All validation passed
-Discoveries: [brief summary]
-
-Ready for dependent components.
-```
-
-**Commit changes**
-
----
-
-### Phase N+1: Integration Testing
-
-**All components working individually, now test interactions.**
-
-**Spawn test-implementer with critical standards:**
+**Spawn test-implementer for integration tests:**
 ```
 Task(test-implementer, """
 Implement integration tests for multi-component interactions.
@@ -543,13 +735,12 @@ CRITICAL STANDARDS (from agent-prompting skill):
 - Use REAL dependencies (test database, cache) - NOT mocks
 - Test components working together
 - DO NOT run tests
-- NO shortcuts or workarounds
 
 Load testing-standards skill.
 
 Coverage target: End-to-end scenarios from SPEC.md
 
-Agent will read spec automatically.
+Read spec: $WORK_DIR/.spec/SPEC.md
 """)
 ```
 
@@ -559,12 +750,9 @@ LOOP until integration tests pass:
   1. Run integration tests:
      pytest tests/integration/ -v
 
-  2. IF passing:
-       Break
+  2. IF passing: Break
 
   3. IF failed:
-       Spawn fix-executor with integration failures:
-       ```
        Task(fix-executor, """
        Fix integration test failures.
 
@@ -579,11 +767,11 @@ LOOP until integration tests pass:
        - Components are individually tested, issue is integration
        - Follow code standards: logging.getLogger, try/except only for connections
 
-       Load python-style skill if needed.
+       Load python-style skill.
 
-       Agent will read spec automatically.
+       Read spec: $WORK_DIR/.spec/SPEC.md
        """)
-       ```
+
        Re-run tests
 
   4. IF attempt > 3: ESCALATE with failure details
@@ -593,159 +781,30 @@ LOOP until integration tests pass:
 
 ---
 
-### Phase N+2: Documentation Validation
+### Phase N+3: Cleanup .spec/
 
-**Goal:** Ensure ALL documentation is accurate and up-to-date.
+**Goal:** Clean up temporary .spec/ artifacts, archive task-related files, keep only permanent docs.
 
-**Find all documentation in working directory:**
+**Archive task-related files:**
 ```bash
-# Find markdown files (README, docs, etc.)
-find $WORK_DIR -name "*.md" -type f
+# Create archive directory
+mkdir -p $WORK_DIR/.spec/archive/
 
-# Common docs to check:
-- README.md
-- $WORK_DIR/.spec/SPEC.md
-- $WORK_DIR/.spec/SPEC_*.md (phase specs)
-- CLAUDE.md (if in working dir)
-- Any project-specific docs
+# Archive operational files
+mv $WORK_DIR/.spec/PROGRESS.md $WORK_DIR/.spec/archive/
+mv $WORK_DIR/.spec/DISCOVERIES.md $WORK_DIR/.spec/archive/
+
+# Archive component phase specs (keep SPEC.md for reference)
+mv $WORK_DIR/.spec/SPEC_*.md $WORK_DIR/.spec/archive/ 2>/dev/null || true
+
+# Keep SPEC.md as permanent reference
+# Keep DOC_VALIDATION_REPORT.json for reference
 ```
 
-**Invoke documentation-validator agent:**
-
-```
-validation_result = Task(documentation-validator, """
-Validate ALL documentation for 100% accuracy against implementation.
-
-Working directory: $WORK_DIR
-Spec: $WORK_DIR/.spec/SPEC.md
-Workflow: conduct
-
-CRITICAL: Load ai-documentation skill before starting.
-
-Validation scope:
-- CLAUDE.md (at current level)
-- README.md
-- docs/ directory (all .md files if exists)
-- .spec/ files (SPEC.md, SPEC_*.md phase specs)
-
-Validate systematically:
-- File:line references accurate
-- Function signatures match code
-- Architecture claims verified
-- Constants/values correct
-- CLAUDE.md structure follows best practices
-- No duplication from parent CLAUDE.md
-
-Return structured JSON with issues categorized.
-
-Agent will read spec automatically.
-""")
-```
-
-**Fix documentation issues (if found):**
-```
-IF validation_result contains CRITICAL or IMPORTANT issues:
-  Task(general-builder, """
-  Fix documentation issues found by validator.
-
-  Working directory: $WORK_DIR
-  Spec: $WORK_DIR/.spec/SPEC.md
-
-  Issues to fix (JSON from validator):
-  [paste validation_result JSON]
-
-  Fix priorities:
-  1. All CRITICAL issues (incorrect refs, signatures, contradictions)
-  2. All IMPORTANT issues (missing docs, outdated terms)
-  3. MINOR issues if time permits
-
-  CRITICAL: Load ai-documentation skill before starting.
-  """)
-
-  # Re-validate after fixes
-  Task(documentation-validator, "Re-validate all documentation after fixes...")
-```
-
-**Documentation validation complete criteria:**
-- ✅ All .md files reviewed
-- ✅ No outdated information
-- ✅ Code examples match implementation
-- ✅ Phase specs include discoveries from implementation
-- ✅ No contradictions between docs and code
-
-**Commit changes**
-
----
-
-### Phase N+3: CLAUDE.md Optimization
-
-**Goal:** Ensure CLAUDE.md files follow hierarchical best practices and don't exceed line count targets.
-
-**Find all CLAUDE.md files in working directory:**
+**Update .gitignore to exclude archived files:**
 ```bash
-find $WORK_DIR -name "CLAUDE.md" -type f
+echo ".spec/archive/" >> $WORK_DIR/.gitignore
 ```
-
-**For EACH CLAUDE.md found, validate with documentation-validator:**
-
-```
-# NOTE: documentation-validator in Phase N+2 already validates CLAUDE.md structure
-# This phase focuses on optimization if issues remain
-
-Task(documentation-validator, """
-Validate CLAUDE.md optimization (focus on line count and structure).
-
-Working directory: $WORK_DIR
-CLAUDE.md file: [path to CLAUDE.md]
-
-CRITICAL: Load ai-documentation skill before starting.
-
-Check:
-1. Line count within target for hierarchy level
-2. No duplication from parent CLAUDE.md
-3. Business logic in table format (not prose)
-4. File structure condensed
-5. Deep-dive content extracted to QUICKREF.md if >400 lines
-
-Return structured JSON with optimization recommendations.
-""")
-```
-
-**Fix CLAUDE.md issues:**
-```
-IF CLAUDE.md issues found:
-  For each file with issues:
-    Task(general-builder, """
-    Optimize CLAUDE.md following AI documentation best practices.
-
-    File: [path to CLAUDE.md]
-    Working directory: $WORK_DIR
-
-    CRITICAL: Load ai-documentation skill before starting.
-
-    Issues to fix:
-    [paste JSON from validator]
-
-    Optimization strategy:
-    1. Remove duplicate content (reference parent CLAUDE.md files)
-    2. Convert prose to tables/bullets (content optimization)
-    3. Extract deep-dive content to QUICKREF.md if >400 lines
-    4. Condense file structure trees
-    5. Ensure line count within target for hierarchy level
-
-    Maintain all critical information - reorganize for AI readability.
-    """)
-
-  # Re-validate
-  Task(documentation-validator, "Re-validate optimized CLAUDE.md files...")
-```
-
-**CLAUDE.md optimization complete criteria:**
-- ✅ All CLAUDE.md files within target line counts
-- ✅ No duplication across hierarchy levels
-- ✅ Business logic in table format (where applicable)
-- ✅ Deep-dive content extracted to QUICKREF.md (if needed)
-- ✅ Hierarchical references working (child → parent)
 
 **Commit changes**
 
@@ -753,7 +812,7 @@ IF CLAUDE.md issues found:
 
 ### Phase N+4: Complete
 
-**Update SPEC.md:**
+**Update SPEC.md (in archive now):**
 - Add any major gotchas discovered to "Known Gotchas" section
 - Note any TODOs for future work
 
@@ -761,15 +820,15 @@ IF CLAUDE.md issues found:
 ```
 ✅ Implementation complete!
 
-Components: X implemented and tested
-Integration tests: Y passing
-Documentation: Z files validated and updated
+Components: X implemented and validated
+Testing: {Y unit tests passing, Z integration tests passing} OR {Skipped - not requested}
+Documentation: All validated and updated
 Quality: All validation passed
 
 System ready for use.
 ```
 
-**Commit changes**
+**Final commit**
 
 ---
 
@@ -784,7 +843,7 @@ System ready for use.
 1. Decide on N approaches for component
 2. Create worktrees: `git worktree add ../variant-a` etc.
 3. For each variant:
-   - Run component phase (Skeleton → Impl → Validate → Test) in that worktree
+   - Run component phase (Skeleton → Task Implementation → Validate) in that worktree
    - Track results in PROGRESS.md
 4. Spawn investigator per variant (parallel)
 5. Compare results:
@@ -797,9 +856,9 @@ System ready for use.
 ## Sub-Agents
 
 **Implementation:** skeleton-builder, implementation-executor, test-implementer, test-skeleton-builder
-**Validation:** security-auditor, performance-optimizer, code-reviewer, code-beautifier
+**Validation:** security-auditor, performance-optimizer, code-reviewer, code-beautifier, documentation-reviewer
 **Fixing:** fix-executor
-**Analysis:** investigator, general-builder
+**Analysis:** general-investigator, general-builder
 
 All inherit parent tools (Read, Write, Edit, Bash, Grep, Glob).
 
@@ -809,27 +868,25 @@ Spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
 Workflow: conduct
 ```
 
-Agents auto-read spec for full context.
-
 ---
 
 ## Tracking
 
-**SPEC.md:** High-level architecture (created by /spec, unchanged during /conduct)
-**SPEC_N_component.md:** Per-component phase specs (generated by /conduct, enhanced as phases complete)
-**DISCOVERIES.md:** Learnings captured as phases complete
-**PROGRESS.md:** Detailed component/step tracking
-**TodoWrite:** High-level component completion
+**SPEC.md:** High-level architecture (created by /spec, archived after /conduct)
+**SPEC_N_component.md:** Per-component phase specs (generated by /conduct, archived after)
+**DISCOVERIES.md:** Learnings captured during implementation (archived after)
+**PROGRESS.md:** Detailed task tracking (archived after)
+**TodoWrite:** High-level component completion tracking
 **Git commits:** After each major step
 
-**Formats:** `~/.claude/templates/operational.md`
+**Templates:** `~/.claude/templates/operational.md`
 
 ---
 
 ## Escalation
 
 **When:**
-- 3 failed attempts
+- 3 failed fix attempts
 - Architectural decisions needed
 - Critical security unfixable
 - External deps missing
@@ -851,25 +908,25 @@ Recommendation: [your suggestion]
 
 **DO:**
 - Require .spec/SPEC.md
-- Generate SPEC_N_component.md files
-- Execute per-component phases (Skeleton → Impl → Validate → Test → Checkpoint)
-- Validate each component before moving to next
+- Generate SPEC_N_component.md files if not exist
+- Execute per-component: Skeleton (sequential) → Task-by-Task Impl (2 reviewers per task) → Full Validation (6 reviewers)
+- Update PROGRESS.md + DISCOVERIES.md throughout
+- Parallelize: reviewers, independent tasks, independent component tests
 - Enhance future phase specs with discoveries
-- Integration testing after all components
-- Documentation validation at end
-- Fix-validate loops (3 max per component)
-- Track in PROGRESS.md + TodoWrite
+- Documentation phase BEFORE testing
+- Testing ONLY if user requested
+- Archive .spec/ files after completion
 - Commit after major steps
 
 **DON'T:**
 - Proceed without SPEC.md
-- Skip per-component validation
-- Move to next component with failing tests
+- Skip per-task validation (2 reviewers required)
+- Move to next component with failing validation
+- Run tests unless user requested
 - Let sub-agents spawn sub-agents
-- Accept prose responses
-- Skip integration testing
-- Skip documentation validation
+- Skip documentation validation before cleanup
+- Delete .spec/ files before merging learnings to permanent docs
 
 ---
 
-**You are the conductor. Parse dependencies, execute components bottom-up, validate incrementally, deliver working system.**
+**You are the conductor. Parse dependencies, execute tasks incrementally with validation at each step, parallelize where possible, deliver working system.**

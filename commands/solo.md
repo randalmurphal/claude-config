@@ -25,23 +25,22 @@ description: Streamlined task execution with proper delegation and validation - 
 ## Your Mission
 
 1. Generate minimal spec for context
-2. Implement via sub-agents
-3. Validate & fix loop (get it working first)
-4. Comprehensive testing (lock in behavior)
-5. Documentation validation (ensure accuracy)
-6. Deliver working, tested, validated, documented code
+2. Implement via task-by-task execution with validation
+3. Full validation after all tasks complete
+4. Merge .spec learnings into permanent documentation
+5. [Optional] Testing if user requested
+6. Cleanup .spec/
+7. Deliver working, validated, documented code
 
 **You are intelligent.** Assess if task is actually straightforward. If not, tell user to use /conduct.
 
 **You are autonomous.** Execute without asking permission at each step.
 
-**Token budget:** Use what you need (typically 10-20k for solo tasks).
-
 ---
 
 ## Workflow
 
-### Step 0.0: Load Agent Prompting Skill
+### Step 0: Load Agent Prompting Skill
 
 **CRITICAL: Load before spawning any sub-agents.**
 
@@ -78,176 +77,384 @@ Skill: agent-prompting
 ### Step 1: Generate Minimal Spec
 
 **Create `.spec/BUILD_[taskname].md`:**
-- Goal, Problem, Approach
-- Files to create/modify
-- Tests required
-- Quality constraints
-- Context for sub-agents
 
-**Template:** `~/.claude/templates/spec-minimal.md`
+Use template: `~/.claude/templates/spec-minimal.md`
 
-**Naming:** Extract 2-3 words (e.g., "rate-limit", "user-export")
+```markdown
+# [Task Name]
 
-**Initialize PROGRESS.md** (simpler than /conduct)
+## Goal
+[Clear, concise outcome - what to build]
+
+## Problem
+[1-2 sentences - what gap are we filling]
+
+## Approach
+[Basic implementation strategy]
+
+## Implementation Tasks
+- Task 1: [description]
+- Task 2: [description]
+- Task 3: [description]
+
+## Files
+### New Files
+- path/to/file.py: [purpose]
+- path/to/test_file.py: [tests what]
+
+### Modified Files
+- path/to/existing.py: [what changes]
+
+## Tests (only if user requested)
+- Unit tests for all new functions/classes
+- Integration test for [workflow]
+- Coverage target: 95%
+
+## Quality
+- Linting: Pass ruff check + pyright
+- Security: [any specific concerns or "Standard practices"]
+- Performance: [any specific requirements or "No specific requirements"]
+
+## Context & Constraints
+[Any important context the main agent and sub-agents need to stay on track]
+- [Constraint or context 1]
+- [Constraint or context 2]
+```
+
+**Naming:** Extract 2-3 words from task (e.g., "rate-limit", "user-export")
+
+**Initialize PROGRESS.md:** Track implementation progress
 
 **Commit changes** (follow project's commit style from recent commits)
 
 ---
 
-### Step 2: Implementation
+### Step 2: Task-by-Task Implementation
 
-**Spawn implementation-executor with critical standards inline** (from agent-prompting skill):
-```
-Task(implementation-executor, """
-Implement [task description]
-
-Spec: $WORK_DIR/.spec/BUILD_[taskname].md
-Workflow: solo
-
-CRITICAL STANDARDS (from agent-prompting skill):
-- Logging: import logging; LOG = logging.getLogger(__name__)
-- try/except ONLY for connection errors (network, DB, cache)
-- Type hints required, 80 char limit
-- No # noqa without documented reason
-- DO NOT run tests
-
-Load python-style skill if needed.
-
-[Additional task-specific context]
-
-Agent will read spec automatically.
-""")
+**Read implementation tasks from BUILD_[taskname].md:**
+```markdown
+## Implementation Tasks
+- Implement data models
+- Implement validation logic
+- Implement API endpoint
+- Add error handling
 ```
 
-**Wait for completion, check status COMPLETE**
+**Determine if tasks can run in parallel:**
+- If tasks are independent (no dependencies) → spawn implementation-executors in PARALLEL
+- If tasks have dependencies → run sequentially
 
-**Review result:**
-- Files created make sense?
-- Gotchas found? → Note in PROGRESS.md
-- Blockers? → ESCALATE or adjust approach
+**For EACH task:**
+
+```
+1. Implement task:
+   Task(implementation-executor, """
+   Implement: {task description}
+
+   Spec: $WORK_DIR/.spec/BUILD_[taskname].md
+   Workflow: solo
+   Task: {task name}
+
+   CRITICAL STANDARDS (from agent-prompting skill):
+   - Logging: import logging; LOG = logging.getLogger(__name__)
+   - try/except ONLY for connection errors (network, DB, cache)
+   - Type hints required, 80 char limit
+   - No # noqa without documented reason
+   - DO NOT run tests
+
+   Load python-style skill.
+
+   Read spec: $WORK_DIR/.spec/BUILD_[taskname].md
+   Focus on: {task name}
+   """)
+
+2. Validate task (2 code-reviewers in PARALLEL - single message with 2 Task calls):
+
+   Task(code-reviewer, """
+   Review: {task description}
+
+   Spec: $WORK_DIR/.spec/BUILD_[taskname].md
+   Workflow: solo
+
+   Focus: Code quality, logic correctness, standards compliance
+
+   Load python-style skill.
+
+   Return JSON: {"status": "COMPLETE", "critical": [...], "important": [...], "minor": [...]}
+   """)
+
+   Task(code-reviewer, """
+   Review: {task description}
+
+   Spec: $WORK_DIR/.spec/BUILD_[taskname].md
+   Workflow: solo
+
+   Focus: Edge cases, error handling, coupling
+
+   Return JSON: {"status": "COMPLETE", "critical": [...], "important": [...], "minor": [...]}
+   """)
+
+3. Fix issues (if found):
+   IF critical or important issues:
+     LOOP (max 2 attempts):
+       Task(fix-executor, """
+       Fix task validation issues.
+
+       Spec: $WORK_DIR/.spec/BUILD_[taskname].md
+       Task: {task description}
+
+       Issues: [paste combined JSON from 2 reviewers]
+
+       CRITICAL RULES (from agent-prompting skill):
+       - Fix PROPERLY - no workarounds
+       - Follow code standards: logging.getLogger, try/except only for connections
+       - Max 2 attempts, then ESCALATE
+
+       Load python-style skill.
+
+       Read spec: $WORK_DIR/.spec/BUILD_[taskname].md
+       """)
+
+       Re-run 2 code-reviewers in parallel (verify fixes)
+
+       IF clean: Break
+       IF attempt >= 2: ESCALATE
+
+4. Update PROGRESS.md with task completion
+
+5. Commit changes for this task
+
+NEXT task...
+```
+
+**After ALL tasks complete:**
+
+Update BUILD spec with any discoveries:
+```markdown
+## Implementation Notes (added after completion)
+- {gotchas encountered}
+- {deviations from original approach}
+- {learnings}
+```
 
 **Commit changes**
 
 ---
 
-### Step 3: Validation & Fix Loop
+### Step 3: Full Validation
 
-**Goal:** Get implementation working before writing tests.
+**Goal:** Comprehensive validation of entire implementation after all tasks complete.
 
-**Run validation:**
+**Run linting + 6 reviewers in PARALLEL (single message with 7 operations):**
+
 ```bash
-# Syntax/import checks
-python -m py_compile $WORK_DIR/**/*.py
-# or: tsc --noEmit (for TypeScript)
-
-# Linting
-ruff check $WORK_DIR
+# Operation 1: Linting (run alongside reviewers)
+ruff check $WORK_DIR && pyright $WORK_DIR
 ```
 
-**Spawn 6 reviewers in parallel (NO SKIMPING):**
-
-Include critical standards from agent-prompting skill:
 ```
-Spec: $WORK_DIR/.spec/BUILD_[taskname].md
-Workflow: solo
+# Operations 2-7: Spawn 6 reviewers (same message as linting)
 
-CRITICAL STANDARDS:
-- Check for improper try/except (wrapping safe operations)
-- Check logging (should use logging.getLogger(__name__))
-- Check type hints, 80 char limit, no # noqa without reason
-- ONLY valid JSON response
+Common for all reviewers:
+- Spec: $WORK_DIR/.spec/BUILD_[taskname].md
+- Workflow: solo
+- Return JSON: {"status": "COMPLETE", "critical": [...], "important": [...], "minor": [...]}
 
-Response format:
-{
-  "status": "COMPLETE",
-  "critical": [{"file": "...", "line": N, "issue": "...", "fix": "..."}],
-  "important": [...],
-  "minor": [...]
-}
+Task(security-auditor, """
+Audit implementation for security vulnerabilities.
+
+Load vulnerability-triage skill.
+
+Review for: injection risks, auth bypasses, data exposure, crypto issues.
+""")
+
+Task(performance-optimizer, """
+Review implementation for performance issues.
+
+Load mongodb-aggregation-optimization skill if MongoDB code detected.
+
+Review for: N+1 queries, missing indexes, inefficient algorithms, memory leaks.
+""")
+
+Task(code-reviewer, """
+Review implementation: complexity, errors, clarity.
+
+Load python-style skill.
+
+Focus: cyclomatic complexity, error handling, code clarity, maintainability.
+""")
+
+Task(code-reviewer, """
+Review implementation: responsibility, coupling, type safety.
+
+Focus: SRP violations, tight coupling, type hint coverage, interface clarity.
+""")
+
+Task(code-beautifier, """
+Review implementation: DRY violations, magic numbers, dead code.
+
+Focus: code duplication, hardcoded values, unused imports/variables, formatting.
+""")
+
+Task(code-reviewer, """
+Review implementation: documentation, comments, naming.
+
+Focus: docstring coverage, comment quality, variable naming, function naming.
+""")
 ```
 
-Single message with 6 Task calls:
-1. security-auditor (optional skill: vulnerability-triage)
-2. performance-optimizer (optional skill: mongodb-aggregation-optimization if MongoDB)
-3. code-reviewer (pass 1: complexity, errors, clarity) (optional skill: python-style)
-4. code-reviewer (pass 2: responsibility, coupling, type safety)
-5. code-beautifier (DRY, magic numbers, dead code)
-6. code-reviewer (pass 3: documentation, comments, naming)
-
-**Combine findings:**
-- Parse all responses (JSON for reviewers, markdown for beautifier)
-- Merge critical + important + minor lists
+**Combine all findings:**
+- Merge linting errors + 6 reviewer responses
+- Consolidate critical + important + minor
 - Deduplicate issues
 
-**Fix ALL issues (no skipping):**
+**Fix ALL issues (max 3 attempts):**
 ```
 LOOP until validation clean:
-  1. Spawn fix-executor with ALL issues and critical standards:
-     ```
+  1. Spawn fix-executor:
      Task(fix-executor, """
      Fix all validation issues.
 
      Spec: $WORK_DIR/.spec/BUILD_[taskname].md
      Workflow: solo
 
-     Critical issues:
-     [list]
-
-     Important issues:
-     [list]
-
-     Minor issues:
-     [list]
+     Critical: [list]
+     Important: [list]
+     Minor: [list]
 
      CRITICAL RULES (from agent-prompting skill):
-     - Fix PROPERLY - no workarounds, no shortcuts
-     - Follow all code quality standards:
-       - Logging: logging.getLogger(__name__)
-       - try/except ONLY for connection errors
-       - Type hints required, 80 char limit
-     - DO NOT use # noqa / # type: ignore as a "fix"
-     - DO NOT wrap safe operations in try/except
-     - If architectural issue, ESCALATE with:
-       - What the issue is
-       - Why proper fix needs architectural decision
-       - Options available
-       - Your recommendation
-     - Max 3 attempts, then ESCALATE
+     - Fix PROPERLY - no workarounds
+     - NO # noqa / # type: ignore as "fixes"
+     - If architectural issue: ESCALATE immediately
+     - Max 3 attempts
 
-     Load python-style or code-refactoring skill if needed.
+     Load python-style skill.
+     Load code-refactoring skill if complexity issues.
 
-     Agent will read spec automatically.
+     Read spec: $WORK_DIR/.spec/BUILD_[taskname].md
      """)
-     ```
 
-  2. Re-run linting: ruff check $WORK_DIR
+  2. Re-run linting + 6 reviewers in PARALLEL (single message - verify fixes)
 
-  3. Re-run ALL 6 reviewers (verify fixes didn't break anything)
+  3. IF clean: Break
+     IF new issues AND attempt < 3: Continue loop
+     IF attempt >= 3: ESCALATE
 
-  4. IF new issues found: Continue loop
-     IF validation clean: Break
-     IF loop > 3 attempts: ESCALATE with details
-
-  5. NO ignored errors allowed unless absolutely necessary (document reason)
+  4. Update PROGRESS.md with validation status
 ```
 
 **Validation complete criteria:**
-- ✅ Zero linter errors (or all documented with justification)
-- ✅ All reviewer critical issues fixed
-- ✅ All reviewer important issues fixed
-- ✅ All reviewer minor issues fixed
-- ✅ No # noqa / # type: ignore / @ts-ignore comments (unless documented exception)
-- ✅ Code compiles/imports successfully
+- ✅ Zero linting errors
+- ✅ All critical issues fixed
+- ✅ All important issues fixed
+- ✅ All minor issues fixed (or documented why skipped)
 
 **Commit changes**
 
 ---
 
-### Step 4: Testing
+### Step 4: Documentation (Merge .spec to Permanent Docs)
 
-**Now that implementation works, lock in behavior with tests.**
+**Goal:** Validate all documentation and merge .spec learnings into permanent docs.
 
-**Spawn test-implementer with critical standards:**
+**Invoke documentation-reviewer:**
+
+```
+validation_result = Task(documentation-reviewer, """
+Validate all documentation against implemented code.
+
+Working directory: $WORK_DIR
+Spec: $WORK_DIR/.spec/BUILD_[taskname].md
+Workflow: solo
+
+Implementation complete and validated. Ensure docs accurate.
+
+Load ai-documentation skill.
+
+Find all .md files in $WORK_DIR, validate each systematically:
+- CLAUDE.md
+- README.md
+- docs/ directory
+- .spec/BUILD_[taskname].md
+
+Check:
+- File:line references accurate
+- Function signatures match code
+- Code examples work
+- CLAUDE.md line counts within targets
+- No duplication from parent CLAUDE.md
+
+Return JSON with issues categorized by severity.
+""")
+```
+
+**Fix documentation issues (if found):**
+```
+IF validation_result contains CRITICAL or IMPORTANT issues:
+
+  # Group issues by file if multiple files need fixes
+  issues_by_file = group_issues_by_file(validation_result)
+
+  # Spawn general-builder per file (PARALLEL if multiple files)
+  FOR each file with issues:
+    Task(general-builder, """
+    Fix documentation issues in {file}.
+
+    Working directory: $WORK_DIR
+    Spec: $WORK_DIR/.spec/BUILD_[taskname].md
+
+    Issues to fix (JSON from reviewer):
+    [paste issues for this file]
+
+    Fix priorities:
+    1. All CRITICAL issues (incorrect refs, signatures, contradictions)
+    2. All IMPORTANT issues (missing docs, outdated terms, line count violations)
+    3. MINOR issues if time permits
+
+    Load ai-documentation skill.
+
+    IMPORTANT: Merge learnings from .spec/BUILD_[taskname].md into permanent docs.
+    """)
+
+  # Re-validate after fixes
+  Task(documentation-reviewer, """
+  Re-validate all documentation after fixes.
+
+  Working directory: $WORK_DIR
+  Spec: $WORK_DIR/.spec/BUILD_[taskname].md
+
+  Load ai-documentation skill.
+
+  Return JSON with remaining issues (if any).
+  """)
+```
+
+**Documentation validation complete criteria:**
+- ✅ All .md files reviewed
+- ✅ No CRITICAL or IMPORTANT issues remaining
+- ✅ .spec/BUILD_[taskname].md learnings merged into permanent docs
+- ✅ File:line references accurate
+- ✅ Function signatures match code
+- ✅ Code examples work
+- ✅ CLAUDE.md line counts within targets
+
+**Commit changes**
+
+---
+
+### Step 5: [OPTIONAL] Testing
+
+**Only run if user explicitly requested tests.**
+
+**Check if testing requested:**
+```
+IF user said "create tests" OR "write tests" OR BUILD spec has "Tests" section:
+  Proceed with testing
+ELSE:
+  Skip to Step 6
+```
+
+**Spawn test-implementer:**
 ```
 Task(test-implementer, """
 Implement comprehensive tests for working implementation.
@@ -267,13 +474,12 @@ CRITICAL STANDARDS (from agent-prompting skill):
   - Test function in ISOLATION, not with its dependencies
 - Integration tests: 2-4 files per module (ADD to existing, don't create new)
 - DO NOT run tests
-- NO shortcuts or workarounds
 
 Load testing-standards skill.
 
 Implementation is validated and working - tests document behavior.
 
-Agent will read spec automatically.
+Read spec: $WORK_DIR/.spec/BUILD_[taskname].md
 """)
 ```
 
@@ -287,8 +493,6 @@ LOOP until tests pass with coverage:
        Break
 
   3. IF failed:
-       Spawn fix-executor with test failures:
-       ```
        Task(fix-executor, """
        Fix test failures.
 
@@ -303,11 +507,11 @@ LOOP until tests pass with coverage:
        - Maintain business logic
        - Follow code standards: logging.getLogger, try/except only for connections
 
-       Load python-style skill if needed.
+       Load python-style skill.
 
-       Agent will read spec automatically.
+       Read spec: $WORK_DIR/.spec/BUILD_[taskname].md
        """)
-       ```
+
        Re-run tests
 
   4. IF attempt > 3: ESCALATE with failure details
@@ -317,159 +521,26 @@ LOOP until tests pass with coverage:
 
 ---
 
-### Step 5: Documentation Validation
+### Step 6: Cleanup .spec/
 
-**Goal:** Ensure ALL documentation is accurate and up-to-date.
+**Goal:** Clean up temporary .spec/ artifacts.
 
-**Find all documentation in working directory:**
+**Archive task-related files:**
 ```bash
-# Find markdown files (README, docs, etc.)
-find $WORK_DIR -name "*.md" -type f
+# Create archive directory
+mkdir -p $WORK_DIR/.spec/archive/
 
-# Common docs to check:
-- README.md
-- $WORK_DIR/.spec/BUILD_*.md
-- CLAUDE.md (if in working dir)
-- Any project-specific docs
+# Archive operational files
+mv $WORK_DIR/.spec/PROGRESS.md $WORK_DIR/.spec/archive/
+mv $WORK_DIR/.spec/BUILD_*.md $WORK_DIR/.spec/archive/
+
+# Keep DOC_VALIDATION_REPORT.json for reference if exists
 ```
 
-**Invoke documentation-validator agent:**
-
-```
-validation_result = Task(documentation-validator, """
-Validate ALL documentation for 100% accuracy against implementation.
-
-Working directory: $WORK_DIR
-Spec: $WORK_DIR/.spec/BUILD_[taskname].md
-Workflow: solo
-
-CRITICAL: Load ai-documentation skill before starting.
-
-Validation scope:
-- CLAUDE.md (at current level)
-- README.md
-- docs/ directory (all .md files if exists)
-- .spec/BUILD_[taskname].md
-
-Validate systematically:
-- File:line references accurate
-- Function signatures match code
-- Architecture claims verified
-- Constants/values correct
-- CLAUDE.md structure follows best practices
-
-Return structured JSON with issues categorized.
-
-Agent will read spec automatically.
-""")
-```
-
-**Fix documentation issues (if found):**
-```
-IF validation_result contains CRITICAL or IMPORTANT issues:
-  Task(general-builder, """
-  Fix documentation issues found by validator.
-
-  Working directory: $WORK_DIR
-  Spec: $WORK_DIR/.spec/BUILD_[taskname].md
-
-  Issues to fix (JSON from validator):
-  [paste validation_result JSON]
-
-  Fix priorities:
-  1. All CRITICAL issues
-  2. All IMPORTANT issues
-  3. MINOR issues if time permits
-
-  CRITICAL: Load ai-documentation skill before starting.
-  """)
-
-  # Re-validate after fixes
-  Task(documentation-validator, "Re-validate after fixes...")
-```
-
-**Documentation validation complete criteria:**
-- ✅ All .md files reviewed
-- ✅ No outdated information
-- ✅ Code examples match implementation
-- ✅ BUILD spec includes discoveries from implementation
-- ✅ No contradictions between docs and code
-
-**Commit changes**
-
----
-
-### Step 6: CLAUDE.md Optimization
-
-**Goal:** Ensure CLAUDE.md files follow hierarchical best practices and don't exceed line count targets.
-
-**Find all CLAUDE.md files in working directory:**
+**Update .gitignore to exclude archived files:**
 ```bash
-find $WORK_DIR -name "CLAUDE.md" -type f
+echo ".spec/archive/" >> $WORK_DIR/.gitignore
 ```
-
-**Validate CLAUDE.md with documentation-validator:**
-
-```
-# NOTE: documentation-validator in Step 5 already validated CLAUDE.md
-# This step focuses on optimization if issues remain
-
-Task(documentation-validator, """
-Validate CLAUDE.md optimization (focus on line count and structure).
-
-Working directory: $WORK_DIR
-Spec: $WORK_DIR/.spec/BUILD_[taskname].md
-CLAUDE.md file: [path to CLAUDE.md]
-
-CRITICAL: Load ai-documentation skill before starting.
-
-Check:
-1. Line count within target for hierarchy level
-2. No duplication from parent CLAUDE.md
-3. Business logic in table format (not prose)
-4. File structure condensed
-5. Deep-dive content extracted to QUICKREF.md if >400 lines
-
-Return structured JSON with optimization recommendations.
-""")
-```
-
-**Fix CLAUDE.md issues:**
-```
-IF CLAUDE.md issues found:
-  For each file with issues:
-    Task(general-builder, """
-    Optimize CLAUDE.md following AI documentation best practices.
-
-    File: [path to CLAUDE.md]
-    Working directory: $WORK_DIR
-    Spec: $WORK_DIR/.spec/BUILD_[taskname].md
-
-    CRITICAL: Load ai-documentation skill before starting.
-
-    Issues to fix:
-    [paste JSON from validator]
-
-    Optimization strategy:
-    1. Remove duplicate content (reference parent CLAUDE.md files)
-    2. Convert prose to tables/bullets (content optimization)
-    3. Extract deep-dive content to QUICKREF.md if >400 lines
-    4. Condense file structure trees
-    5. Ensure line count within target for hierarchy level
-
-    Maintain all critical information - reorganize for AI readability.
-    """)
-
-  # Re-validate
-  Task(documentation-validator, "Re-validate optimized CLAUDE.md files...")
-```
-
-**CLAUDE.md optimization complete criteria:**
-- ✅ All CLAUDE.md files within target line counts
-- ✅ No duplication across hierarchy levels
-- ✅ Business logic in table format (where applicable)
-- ✅ Deep-dive content extracted to QUICKREF.md (if needed)
-- ✅ Hierarchical references working (child → parent)
 
 **Commit changes**
 
@@ -477,62 +548,47 @@ IF CLAUDE.md issues found:
 
 ### Step 7: Complete
 
-**Update BUILD spec:**
-- Add any gotchas discovered
-- Note any TODOs for future
-
 **Final summary:**
 ```
 ✅ Task complete!
 
 Files: X created, Y modified
-Tests: Z passing (W% coverage)
+Tasks: Z completed
+Testing: {W tests passing, V% coverage} OR {Skipped - not requested}
 Quality: All validation passed
 
 Ready for use.
 ```
 
-**Commit changes**
-
----
-
-## Agent Response Templates
-
-**All agents use structured responses (NOT prose).**
-
-**Templates:** `~/.claude/templates/agent-responses.md`
-
-**How to embed:**
-```
-Task(agent-name, """
-[Task description and context]
-
-RESPONSE TEMPLATE (use EXACTLY):
-[paste template]
-
-Do not add prose outside template.
-""")
-```
+**Final commit**
 
 ---
 
 ## Sub-Agents
 
 **Implementation:** implementation-executor, test-implementer
-**Validation:** security-auditor, performance-optimizer, code-reviewer (2x), code-beautifier, documentation-reviewer
+**Validation:** security-auditor, performance-optimizer, code-reviewer, code-beautifier, documentation-reviewer
 **Fixing:** fix-executor
+**Analysis:** general-builder
 
 All inherit parent tools (Read, Write, Edit, Bash, Grep, Glob).
+
+All agents spawned during /solo receive:
+```
+Spec: $WORK_DIR/.spec/BUILD_[taskname].md
+Workflow: solo
+```
 
 ---
 
 ## Tracking
 
 **BUILD spec:** `.spec/BUILD_[taskname].md` - minimal context
-**PROGRESS.md:** Simple step tracking
+**PROGRESS.md:** Simple task tracking
 **TodoWrite:** Step completion
+**Git commits:** After each major step
 
-**Formats:** `~/.claude/templates/operational.md`
+**Templates:** `~/.claude/templates/spec-minimal.md`, `~/.claude/templates/operational.md`
 
 ---
 
@@ -590,20 +646,25 @@ Recommendation: [your suggestion]
 
 **DO:**
 - Generate BUILD spec for context
-- Delegate to sub-agents (don't implement yourself)
-- Test thoroughly (90% coverage minimum)
-- Validate properly (6 reviewers - SAME as /conduct)
-- Fix-validate loops (3 attempts max)
-- Commit after major steps (follow project's commit style)
+- Execute task-by-task (2 reviewers per task)
+- Full validation after all tasks (6 reviewers)
+- Update PROGRESS.md throughout
+- Parallelize: reviewers, independent tasks
+- Documentation phase BEFORE testing
+- Testing ONLY if user requested
+- Archive .spec/ files after completion
+- Commit after major steps
 - Escalate to /conduct if complexity discovered
 
 **DON'T:**
 - Use for complex multi-component tasks
-- Skip testing
-- Skip validation
+- Skip per-task validation (2 reviewers required)
+- Skip full validation after tasks
+- Run tests unless user requested
 - Accept prose responses from agents
-- Checkpoint with failing tests
+- Complete with failing validation
 - Continue after 3 failed attempts
+- Delete .spec/ files before merging learnings to permanent docs
 
 ---
 
@@ -623,12 +684,12 @@ Recommendation: [your suggestion]
 - ✅ High stakes (security, payments, auth)
 
 **Key difference:**
-- /solo: Streamlined workflow (6 steps: spec → impl → validate → test → docs → done)
-- /conduct: Full orchestration (dependency analysis, worktrees, skeletal phase)
-- **BOTH:** Same validation rigor (comprehensive reviewers, testing, documentation)
+- /solo: Streamlined workflow (7 steps: spec → task-by-task impl → full validation → docs → optional tests → cleanup → done)
+- /conduct: Full orchestration (dependency analysis, per-component phases, worktrees, skeletal progression)
+- **BOTH:** Same validation rigor (2 reviewers per task, 6 reviewers full validation, comprehensive testing, documentation)
 
 **When in doubt:** Start with /solo, escalate to /conduct if needed.
 
 ---
 
-**You are focused. Delegate, validate, deliver.**
+**You are focused. Delegate task-by-task, validate incrementally, parallelize where possible, deliver.**

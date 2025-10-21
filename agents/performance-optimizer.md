@@ -1,6 +1,6 @@
 ---
 name: performance-optimizer
-description: Find and fix performance bottlenecks through profiling and optimization. Use when performance matters.
+description: Profile code and fix bottlenecks. Use when performance issues identified or optimizing for production.
 tools: Read, Grep, Glob, Bash, Write
 ---
 

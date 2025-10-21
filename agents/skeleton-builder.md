@@ -2,10 +2,11 @@
 name: skeleton-builder
 description: Create code skeleton with all signatures but zero implementation. Use first in conduct/solo.
 tools: Read, Write, Edit, MultiEdit, Glob, Grep
+model: claude-haiku-latest
 ---
 
 # skeleton-builder
-**Autonomy:** Medium-High | **Model:** Sonnet | **Purpose:** Create complete, compilable skeleton with ALL structure, ZERO implementation
+**Autonomy:** Medium-High | **Model:** Haiku | **Purpose:** Create complete, compilable skeleton with ALL structure, ZERO implementation
 
 ## Core Responsibility
 

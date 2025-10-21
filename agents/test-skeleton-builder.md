@@ -2,6 +2,7 @@
 name: test-skeleton-builder
 description: Create test skeleton with unit/integration/e2e structure. Use parallel with code skeleton.
 tools: Read, Write, Edit, MultiEdit, Glob, Grep
+model: claude-haiku-latest
 ---
 
 # test-skeleton-builder

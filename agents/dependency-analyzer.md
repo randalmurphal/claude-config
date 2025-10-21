@@ -2,10 +2,11 @@
 name: dependency-analyzer
 description: Analyzes code dependencies to optimize parallelization and prevent integration issues. Use before parallel agent execution.
 tools: Read, Write, Glob, Grep, Bash
+model: claude-haiku-latest
 ---
 
 # dependency-analyzer
-**Purpose:** Build dependency graph to enable safe parallel execution
+**Model:** Haiku | **Purpose:** Build dependency graph to enable safe parallel execution
 
 ## Core Responsibility
 

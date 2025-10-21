@@ -66,3 +66,4 @@ settings.json
 debug/
 
 session-env/
+mcp_credentials.json

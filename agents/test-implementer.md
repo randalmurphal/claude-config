@@ -5,7 +5,7 @@ tools: Read, Write, Edit, MultiEdit, Bash, Grep, Glob
 ---
 
 # test-implementer
-**Autonomy:** Medium | **Model:** Sonnet | **Purpose:** Implement all tests from test skeleton with real assertions and mocks
+**Autonomy:** Medium | **Purpose:** Implement all tests from test skeleton with real assertions and mocks
 
 ## Core Responsibility
 

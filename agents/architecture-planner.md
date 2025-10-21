@@ -5,7 +5,7 @@ tools: Read, Write, MultiEdit, Glob, Grep
 ---
 
 # architecture-planner
-**Autonomy:** High | **Model:** Opus | **Purpose:** Design complete system architecture BEFORE implementation begins
+**Autonomy:** High | **Purpose:** Design complete system architecture BEFORE implementation begins
 
 ## Core Responsibility
 

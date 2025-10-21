@@ -29,10 +29,6 @@
       "args": ["mcp_server.py"],
       "cwd": "/home/randy/repos/claude_mcp/tech_scanner_mcp"
     },
-    "sequential-thinking": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"]
-    },
     "obsidian": {
       "command": "npx",
       "args": ["-y", "obsidian-mcp-server"],

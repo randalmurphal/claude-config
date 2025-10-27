@@ -135,9 +135,23 @@ create_worktree() {
     local repo_root
     repo_root=$(get_repo_root)
 
+    # Extract ticket number from base directory if present (for parallel PR reviews)
+    # Pattern: /tmp/pr-review-INT-1234 or /tmp/pr-review-PLAT-567
+    local ticket=""
+    if [[ "$base_dir" =~ pr-review-([A-Z]+-[0-9]+) ]]; then
+        ticket="${BASH_REMATCH[1]}"
+    fi
+
     # Worktree directory and branch name
     local wt_dir="$base_dir/$prefix$module_name"
-    local branch_name="$prefix$module_name"
+    local branch_name
+    if [[ -n "$ticket" ]]; then
+        # Include ticket in branch name for uniqueness (parallel reviews)
+        branch_name="$prefix$ticket-$module_name"
+    else
+        # Standard branch name
+        branch_name="$prefix$module_name"
+    fi
 
     # Create base directory if needed
     mkdir -p "$base_dir"

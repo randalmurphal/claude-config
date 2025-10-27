@@ -1,0 +1,240 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# jira-list-tickets - List Jira tickets with filters
+#
+# Usage: jira-list-tickets [--project <key>] [--status <status>] [--assignee <email>] [--type <issue-type>] [--jql <custom-jql>]
+# Example: jira-list-tickets --status "In Progress" --assignee "rmurphy@fortressinfosec.com"
+# Example: jira-list-tickets --project INT --type Task
+# Example: jira-list-tickets --jql "project = INT AND status = 'In Progress'"
+#
+# Returns: Formatted markdown with ticket list
+# Exit codes: 0 = success, 1 = usage error, 3 = API error, 4 = credentials missing
+
+# Get script directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CREDS_FILE="${SCRIPT_DIR}/.jira-credentials"
+
+# Function to show credential setup instructions
+show_credential_instructions() {
+    cat >&2 <<'EOF'
+❌ Jira credentials not found or incomplete.
+
+STOP: This script requires Jira API credentials to be configured.
+
+The script uses the same credentials as the Jira MCP. Make sure these
+environment variables are set:
+
+    ATLASSIAN_API_TOKEN="your-token"
+    ATLASSIAN_SITE_NAME="fortressinfosec"
+    ATLASSIAN_USER_EMAIL="your.email@fortressinfosec.com"
+
+These should already be set in your environment if the Jira MCP is working.
+
+If not set, the credentials file (~/.claude/scripts/.jira-credentials) will
+try to load them from the environment, but they must exist there first.
+
+Check: env | grep ATLASSIAN
+
+EOF
+    exit 4
+}
+
+# Check if credentials file exists
+if [ ! -f "$CREDS_FILE" ]; then
+    echo "❌ Credentials file not found: $CREDS_FILE" >&2
+    echo "" >&2
+    show_credential_instructions
+fi
+
+# Source credentials
+# shellcheck source=/dev/null
+source "$CREDS_FILE"
+
+# Validate required credentials are set
+if [ -z "${ATLASSIAN_API_TOKEN:-}" ]; then
+    echo "❌ ATLASSIAN_API_TOKEN not set" >&2
+    echo "" >&2
+    show_credential_instructions
+fi
+
+if [ -z "${ATLASSIAN_USER_EMAIL:-}" ]; then
+    echo "❌ ATLASSIAN_USER_EMAIL not set" >&2
+    echo "" >&2
+    show_credential_instructions
+fi
+
+if [ -z "${JIRA_INSTANCE_URL:-}" ]; then
+    echo "❌ JIRA_INSTANCE_URL not set (needs ATLASSIAN_SITE_NAME)" >&2
+    echo "" >&2
+    show_credential_instructions
+fi
+
+# Parse command line arguments
+PROJECT=""
+STATUS=""
+ASSIGNEE=""
+TYPE=""
+CUSTOM_JQL=""
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --project)
+            PROJECT="$2"
+            shift 2
+            ;;
+        --status)
+            STATUS="$2"
+            shift 2
+            ;;
+        --assignee)
+            ASSIGNEE="$2"
+            shift 2
+            ;;
+        --type)
+            TYPE="$2"
+            shift 2
+            ;;
+        --jql)
+            CUSTOM_JQL="$2"
+            shift 2
+            ;;
+        --help|-h)
+            echo "Usage: jira-list-tickets [options]"
+            echo ""
+            echo "Options:"
+            echo "  --project <key>      Filter by project key (e.g., INT, AIM)"
+            echo "  --status <status>    Filter by status (e.g., 'In Progress', 'Done')"
+            echo "  --assignee <email>   Filter by assignee email"
+            echo "  --type <type>        Filter by issue type (e.g., Task, Bug, Story)"
+            echo "  --jql <query>        Use custom JQL query (overrides other filters)"
+            echo ""
+            echo "Examples:"
+            echo "  jira-list-tickets --project INT"
+            echo "  jira-list-tickets --status 'In Progress' --assignee 'user@example.com'"
+            echo "  jira-list-tickets --jql 'project = INT AND status = Done'"
+            exit 0
+            ;;
+        *)
+            echo "❌ Unknown option: $1" >&2
+            echo "Use --help for usage information" >&2
+            exit 1
+            ;;
+    esac
+done
+
+# Build JQL query
+if [ -n "$CUSTOM_JQL" ]; then
+    JQL="$CUSTOM_JQL"
+else
+    # Build query from filters
+    JQL_PARTS=()
+
+    # Default to INT project if no filters provided
+    if [ -z "$PROJECT" ] && [ -z "$STATUS" ] && [ -z "$ASSIGNEE" ] && [ -z "$TYPE" ]; then
+        PROJECT="INT"
+    fi
+
+    if [ -n "$PROJECT" ]; then
+        JQL_PARTS+=("project = \"$PROJECT\"")
+    fi
+
+    if [ -n "$STATUS" ]; then
+        JQL_PARTS+=("status = \"$STATUS\"")
+    fi
+
+    if [ -n "$ASSIGNEE" ]; then
+        JQL_PARTS+=("assignee = \"$ASSIGNEE\"")
+    fi
+
+    if [ -n "$TYPE" ]; then
+        JQL_PARTS+=("type = \"$TYPE\"")
+    fi
+
+    # Join with AND
+    if [ ${#JQL_PARTS[@]} -eq 0 ]; then
+        JQL=""
+    else
+        JQL=$(printf " AND %s" "${JQL_PARTS[@]}")
+        JQL="${JQL:5}"  # Remove leading " AND "
+    fi
+fi
+
+# Order by updated date (most recent first)
+JQL="$JQL ORDER BY updated DESC"
+
+# Remove trailing slash from instance URL if present
+JIRA_INSTANCE_URL="${JIRA_INSTANCE_URL%/}"
+
+# Create JSON payload for search
+JSON_PAYLOAD=$(jq -n \
+    --arg jql "$JQL" \
+    '{
+        jql: $jql,
+        maxResults: 50,
+        fields: ["summary", "status", "issuetype", "priority", "assignee", "created", "updated"]
+    }')
+
+# Search issues using Jira API (using /search/jql endpoint)
+response=$(curl -s -w "\n%{http_code}" \
+    -u "${ATLASSIAN_USER_EMAIL}:${ATLASSIAN_API_TOKEN}" \
+    -H "Accept: application/json" \
+    -H "Content-Type: application/json" \
+    -X POST \
+    -d "$JSON_PAYLOAD" \
+    "${JIRA_INSTANCE_URL}/rest/api/3/search/jql")
+
+# Split response into body and status code
+http_code=$(echo "$response" | tail -1)
+body=$(echo "$response" | sed '$d')
+
+# Check HTTP status
+if [ "$http_code" = "400" ]; then
+    echo "❌ Invalid JQL query: $JQL" >&2
+    error_msg=$(echo "$body" | jq -r '.errorMessages[]? // .message? // "Invalid query"' 2>/dev/null || echo "Invalid query")
+    echo "Error: $error_msg" >&2
+    exit 3
+elif [ "$http_code" = "401" ]; then
+    echo "❌ Authentication failed. Check your ATLASSIAN_API_TOKEN and ATLASSIAN_USER_EMAIL" >&2
+    exit 3
+elif [ "$http_code" = "403" ]; then
+    echo "❌ Access denied. You may not have permission to view these tickets." >&2
+    exit 3
+elif [[ ! "$http_code" =~ ^2[0-9][0-9]$ ]]; then
+    echo "❌ Jira API error (HTTP $http_code)" >&2
+    error_msg=$(echo "$body" | jq -r '.errorMessages[]? // .message? // "Unknown error"' 2>/dev/null || echo "Unknown error")
+    echo "Error: $error_msg" >&2
+    exit 3
+fi
+
+# Parse total results (count issues in response)
+total=$(echo "$body" | jq -r '.issues | length')
+
+# Check if no results
+if [ "$total" -eq 0 ]; then
+    echo "No tickets found matching the query."
+    echo ""
+    echo "JQL: $JQL"
+    exit 0
+fi
+
+# Print header
+echo "📋 Jira Tickets ($total found):"
+echo ""
+
+# Parse and format each issue
+echo "$body" | jq -r --arg jira_url "$JIRA_INSTANCE_URL" '.issues[] |
+    "## " + .key + ": " + .fields.summary + "\n" +
+    "**Status:** " + .fields.status.name + "\n" +
+    "**Type:** " + .fields.issuetype.name + "\n" +
+    "**Priority:** " + (.fields.priority.name // "None") + "\n" +
+    "**Assignee:** " + (.fields.assignee.displayName // "Unassigned") + "\n" +
+    "**Created:** " + (.fields.created | split("T")[0]) + "\n" +
+    "**Updated:** " + (.fields.updated | split("T")[0]) + "\n" +
+    "**URL:** " + $jira_url + "/browse/" + .key + "\n" +
+    "---\n"
+'
+
+# Print query used
+echo ""
+echo "**JQL Query:** \`$JQL\`"

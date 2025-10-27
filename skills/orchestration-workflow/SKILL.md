@@ -8,6 +8,8 @@ allowed-tools: Read
 
 **Purpose:** Decision framework for choosing and executing orchestration commands based on task complexity.
 
+**See also:** `reference.md` for detailed phase-by-phase workflows, sub-agent descriptions, and troubleshooting.
+
 ---
 
 ## Command Decision Tree
@@ -153,60 +155,18 @@ Do you have a clear, straightforward task?
 
 ### Workflow (8 Phases)
 
-**Phase -2:** Determine working directory
-- Infer from task description
-- Ask user if unclear
+1. **Phase -2:** Determine working directory
+2. **Phase -1:** Initial assessment (3-5 questions), create MISSION.md
+3. **Phase 0:** Auto-investigation (existing projects only)
+4. **Phase 1:** Challenge mode (find ≥3 concerns, parallel investigation)
+5. **Phase 2:** Strategic dialogue (ask about decisions, not facts)
+6. **Phase 3:** Discovery loop (DISCOVERIES.md, ASSUMPTIONS.md)
+7. **Phase 4:** Spike orchestration (when complexity >6/10)
+8. **Phase 5:** Architecture evolution (ARCHITECTURE.md, watch circular deps)
+9. **Phase 6:** Scope management (serves MISSION.md?)
+10. **Phase 7:** Readiness validation & SPEC.md creation
 
-**Phase -1:** Initial assessment (3-5 questions)
-- New project or existing code?
-- High-level goal?
-- Critical constraints?
-- Create MISSION.md immediately
-
-**Phase 0:** Auto-investigation (existing projects only)
-- Project structure, tech stack, dependencies
-- Existing patterns (auth, APIs, testing)
-- Deployment setup, database/caching config
-
-**Phase 1:** Challenge mode
-- Find ≥3 concerns:
-  - Conflicts with existing code
-  - Hidden complexity
-  - Pain points from similar projects
-  - Missing requirements
-  - Underestimated difficulty
-  - Unstated assumptions
-- Parallel investigation for unknowns
-
-**Phase 2:** Strategic dialogue
-- Ask about tradeoffs and decisions (NOT facts)
-- GOOD: "Two auth systems increases complexity. Unify or keep both?"
-- BAD: "What database?" (check settings.py)
-
-**Phase 3:** Discovery loop
-- Document in DISCOVERIES.md
-- Track assumptions in ASSUMPTIONS.md
-- Prune when >50 lines (archive obsolete)
-
-**Phase 4:** Spike orchestration
-- When: Complexity >6/10, unfamiliar tech, critical security/performance
-- Run multiple spikes in parallel (single message, multiple Task calls)
-- Save results to `.spec/SPIKE_RESULTS/NNN_description.md`
-
-**Phase 5:** Architecture evolution
-- Update ARCHITECTURE.md
-- Document components, dependencies, data flow
-- Watch for circular dependencies
-
-**Phase 6:** Scope management
-- Serves MISSION.md? → Investigate
-- Doesn't serve? → Note as "Future"
-- Tangent? → Ask user
-
-**Phase 7:** Readiness validation & SPEC.md creation
-- Validate checklist (mission clear, constraints documented, unknowns resolved)
-- Create SPEC.md with 10 required sections
-- Generate component phase specs (SPEC_N_component.md) in dependency order
+**See `reference.md` for detailed steps in each phase.**
 
 ### SPEC.md Format (10 Required Sections)
 
@@ -266,55 +226,23 @@ Do you have a clear, straightforward task?
 
 ### Workflow (7 Phases)
 
-**Phase -2:** Determine working directory
+1. **Phase -2:** Determine working directory
+2. **Phase -1:** Parse SPEC.md & build dependency graph (topological sort, detect cycles)
+3. **Phase 0:** Validate component phase specs exist (SPEC_N_*.md)
+4. **Phase 1-N:** Component phases (for EACH component in dependency order):
+   - Skeleton (production + test files)
+   - Implementation
+   - Validate & Fix Loop (6 reviewers, 3 attempts max)
+   - Unit Testing (95% coverage target)
+   - Document Discoveries
+   - Enhance Future Phase Specs
+   - Checkpoint (git commit)
+5. **Phase N+1:** Integration testing
+6. **Phase N+2:** Documentation validation
+7. **Phase N+3:** CLAUDE.md optimization
+8. **Phase N+4:** Complete
 
-**Phase -1:** Parse SPEC.md & build dependency graph
-- Extract components from "Files to Create/Modify"
-- Extract dependencies from "Depends on:" field
-- Topologically sort components
-- Detect circular dependencies (DFS cycle detection)
-- FAIL LOUD if cycle found
-
-**Phase 0:** Validate component phase specs exist
-- Check for SPEC_N_*.md files
-- If exist (created by /spec): Use them as-is
-- If missing (fallback): Generate from SPEC.md now
-
-**Phase 1-N:** Component phases (for EACH component in dependency order)
-
-Per component:
-1. **Skeleton** - Create skeleton for production + test files
-2. **Implementation** - Spawn implementation-executor
-3. **Validate & Fix Loop** - Get component working
-   - Run validation (syntax, imports, linting)
-   - Spawn 6 reviewers in parallel (same as /solo)
-   - Fix ALL issues via fix-executor (3 attempts max)
-   - Re-run reviewers to verify
-4. **Unit Testing** - Lock in behavior
-   - Spawn test-implementer
-   - 95% coverage target
-   - Test & fix loop (3 attempts max)
-5. **Document Discoveries** - Update DISCOVERIES.md
-6. **Enhance Future Phase Specs** - Add learnings to dependent components
-7. **Checkpoint** - Component complete, commit
-
-**Phase N+1:** Integration testing
-- Spawn test-implementer for cross-component interactions
-- Test & fix loop (3 attempts max)
-
-**Phase N+2:** Documentation validation
-- Find all .md files in working directory
-- Spawn code-reviewer to validate docs
-- Fix outdated/incorrect documentation
-
-**Phase N+3:** CLAUDE.md optimization
-- Validate line counts vs targets
-- Check for duplication across hierarchy
-- Extract deep-dive content to QUICKREF.md if needed
-
-**Phase N+4:** Complete
-- Update SPEC.md with major gotchas
-- Final summary
+**See `reference.md` for detailed steps in each phase.**
 
 ### Worktree Variant Exploration
 
@@ -332,27 +260,16 @@ Per component:
 
 ### Sub-Agents Used
 
-**Implementation:**
-- skeleton-builder
-- test-skeleton-builder
-- implementation-executor
-- test-implementer
-
-**Validation:**
-- security-auditor
-- performance-optimizer
-- code-reviewer (3x per component)
-- code-beautifier
-
-**Fixing:**
-- fix-executor
-
-**Analysis:**
-- investigator
-- merge-coordinator
-- general-builder
+| Category | Agents | Total |
+|----------|--------|-------|
+| **Implementation** | skeleton-builder, test-skeleton-builder, implementation-executor, test-implementer | 4 |
+| **Validation** | security-auditor, performance-optimizer, code-reviewer (3x), code-beautifier | 6 |
+| **Fixing** | fix-executor | 1 |
+| **Analysis** | investigator, merge-coordinator, general-builder | 3 |
 
 **Total:** 15-30+ agents (scales with component count)
+
+**See `reference.md` for detailed agent descriptions.**
 
 ### Validation Standards
 
@@ -370,31 +287,14 @@ Per component:
 
 ### Testing Requirements
 
-**See:** `~/.claude/docs/TESTING_STANDARDS.md` or testing-standards skill
+**See:** `testing-standards` skill or `~/.claude/docs/TESTING_STANDARDS.md`
 
 **3-Layer Pyramid:**
-1. **Unit Tests** (95% coverage)
-   - 1:1 file mapping (one test file per production file)
-   - Test happy path + error cases + edge cases
-   - Choose organization: single function, parametrized, or separate methods
-   - Mock all external dependencies
-   - Fast (<100ms per test)
+1. **Unit Tests** (95% coverage) - 1:1 file mapping, mock externals, fast (<100ms)
+2. **Integration Tests** (85% coverage) - 2-4 files per module, real dependencies
+3. **E2E Tests** (critical paths) - 1-3 files total, full workflows
 
-2. **Integration Tests** (85% coverage)
-   - 2-4 test files per module (not per file)
-   - Add to existing integration files (don't create new ones)
-   - Test components working together
-   - Use real dependencies (test database, cache)
-
-3. **E2E Tests** (critical paths)
-   - 1-3 files total for entire project
-   - Test complete user workflows through API
-   - HTTP requests to real API
-
-**Coverage Targets:**
-- Unit: ≥95%
-- Integration: ≥85%
-- E2E: Critical paths covered
+**Coverage Targets:** Unit ≥95%, Integration ≥85%, E2E critical paths
 
 ### Validation Rigor
 
@@ -422,139 +322,64 @@ Per component:
 
 **When:** After each major step/phase
 
-**Format:**
-```
-[type]([scope]): [description]
+**Format:** `[type]([scope]): [description]` + body (why, not what) + Claude Code footer
 
-[body - why, not what]
-
-Generated with Claude Code
-
-Co-Authored-By: Claude <noreply@anthropic.com>
-```
-
-**Examples:**
-- After implementation: `feat(auth): add JWT authentication`
-- After validation: `fix(auth): resolve security audit findings`
-- After testing: `test(auth): add comprehensive unit tests (95% coverage)`
+**Examples:** `feat(auth): add JWT`, `fix(auth): resolve audit findings`, `test(auth): 95% coverage`
 
 ---
 
 ## Sub-Agents Roster
 
-### Implementation Agents
+| Agent | Purpose | Category |
+|-------|---------|----------|
+| skeleton-builder | Create production file skeletons | Implementation |
+| test-skeleton-builder | Create test file skeletons | Implementation |
+| implementation-executor | Implement full functionality | Implementation |
+| test-implementer | Implement comprehensive tests | Implementation |
+| security-auditor | Security vulnerabilities | Validation |
+| performance-optimizer | Performance bottlenecks | Validation |
+| code-reviewer | Quality, clarity, best practices (3x) | Validation |
+| code-beautifier | DRY, magic numbers, dead code | Validation |
+| documentation-reviewer | Doc accuracy | Validation |
+| fix-executor | Fix validation issues, test failures | Fixing |
+| investigator | Deep investigation, variant analysis | Analysis |
+| merge-coordinator | Merge best parts of variants | Analysis |
+| general-builder | General tasks, doc updates | Analysis |
 
-- **skeleton-builder** - Create production file skeletons
-- **test-skeleton-builder** - Create test file skeletons
-- **implementation-executor** - Implement full functionality
-- **test-implementer** - Implement comprehensive tests
+**All inherit:** Read, Write, Edit, Bash, Grep, Glob
 
-### Validation Agents
-
-- **security-auditor** - Security vulnerabilities, auth issues
-- **performance-optimizer** - Performance bottlenecks, inefficiencies
-- **code-reviewer** - Quality, clarity, best practices (used 3x with different focuses)
-- **code-beautifier** - DRY violations, magic numbers, dead code
-- **documentation-reviewer** - Doc accuracy and completeness
-
-### Fixing Agents
-
-- **fix-executor** - Fix validation issues, test failures
-
-### Analysis Agents
-
-- **investigator** - Deep code investigation, variant analysis
-- **merge-coordinator** - Merge best parts of variants
-- **general-builder** - General implementation tasks, doc updates
-
-**All agents inherit parent tools:** Read, Write, Edit, Bash, Grep, Glob
+**See `reference.md` for detailed agent descriptions and usage patterns.**
 
 ---
 
 ## Tracking & Artifacts
 
-### /solo Artifacts
-
-```
-.spec/
-├── BUILD_taskname.md    # Minimal spec (goal, files, tests, quality)
-└── PROGRESS.md          # Simple step tracking
-```
-
-### /spec Artifacts
-
-```
-.spec/
-├── MISSION.md           # Goal (50-100 lines)
-├── CONSTRAINTS.md       # Hard requirements
-├── DISCOVERIES.md       # Learnings (<50 lines)
-├── ARCHITECTURE.md      # Design (50-100 lines)
-├── ASSUMPTIONS.md       # Explicit assumptions
-├── SPIKE_RESULTS/       # Immutable spike results
-├── SPEC.md              # 10 required sections
-├── SPEC_1_component.md  # Component phase specs
-└── ...
-```
-
-### /conduct Artifacts
-
-```
-.spec/
-├── SPEC.md              # High-level architecture (from /spec)
-├── SPEC_N_component.md  # Per-component specs (generated or from /spec)
-├── DISCOVERIES.md       # Learnings captured as phases complete
-└── PROGRESS.md          # Detailed component/step tracking
-```
+| Command | Artifacts |
+|---------|-----------|
+| **/solo** | `.spec/BUILD_taskname.md`, `PROGRESS.md` |
+| **/spec** | `.spec/MISSION.md`, `CONSTRAINTS.md`, `DISCOVERIES.md`, `ARCHITECTURE.md`, `ASSUMPTIONS.md`, `SPIKE_RESULTS/`, `SPEC.md`, `SPEC_N_component.md` |
+| **/conduct** | `.spec/SPEC.md` (from /spec), `SPEC_N_component.md`, `DISCOVERIES.md`, `PROGRESS.md` |
 
 ---
 
 ## Escalation Patterns
 
-### When Blocked (Any Command)
-
-**When:**
+### When Blocked
 - 3 failed attempts
 - Architectural decisions needed
 - Critical security unfixable
 - External deps missing
 
-**Format:**
-```
-BLOCKED: [Component/Phase] - [Issue]
-
-Issue: [description]
-Attempts: [what tried]
-Need: [specific question]
-Options: [A, B, C with implications]
-Recommendation: [your suggestion]
-```
+**Format:** `BLOCKED: [Component] - [Issue] | Attempts: [what tried] | Options: [A, B, C] | Recommendation: [yours]`
 
 ### When /solo Discovers Complexity
+If more components needed, complex dependencies, or multiple approaches exist:
+- Tell user task is more complex than assessed
+- Recommend: Stop → /spec → /conduct
+- OR continue /solo if acceptable
+- Let user decide
 
-**If during /solo execution:**
-- More components needed than anticipated
-- Complex dependencies emerge
-- Architecture needs planning
-- Multiple valid approaches exist
-
-**Tell user:**
-```
-This task is more complex than initially assessed.
-
-Reasons:
-- [what you discovered]
-
-Recommend:
-1. Stop current work
-2. Run /spec to properly plan architecture
-3. Run /conduct for full orchestration
-
-OR
-
-Continue with /solo if: [condition]
-```
-
-Let user decide.
+**See `reference.md` for detailed escalation format and examples.**
 
 ---
 

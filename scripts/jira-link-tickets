@@ -1,0 +1,155 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# jira-link-tickets - Link two Jira tickets with a relationship
+#
+# Usage: jira-link-tickets <ticket-id> <link-type> <target-ticket-id>
+# Example: jira-link-tickets INT-3877 "Blocks" INT-3878
+# Example: jira-link-tickets INT-3877 "Relates to" INT-3900
+#
+# Common link types (case-sensitive):
+#   - "Blocks" / "is blocked by"
+#   - "Relates to"
+#   - "Duplicates" / "is duplicated by"
+#   - "Clones" / "is cloned by"
+#   - "Causes" / "is caused by"
+#
+# Returns: Link confirmation
+# Exit codes: 0 = success, 1 = usage error, 2 = not found, 3 = API error, 4 = credentials missing
+
+# Get script directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CREDS_FILE="${SCRIPT_DIR}/.jira-credentials"
+
+# Function to show credential setup instructions
+show_credential_instructions() {
+    cat >&2 <<'EOF'
+❌ Jira credentials not found or incomplete.
+
+STOP: This script requires Jira API credentials to be configured.
+
+The script uses the same credentials as the Jira MCP. Make sure these
+environment variables are set:
+
+    ATLASSIAN_API_TOKEN="your-token"
+    ATLASSIAN_SITE_NAME="fortressinfosec"
+    ATLASSIAN_USER_EMAIL="your.email@fortressinfosec.com"
+
+These should already be set in your environment if the Jira MCP is working.
+
+If not set, the credentials file (~/.claude/scripts/.jira-credentials) will
+try to load them from the environment, but they must exist there first.
+
+Check: env | grep ATLASSIAN
+
+EOF
+    exit 4
+}
+
+# Check if credentials file exists
+if [ ! -f "$CREDS_FILE" ]; then
+    echo "❌ Credentials file not found: $CREDS_FILE" >&2
+    echo "" >&2
+    show_credential_instructions
+fi
+
+# Source credentials
+# shellcheck source=/dev/null
+source "$CREDS_FILE"
+
+# Validate required credentials are set
+if [ -z "${ATLASSIAN_API_TOKEN:-}" ]; then
+    echo "❌ ATLASSIAN_API_TOKEN not set" >&2
+    echo "" >&2
+    show_credential_instructions
+fi
+
+if [ -z "${ATLASSIAN_USER_EMAIL:-}" ]; then
+    echo "❌ ATLASSIAN_USER_EMAIL not set" >&2
+    echo "" >&2
+    show_credential_instructions
+fi
+
+if [ -z "${JIRA_INSTANCE_URL:-}" ]; then
+    echo "❌ JIRA_INSTANCE_URL not set (needs ATLASSIAN_SITE_NAME)" >&2
+    echo "" >&2
+    show_credential_instructions
+fi
+
+# Get arguments
+source_ticket="${1:-}"
+link_type="${2:-}"
+target_ticket="${3:-}"
+
+if [ -z "$source_ticket" ] || [ -z "$link_type" ] || [ -z "$target_ticket" ]; then
+    echo "Usage: jira-link-tickets <ticket-id> <link-type> <target-ticket-id>" >&2
+    echo "Example: jira-link-tickets INT-3877 \"Blocks\" INT-3878" >&2
+    echo "" >&2
+    echo "Common link types (case-sensitive):" >&2
+    echo "  - \"Blocks\" / \"is blocked by\"" >&2
+    echo "  - \"Relates to\"" >&2
+    echo "  - \"Duplicates\" / \"is duplicated by\"" >&2
+    echo "  - \"Clones\" / \"is cloned by\"" >&2
+    echo "  - \"Causes\" / \"is caused by\"" >&2
+    exit 1
+fi
+
+# Remove trailing slash from instance URL if present
+JIRA_INSTANCE_URL="${JIRA_INSTANCE_URL%/}"
+
+# Build JSON payload
+payload=$(jq -n \
+    --arg type "$link_type" \
+    --arg source "$source_ticket" \
+    --arg target "$target_ticket" \
+    '{
+        type: { name: $type },
+        inwardIssue: { key: $source },
+        outwardIssue: { key: $target }
+    }')
+
+# Create issue link via Jira API using Basic Auth (email:token)
+response=$(curl -s -w "\n%{http_code}" \
+    -u "${ATLASSIAN_USER_EMAIL}:${ATLASSIAN_API_TOKEN}" \
+    -H "Accept: application/json" \
+    -H "Content-Type: application/json" \
+    -X POST \
+    -d "$payload" \
+    "${JIRA_INSTANCE_URL}/rest/api/3/issueLink")
+
+# Split response into body and status code
+http_code=$(echo "$response" | tail -1)
+body=$(echo "$response" | sed '$d')
+
+# Check HTTP status
+if [ "$http_code" = "404" ]; then
+    echo "❌ One or both tickets not found: $source_ticket, $target_ticket" >&2
+    exit 2
+elif [ "$http_code" = "401" ]; then
+    echo "❌ Authentication failed. Check your ATLASSIAN_API_TOKEN and ATLASSIAN_USER_EMAIL" >&2
+    exit 3
+elif [ "$http_code" = "403" ]; then
+    echo "❌ Access denied. You may not have permission to link these tickets." >&2
+    exit 3
+elif [ "$http_code" = "400" ]; then
+    echo "❌ Bad request. Check your link type and ticket IDs." >&2
+    error_msg=$(echo "$body" | jq -r '.errorMessages[]? // .errors? // .message? // "Unknown error"' 2>/dev/null || echo "Unknown error")
+    echo "Error: $error_msg" >&2
+    echo "" >&2
+    echo "Link type may be invalid. Common types: \"Blocks\", \"Relates to\", \"Duplicates\"" >&2
+    exit 3
+elif [[ ! "$http_code" =~ ^2[0-9][0-9]$ ]]; then
+    echo "❌ Jira API error (HTTP $http_code)" >&2
+    error_msg=$(echo "$body" | jq -r '.errorMessages[]? // .message? // "Unknown error"' 2>/dev/null || echo "Unknown error")
+    echo "Error: $error_msg" >&2
+    exit 3
+fi
+
+# Output success message
+cat <<EOF
+✓ Linked tickets: ${source_ticket} ${link_type} ${target_ticket}
+
+**View in Jira:**
+  - ${JIRA_INSTANCE_URL}/browse/${source_ticket}
+  - ${JIRA_INSTANCE_URL}/browse/${target_ticket}
+EOF

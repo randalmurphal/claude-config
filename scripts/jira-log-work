@@ -1,0 +1,176 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# jira-log-work - Log time spent on a Jira ticket
+#
+# Usage: jira-log-work <ticket-id> <time-spent> [comment]
+# Example: jira-log-work INT-3877 "2h 30m" "Implemented rate limiting logic"
+# Example: jira-log-work INT-3877 "1d 4h"
+#
+# Time format: Use Jira duration format: "2h", "1d 4h", "30m", "1w 2d 3h 30m"
+# Units: w (weeks), d (days), h (hours), m (minutes)
+# Returns: Worklog ID and confirmation
+# Exit codes: 0 = success, 1 = usage error, 2 = ticket not found, 3 = API error, 4 = credentials missing
+
+# Get script directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CREDS_FILE="${SCRIPT_DIR}/.jira-credentials"
+
+# Function to show credential setup instructions
+show_credential_instructions() {
+    cat >&2 <<'EOF'
+❌ Jira credentials not found or incomplete.
+
+STOP: This script requires Jira API credentials to be configured.
+
+The script uses the same credentials as the Jira MCP. Make sure these
+environment variables are set:
+
+    ATLASSIAN_API_TOKEN="your-token"
+    ATLASSIAN_SITE_NAME="fortressinfosec"
+    ATLASSIAN_USER_EMAIL="your.email@fortressinfosec.com"
+
+These should already be set in your environment if the Jira MCP is working.
+
+If not set, the credentials file (~/.claude/scripts/.jira-credentials) will
+try to load them from the environment, but they must exist there first.
+
+Check: env | grep ATLASSIAN
+
+EOF
+    exit 4
+}
+
+# Check if credentials file exists
+if [ ! -f "$CREDS_FILE" ]; then
+    echo "❌ Credentials file not found: $CREDS_FILE" >&2
+    echo "" >&2
+    show_credential_instructions
+fi
+
+# Source credentials
+# shellcheck source=/dev/null
+source "$CREDS_FILE"
+
+# Validate required credentials are set
+if [ -z "${ATLASSIAN_API_TOKEN:-}" ]; then
+    echo "❌ ATLASSIAN_API_TOKEN not set" >&2
+    echo "" >&2
+    show_credential_instructions
+fi
+
+if [ -z "${ATLASSIAN_USER_EMAIL:-}" ]; then
+    echo "❌ ATLASSIAN_USER_EMAIL not set" >&2
+    echo "" >&2
+    show_credential_instructions
+fi
+
+if [ -z "${JIRA_INSTANCE_URL:-}" ]; then
+    echo "❌ JIRA_INSTANCE_URL not set (needs ATLASSIAN_SITE_NAME)" >&2
+    echo "" >&2
+    show_credential_instructions
+fi
+
+# Get arguments
+ticket="${1:-}"
+time_spent="${2:-}"
+comment="${3:-}"
+
+if [ -z "$ticket" ] || [ -z "$time_spent" ]; then
+    echo "Usage: jira-log-work <ticket-id> <time-spent> [comment]" >&2
+    echo "Example: jira-log-work INT-3877 \"2h 30m\" \"Implemented rate limiting logic\"" >&2
+    echo "" >&2
+    echo "Time format: Use Jira duration format: \"2h\", \"1d 4h\", \"30m\", \"1w 2d 3h 30m\"" >&2
+    echo "Units: w (weeks), d (days), h (hours), m (minutes)" >&2
+    exit 1
+fi
+
+# Remove trailing slash from instance URL if present
+JIRA_INSTANCE_URL="${JIRA_INSTANCE_URL%/}"
+
+# Build JSON payload
+if [ -n "$comment" ]; then
+    # Comment provided - include in worklog with ADF format
+    payload=$(jq -n \
+        --arg time "$time_spent" \
+        --arg comment "$comment" \
+        '{
+            timeSpent: $time,
+            comment: {
+                type: "doc",
+                version: 1,
+                content: [
+                    {
+                        type: "paragraph",
+                        content: [
+                            {
+                                type: "text",
+                                text: $comment
+                            }
+                        ]
+                    }
+                ]
+            }
+        }')
+else
+    # No comment - minimal payload
+    payload=$(jq -n \
+        --arg time "$time_spent" \
+        '{
+            timeSpent: $time
+        }')
+fi
+
+# Log work via Jira API using Basic Auth (email:token)
+response=$(curl -s -w "\n%{http_code}" \
+    -u "${ATLASSIAN_USER_EMAIL}:${ATLASSIAN_API_TOKEN}" \
+    -H "Accept: application/json" \
+    -H "Content-Type: application/json" \
+    -X POST \
+    -d "$payload" \
+    "${JIRA_INSTANCE_URL}/rest/api/3/issue/${ticket}/worklog")
+
+# Split response into body and status code
+http_code=$(echo "$response" | tail -1)
+body=$(echo "$response" | sed '$d')
+
+# Check HTTP status
+if [ "$http_code" = "404" ]; then
+    echo "❌ Ticket not found: $ticket" >&2
+    exit 2
+elif [ "$http_code" = "401" ]; then
+    echo "❌ Authentication failed. Check your ATLASSIAN_API_TOKEN and ATLASSIAN_USER_EMAIL" >&2
+    exit 3
+elif [ "$http_code" = "403" ]; then
+    echo "❌ Access denied. You may not have permission to log work on this ticket." >&2
+    exit 3
+elif [ "$http_code" = "400" ]; then
+    echo "❌ Bad request. Check your time format and input parameters." >&2
+    error_msg=$(echo "$body" | jq -r '.errorMessages[]? // .errors? // .message? // "Unknown error"' 2>/dev/null || echo "Unknown error")
+    echo "Error: $error_msg" >&2
+    echo "" >&2
+    echo "Time format should be: \"2h\", \"1d 4h\", \"30m\", etc." >&2
+    exit 3
+elif [[ ! "$http_code" =~ ^2[0-9][0-9]$ ]]; then
+    echo "❌ Jira API error (HTTP $http_code)" >&2
+    error_msg=$(echo "$body" | jq -r '.errorMessages[]? // .message? // "Unknown error"' 2>/dev/null || echo "Unknown error")
+    echo "Error: $error_msg" >&2
+    exit 3
+fi
+
+# Parse JSON response
+worklog_id=$(echo "$body" | jq -r '.id')
+author=$(echo "$body" | jq -r '.author.displayName // .author.emailAddress // "Unknown"')
+created=$(echo "$body" | jq -r '.created // "Unknown"')
+time_spent_seconds=$(echo "$body" | jq -r '.timeSpentSeconds // 0')
+
+# Output success message
+cat <<EOF
+✓ Work logged on ${ticket}
+
+**Worklog ID:** ${worklog_id}
+**Time Spent:** ${time_spent} (${time_spent_seconds}s)
+**Author:** ${author}
+**Created:** ${created}
+**View in Jira:** ${JIRA_INSTANCE_URL}/browse/${ticket}
+EOF

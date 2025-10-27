@@ -1,0 +1,256 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# jira-get-issue - Fetch Jira issue details
+#
+# Usage: jira-get-issue <ticket-id>
+# Example: jira-get-issue INT-3877
+#
+# Returns: Formatted markdown with issue details
+# Exit codes: 0 = success, 1 = usage error, 2 = ticket not found, 3 = API error, 4 = credentials missing
+
+# Get script directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CREDS_FILE="${SCRIPT_DIR}/.jira-credentials"
+
+# Function to show credential setup instructions
+show_credential_instructions() {
+    cat >&2 <<'EOF'
+❌ Jira credentials not found or incomplete.
+
+STOP: This script requires Jira API credentials to be configured.
+
+The script uses the same credentials as the Jira MCP. Make sure these
+environment variables are set:
+
+    ATLASSIAN_API_TOKEN="your-token"
+    ATLASSIAN_SITE_NAME="fortressinfosec"
+    ATLASSIAN_USER_EMAIL="your.email@fortressinfosec.com"
+
+These should already be set in your environment if the Jira MCP is working.
+
+If not set, the credentials file (~/.claude/scripts/.jira-credentials) will
+try to load them from the environment, but they must exist there first.
+
+Check: env | grep ATLASSIAN
+
+EOF
+    exit 4
+}
+
+# Check if credentials file exists
+if [ ! -f "$CREDS_FILE" ]; then
+    echo "❌ Credentials file not found: $CREDS_FILE" >&2
+    echo "" >&2
+    show_credential_instructions
+fi
+
+# Source credentials
+# shellcheck source=/dev/null
+source "$CREDS_FILE"
+
+# Validate required credentials are set
+if [ -z "${ATLASSIAN_API_TOKEN:-}" ]; then
+    echo "❌ ATLASSIAN_API_TOKEN not set" >&2
+    echo "" >&2
+    show_credential_instructions
+fi
+
+if [ -z "${ATLASSIAN_USER_EMAIL:-}" ]; then
+    echo "❌ ATLASSIAN_USER_EMAIL not set" >&2
+    echo "" >&2
+    show_credential_instructions
+fi
+
+if [ -z "${JIRA_INSTANCE_URL:-}" ]; then
+    echo "❌ JIRA_INSTANCE_URL not set (needs ATLASSIAN_SITE_NAME)" >&2
+    echo "" >&2
+    show_credential_instructions
+fi
+
+# Get ticket ID from argument
+ticket="${1:-}"
+if [ -z "$ticket" ]; then
+    echo "Usage: jira-get-issue <ticket-id>" >&2
+    echo "Example: jira-get-issue INT-3877" >&2
+    exit 1
+fi
+
+# Remove trailing slash from instance URL if present
+JIRA_INSTANCE_URL="${JIRA_INSTANCE_URL%/}"
+
+# Fetch issue from Jira API using Basic Auth (email:token)
+# PAT tokens work with Jira Cloud when used with Basic Auth
+response=$(curl -s -w "\n%{http_code}" \
+    -u "${ATLASSIAN_USER_EMAIL}:${ATLASSIAN_API_TOKEN}" \
+    -H "Accept: application/json" \
+    "${JIRA_INSTANCE_URL}/rest/api/3/issue/${ticket}")
+
+# Split response into body and status code
+http_code=$(echo "$response" | tail -1)
+body=$(echo "$response" | sed '$d')
+
+# Check HTTP status
+if [ "$http_code" = "404" ]; then
+    echo "❌ Ticket not found: $ticket" >&2
+    exit 2
+elif [ "$http_code" = "401" ]; then
+    echo "❌ Authentication failed. Check your ATLASSIAN_API_TOKEN and ATLASSIAN_USER_EMAIL" >&2
+    exit 3
+elif [ "$http_code" = "403" ]; then
+    echo "❌ Access denied. You may not have permission to view this ticket." >&2
+    exit 3
+elif [[ ! "$http_code" =~ ^2[0-9][0-9]$ ]]; then
+    echo "❌ Jira API error (HTTP $http_code)" >&2
+    error_msg=$(echo "$body" | jq -r '.errorMessages[]? // .message? // "Unknown error"' 2>/dev/null || echo "Unknown error")
+    echo "Error: $error_msg" >&2
+    exit 3
+fi
+
+# Parse JSON response
+key=$(echo "$body" | jq -r '.key')
+summary=$(echo "$body" | jq -r '.fields.summary')
+status=$(echo "$body" | jq -r '.fields.status.name')
+issue_type=$(echo "$body" | jq -r '.fields.issuetype.name')
+priority=$(echo "$body" | jq -r '.fields.priority.name // "None"')
+assignee=$(echo "$body" | jq -r '.fields.assignee.displayName // "Unassigned"')
+reporter=$(echo "$body" | jq -r '.fields.reporter.displayName // "Unknown"')
+created=$(echo "$body" | jq -r '.fields.created | split("T")[0]')
+updated=$(echo "$body" | jq -r '.fields.updated | split("T")[0]')
+
+# Description (handle null, convert ADF to text if needed)
+description=$(echo "$body" | jq -r '
+    if .fields.description then
+        if .fields.description.type == "doc" then
+            # ADF format - extract text from content nodes
+            [.fields.description.content[]? |
+                if .type == "paragraph" then
+                    [.content[]?.text // ""] | join("")
+                elif .type == "heading" then
+                    "\n## " + ([.content[]?.text // ""] | join(""))
+                elif .type == "bulletList" then
+                    [.content[]? | "- " + ([.content[]?.content[]?.text // ""] | join(""))] | join("\n")
+                elif .type == "orderedList" then
+                    [.content[]? | "1. " + ([.content[]?.content[]?.text // ""] | join(""))] | join("\n")
+                elif .type == "codeBlock" then
+                    "```\n" + ([.content[]?.text // ""] | join("")) + "\n```"
+                else
+                    [.content[]?.text // ""] | join("")
+                end
+            ] | join("\n\n")
+        else
+            # Plain text
+            .fields.description
+        end
+    else
+        "No description provided."
+    end
+')
+
+# Labels
+labels=$(echo "$body" | jq -r '
+    if .fields.labels and (.fields.labels | length > 0) then
+        .fields.labels | join(", ")
+    else
+        "None"
+    end
+')
+
+# Components
+components=$(echo "$body" | jq -r '
+    if .fields.components and (.fields.components | length > 0) then
+        [.fields.components[].name] | join(", ")
+    else
+        "None"
+    end
+')
+
+# Fix versions
+fix_versions=$(echo "$body" | jq -r '
+    if .fields.fixVersions and (.fields.fixVersions | length > 0) then
+        [.fields.fixVersions[].name] | join(", ")
+    else
+        "None"
+    end
+')
+
+# Story points (if present)
+story_points=$(echo "$body" | jq -r '.fields.customfield_10016 // "None"')
+
+# Acceptance criteria (common custom fields)
+acceptance_criteria=$(echo "$body" | jq -r '
+    .fields.customfield_10100 //
+    .fields.customfield_10101 //
+    .fields.customfield_10102 //
+    .fields.acceptanceCriteria //
+    null
+' | sed 's/null//')
+
+# Issue links
+issue_links=$(echo "$body" | jq -r '
+    if .fields.issuelinks and (.fields.issuelinks | length > 0) then
+        [.fields.issuelinks[] |
+            if .outwardIssue then
+                "- " + .type.outward + ": " + .outwardIssue.key + " (" + .outwardIssue.fields.summary + ")"
+            elif .inwardIssue then
+                "- " + .type.inward + ": " + .inwardIssue.key + " (" + .inwardIssue.fields.summary + ")"
+            else
+                empty
+            end
+        ] | join("\n")
+    else
+        ""
+    end
+')
+
+# Format output as markdown
+cat <<EOF
+# Issue: ${key}
+
+**Title:** ${summary}
+
+**Status:** ${status}
+**Type:** ${issue_type}
+**Priority:** ${priority}
+**Assignee:** ${assignee}
+**Reporter:** ${reporter}
+
+**Created:** ${created}
+**Updated:** ${updated}
+
+**Labels:** ${labels}
+**Components:** ${components}
+**Fix Versions:** ${fix_versions}
+**Story Points:** ${story_points}
+
+## Description
+
+${description}
+EOF
+
+# Add acceptance criteria if present
+if [ -n "$acceptance_criteria" ]; then
+    cat <<EOF
+
+## Acceptance Criteria
+
+${acceptance_criteria}
+EOF
+fi
+
+# Add issue links if present
+if [ -n "$issue_links" ]; then
+    cat <<EOF
+
+## Related Issues
+
+${issue_links}
+EOF
+fi
+
+# Add link to issue
+cat <<EOF
+
+---
+**View in Jira:** ${JIRA_INSTANCE_URL}/browse/${key}
+EOF

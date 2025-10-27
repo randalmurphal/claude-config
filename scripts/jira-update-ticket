@@ -1,0 +1,267 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# jira-update-ticket - Update fields on a Jira ticket
+#
+# Usage: jira-update-ticket <ticket-id> [--description <desc>] [--assignee <email>] [--status <status>] [--priority <priority>] [--labels <label1,label2>]
+# Example: jira-update-ticket INT-3877 --description "Updated description" --priority High
+# Example: jira-update-ticket INT-3877 --status "In Progress" --assignee "user@example.com"
+# Example: jira-update-ticket INT-3877 --labels "backend,api"
+#
+# Returns: Updated ticket details
+# Exit codes: 0 = success, 1 = usage error, 2 = ticket not found, 3 = API error, 4 = credentials missing
+
+# Get script directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CREDS_FILE="${SCRIPT_DIR}/.jira-credentials"
+
+# Function to show credential setup instructions
+show_credential_instructions() {
+    cat >&2 <<'EOF'
+❌ Jira credentials not found or incomplete.
+
+STOP: This script requires Jira API credentials to be configured.
+
+The script uses the same credentials as the Jira MCP. Make sure these
+environment variables are set:
+
+    ATLASSIAN_API_TOKEN="your-token"
+    ATLASSIAN_SITE_NAME="fortressinfosec"
+    ATLASSIAN_USER_EMAIL="your.email@fortressinfosec.com"
+
+These should already be set in your environment if the Jira MCP is working.
+
+If not set, the credentials file (~/.claude/scripts/.jira-credentials) will
+try to load them from the environment, but they must exist there first.
+
+Check: env | grep ATLASSIAN
+
+EOF
+    exit 4
+}
+
+# Check if credentials file exists
+if [ ! -f "$CREDS_FILE" ]; then
+    echo "❌ Credentials file not found: $CREDS_FILE" >&2
+    echo "" >&2
+    show_credential_instructions
+fi
+
+# Source credentials
+# shellcheck source=/dev/null
+source "$CREDS_FILE"
+
+# Validate required credentials are set
+if [ -z "${ATLASSIAN_API_TOKEN:-}" ]; then
+    echo "❌ ATLASSIAN_API_TOKEN not set" >&2
+    echo "" >&2
+    show_credential_instructions
+fi
+
+if [ -z "${ATLASSIAN_USER_EMAIL:-}" ]; then
+    echo "❌ ATLASSIAN_USER_EMAIL not set" >&2
+    echo "" >&2
+    show_credential_instructions
+fi
+
+if [ -z "${JIRA_INSTANCE_URL:-}" ]; then
+    echo "❌ JIRA_INSTANCE_URL not set (needs ATLASSIAN_SITE_NAME)" >&2
+    echo "" >&2
+    show_credential_instructions
+fi
+
+# Get ticket ID
+ticket="${1:-}"
+if [ -z "$ticket" ]; then
+    echo "Usage: jira-update-ticket <ticket-id> [--description <desc>] [--assignee <email>] [--status <status>] [--priority <priority>] [--labels <label1,label2>]" >&2
+    echo "Example: jira-update-ticket INT-3877 --description \"Updated description\" --priority High" >&2
+    exit 1
+fi
+
+# Parse optional arguments
+shift
+update_description=""
+update_assignee=""
+update_status=""
+update_priority=""
+update_labels=""
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --description)
+            update_description="$2"
+            shift 2
+            ;;
+        --assignee)
+            update_assignee="$2"
+            shift 2
+            ;;
+        --status)
+            update_status="$2"
+            shift 2
+            ;;
+        --priority)
+            update_priority="$2"
+            shift 2
+            ;;
+        --labels)
+            update_labels="$2"
+            shift 2
+            ;;
+        *)
+            echo "❌ Unknown option: $1" >&2
+            echo "Valid options: --description, --assignee, --status, --priority, --labels" >&2
+            exit 1
+            ;;
+    esac
+done
+
+# Remove trailing slash from instance URL if present
+JIRA_INSTANCE_URL="${JIRA_INSTANCE_URL%/}"
+
+# Build JSON payload for field updates (excluding status)
+payload_parts=()
+
+if [ -n "$update_description" ]; then
+    desc_json=$(jq -n \
+        --arg desc "$update_description" \
+        '{
+            type: "doc",
+            version: 1,
+            content: [
+                {
+                    type: "paragraph",
+                    content: [
+                        {
+                            type: "text",
+                            text: $desc
+                        }
+                    ]
+                }
+            ]
+        }')
+    payload_parts+=("\"description\": $desc_json")
+fi
+
+if [ -n "$update_assignee" ]; then
+    assignee_json=$(jq -n --arg email "$update_assignee" '{ emailAddress: $email }')
+    payload_parts+=("\"assignee\": $assignee_json")
+fi
+
+if [ -n "$update_priority" ]; then
+    priority_json=$(jq -n --arg priority "$update_priority" '{ name: $priority }')
+    payload_parts+=("\"priority\": $priority_json")
+fi
+
+if [ -n "$update_labels" ]; then
+    # Split comma-separated labels into array
+    IFS=',' read -ra label_array <<< "$update_labels"
+    labels_json=$(jq -n --argjson labels "$(printf '%s\n' "${label_array[@]}" | jq -R . | jq -s .)" '$labels')
+    payload_parts+=("\"labels\": $labels_json")
+fi
+
+# Only proceed with field updates if there are any non-status fields to update
+if [ ${#payload_parts[@]} -gt 0 ]; then
+    # Join payload parts with commas
+    fields_json=$(IFS=','; echo "${payload_parts[*]}")
+    payload="{\"fields\":{$fields_json}}"
+
+    # Update issue via Jira API using Basic Auth (email:token)
+    response=$(curl -s -w "\n%{http_code}" \
+        -u "${ATLASSIAN_USER_EMAIL}:${ATLASSIAN_API_TOKEN}" \
+        -H "Accept: application/json" \
+        -H "Content-Type: application/json" \
+        -X PUT \
+        -d "$payload" \
+        "${JIRA_INSTANCE_URL}/rest/api/3/issue/${ticket}")
+
+    # Split response into body and status code
+    http_code=$(echo "$response" | tail -1)
+    body=$(echo "$response" | sed '$d')
+
+    # Check HTTP status
+    if [ "$http_code" = "404" ]; then
+        echo "❌ Ticket not found: $ticket" >&2
+        exit 2
+    elif [ "$http_code" = "401" ]; then
+        echo "❌ Authentication failed. Check your ATLASSIAN_API_TOKEN and ATLASSIAN_USER_EMAIL" >&2
+        exit 3
+    elif [ "$http_code" = "403" ]; then
+        echo "❌ Access denied. You may not have permission to update this ticket." >&2
+        exit 3
+    elif [ "$http_code" = "400" ]; then
+        echo "❌ Bad request. Check your input parameters." >&2
+        error_msg=$(echo "$body" | jq -r '.errorMessages[]? // .errors? // .message? // "Unknown error"' 2>/dev/null || echo "Unknown error")
+        echo "Error: $error_msg" >&2
+        exit 3
+    elif [[ ! "$http_code" =~ ^2[0-9][0-9]$ ]]; then
+        echo "❌ Jira API error (HTTP $http_code)" >&2
+        error_msg=$(echo "$body" | jq -r '.errorMessages[]? // .message? // "Unknown error"' 2>/dev/null || echo "Unknown error")
+        echo "Error: $error_msg" >&2
+        exit 3
+    fi
+
+    echo "✓ Updated ticket fields: ${ticket}"
+fi
+
+# Handle status transition separately if provided
+if [ -n "$update_status" ]; then
+    # First, get available transitions
+    trans_response=$(curl -s -w "\n%{http_code}" \
+        -u "${ATLASSIAN_USER_EMAIL}:${ATLASSIAN_API_TOKEN}" \
+        -H "Accept: application/json" \
+        "${JIRA_INSTANCE_URL}/rest/api/3/issue/${ticket}/transitions")
+
+    trans_http_code=$(echo "$trans_response" | tail -1)
+    trans_body=$(echo "$trans_response" | sed '$d')
+
+    if [[ ! "$trans_http_code" =~ ^2[0-9][0-9]$ ]]; then
+        echo "❌ Failed to get available transitions (HTTP $trans_http_code)" >&2
+        exit 3
+    fi
+
+    # Find transition ID for requested status
+    transition_id=$(echo "$trans_body" | jq -r \
+        --arg status "$update_status" \
+        '.transitions[] | select(.to.name == $status or .name == $status) | .id' | head -1)
+
+    if [ -z "$transition_id" ]; then
+        echo "❌ Status transition '$update_status' not available for ticket $ticket" >&2
+        available=$(echo "$trans_body" | jq -r '.transitions[].to.name' | tr '\n' ', ' | sed 's/,$//')
+        echo "Available statuses: $available" >&2
+        exit 3
+    fi
+
+    # Perform transition
+    transition_payload=$(jq -n --arg tid "$transition_id" '{ transition: { id: $tid } }')
+
+    trans_update_response=$(curl -s -w "\n%{http_code}" \
+        -u "${ATLASSIAN_USER_EMAIL}:${ATLASSIAN_API_TOKEN}" \
+        -H "Accept: application/json" \
+        -H "Content-Type: application/json" \
+        -X POST \
+        -d "$transition_payload" \
+        "${JIRA_INSTANCE_URL}/rest/api/3/issue/${ticket}/transitions")
+
+    trans_update_code=$(echo "$trans_update_response" | tail -1)
+    trans_update_body=$(echo "$trans_update_response" | sed '$d')
+
+    if [ "$trans_update_code" = "404" ]; then
+        echo "❌ Ticket not found: $ticket" >&2
+        exit 2
+    elif [[ ! "$trans_update_code" =~ ^2[0-9][0-9]$ ]]; then
+        echo "❌ Failed to transition status (HTTP $trans_update_code)" >&2
+        error_msg=$(echo "$trans_update_body" | jq -r '.errorMessages[]? // .message? // "Unknown error"' 2>/dev/null || echo "Unknown error")
+        echo "Error: $error_msg" >&2
+        exit 3
+    fi
+
+    echo "✓ Transitioned status to: ${update_status}"
+fi
+
+# Output success message
+cat <<EOF
+
+**Updated ticket:** ${ticket}
+**View in Jira:** ${JIRA_INSTANCE_URL}/browse/${ticket}
+EOF

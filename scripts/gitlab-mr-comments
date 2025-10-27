@@ -1,0 +1,154 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# gitlab-mr-comments - Fetch merge request discussions/comments
+#
+# Usage: gitlab-mr-comments <ticket-id>
+# Example: gitlab-mr-comments INT-3877
+#
+# Returns: Formatted text with MR comments, or empty if none
+# Exit codes: 0 = success, 1 = no branch found, 2 = no MR found, 3 = API error, 4 = credentials missing
+
+# Get script directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CREDS_FILE="${SCRIPT_DIR}/.gitlab-credentials"
+
+# Function to show credential setup instructions
+show_credential_instructions() {
+    cat >&2 <<'EOF'
+❌ GitLab credentials not found or incomplete.
+
+STOP: This script requires GitLab API credentials to be configured.
+
+Please create the file: ~/.claude/scripts/.gitlab-credentials
+
+With the following content:
+
+    # GitLab API Credentials
+    GITLAB_PERSONAL_ACCESS_TOKEN="your-token-here"
+    GITLAB_API_URL="https://gitlab.com/api/v4"
+    GITLAB_PROJECT_ID="your-project-id"
+
+How to get these values:
+
+1. GITLAB_PERSONAL_ACCESS_TOKEN:
+   - Go to: https://gitlab.com/-/profile/personal_access_tokens
+   - Create token with 'api' scope
+   - Copy the token (starts with 'glpat-')
+
+2. GITLAB_PROJECT_ID:
+   - Go to your project on GitLab
+   - Look under the project name (e.g., "Project ID: 29007973")
+
+3. GITLAB_API_URL:
+   - Use "https://gitlab.com/api/v4" for gitlab.com
+   - Use your custom URL if self-hosted (e.g., "https://gitlab.yourcompany.com/api/v4")
+
+After creating the file, this script will work automatically.
+The credentials file is gitignored and will not be committed.
+
+EOF
+    exit 4
+}
+
+# Check if credentials file exists
+if [ ! -f "$CREDS_FILE" ]; then
+    echo "❌ Credentials file not found: $CREDS_FILE" >&2
+    echo "" >&2
+    show_credential_instructions
+fi
+
+# Source credentials
+# shellcheck source=/dev/null
+source "$CREDS_FILE"
+
+# Validate required credentials are set
+if [ -z "${GITLAB_PERSONAL_ACCESS_TOKEN:-}" ]; then
+    echo "❌ GITLAB_PERSONAL_ACCESS_TOKEN not set in $CREDS_FILE" >&2
+    echo "" >&2
+    show_credential_instructions
+fi
+
+if [ -z "${GITLAB_PROJECT_ID:-}" ]; then
+    echo "❌ GITLAB_PROJECT_ID not set in $CREDS_FILE" >&2
+    echo "" >&2
+    show_credential_instructions
+fi
+
+# Set default API URL if not provided
+GITLAB_API_URL="${GITLAB_API_URL:-https://gitlab.com/api/v4}"
+
+# Get ticket ID from argument
+ticket="${1:-}"
+if [ -z "$ticket" ]; then
+    echo "Usage: gitlab-mr-comments <ticket-id>" >&2
+    echo "Example: gitlab-mr-comments INT-3877" >&2
+    exit 1
+fi
+
+# Find source branch for ticket (same logic as pr_review)
+source_branch=$(git branch -r 2>/dev/null | grep "origin/$ticket" | grep -v "pre-styling" | head -1 | sed 's|.*origin/||' | xargs)
+
+if [ -z "$source_branch" ]; then
+    echo "⚠️ No branch found for ticket: $ticket" >&2
+    exit 1
+fi
+
+# Get MR for branch
+mr_response=$(curl -s -H "PRIVATE-TOKEN: $GITLAB_PERSONAL_ACCESS_TOKEN" \
+    "${GITLAB_API_URL}/projects/${GITLAB_PROJECT_ID}/merge_requests?source_branch=${source_branch}&state=opened")
+
+mr_iid=$(echo "$mr_response" | jq -r '.[0].iid // empty')
+
+if [ -z "$mr_iid" ]; then
+    # Try all states (might be merged/closed)
+    mr_response=$(curl -s -H "PRIVATE-TOKEN: $GITLAB_PERSONAL_ACCESS_TOKEN" \
+        "${GITLAB_API_URL}/projects/${GITLAB_PROJECT_ID}/merge_requests?source_branch=${source_branch}")
+    mr_iid=$(echo "$mr_response" | jq -r '.[0].iid // empty')
+
+    if [ -z "$mr_iid" ]; then
+        echo "⚠️ No MR found for branch: $source_branch" >&2
+        exit 2
+    fi
+fi
+
+# Fetch discussions
+discussions=$(curl -s -H "PRIVATE-TOKEN: $GITLAB_PERSONAL_ACCESS_TOKEN" \
+    "${GITLAB_API_URL}/projects/${GITLAB_PROJECT_ID}/merge_requests/${mr_iid}/discussions")
+
+# Check for API errors
+if echo "$discussions" | jq -e '.message' >/dev/null 2>&1; then
+    error_msg=$(echo "$discussions" | jq -r '.message')
+    echo "❌ GitLab API error: $error_msg" >&2
+    exit 3
+fi
+
+# Count total discussions
+discussion_count=$(echo "$discussions" | jq 'length')
+
+if [ "$discussion_count" -eq 0 ]; then
+    echo "✅ No comments on MR !${mr_iid}"
+    exit 0
+fi
+
+# Format discussions for human readability
+echo "📝 MR !${mr_iid} Comments (${discussion_count} discussions):"
+echo ""
+
+echo "$discussions" | jq -r '.[] |
+    .notes[] |
+    "## Comment by @\(.author.username) - \(.created_at | split("T")[0])\n" +
+    (if .position then
+        "**Location:** \(.position.new_path // .position.old_path):\(.position.new_line // .position.old_line)\n"
+    else "" end) +
+    (if .resolved then "**Status:** ✅ Resolved\n" else "" end) +
+    "\(.body)\n" +
+    "---\n"
+'
+
+# Also return summary at the end
+resolved_count=$(echo "$discussions" | jq '[.[] | .notes[] | select(.resolved == true)] | length')
+unresolved_count=$((discussion_count - resolved_count))
+
+echo ""
+echo "**Summary:** ${discussion_count} total discussions, ${resolved_count} resolved, ${unresolved_count} unresolved"

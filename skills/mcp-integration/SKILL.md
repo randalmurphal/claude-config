@@ -96,200 +96,54 @@ Claude Code has three scope levels (use **local scope** for project-specific ser
 
 ---
 
-## Available MCP Servers
+## Available MCP Servers (Quick Reference)
 
 ### Productivity & Documentation
 
-#### ObsidianPilot MCP
-**Purpose:** Direct filesystem access to Obsidian vaults with advanced search (100-1000x faster than REST API)
+**ObsidianPilot MCP** - Direct filesystem access to Obsidian vaults
+- Full-text search (SQLite FTS5), frontmatter properties, tags, regex
+- 100-1000x faster than REST API
+- **Setup:** `uvx obsidianpilot` with `OBSIDIAN_VAULT_PATH` env var
+- **Tools:** 15+ tools, ~3k tokens
 
-**Features:**
-- Full-text search (SQLite FTS5 with boolean operators)
-- Frontmatter property search (=, !=, >, <, contains)
-- Date-based search (created/modified within X days)
-- Regex search with timeout protection
-- Tag search (hierarchical tags)
-- Instant writes (direct filesystem, no API overhead)
-
-**Installation:**
-```bash
-# Install uv package manager
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Add to ~/.claude.json under mcpServers
-{
-  "obsidian": {
-    "type": "stdio",
-    "command": "/home/rmurphy/.local/bin/uvx",
-    "args": ["obsidianpilot"],
-    "env": {
-      "OBSIDIAN_VAULT_PATH": "/home/rmurphy/obsidian-notes"
-    }
-  }
-}
-```
-
-**Vault Path Options:**
-- WSL native (`/home/user/vault`) - Fastest
-- Windows filesystem (`/mnt/c/Users/user/vault`) - Accessible from Obsidian GUI
-
-**Tools:** 15+ tools for notes, search, tags, links
-**Token Cost:** ~3k tokens
-
-#### Jira MCP
-**Purpose:** Full-featured Jira integration with JQL search and dev info (commits, PRs)
-
-**Installation:**
-```bash
-npm install -g @aashari/mcp-server-atlassian-jira
-
-# Add via CLI (local scope - works in project subdirs)
-cd /path/to/project
-claude mcp add jira mcp-atlassian-jira \
-  -e ATLASSIAN_SITE_NAME=yourcompany \
-  -e ATLASSIAN_USER_EMAIL=you@company.com \
-  -e ATLASSIAN_API_TOKEN=your_token
-```
-
-**Tools:** List projects, search issues (JQL), get issue details, view dev info
-**Token Cost:** ~2.5k tokens
+**Jira MCP** - Full Jira integration with JQL search
+- Search issues, get dev info (commits, PRs)
+- **Setup:** `npm install -g @aashari/mcp-server-atlassian-jira`
+- **Tools:** 4 tools, ~2.5k tokens
 
 ### Databases (Configure Per-Project)
 
-#### MongoDB MCP
-**Purpose:** Direct MongoDB access for queries, aggregations, CRUD operations
+**MongoDB MCP** - Direct MongoDB access
+- Find, aggregate, CRUD operations, schema inference
+- **Setup:** `claude mcp add mongodb npx -y mongodb-mcp-server -e MDB_MCP_CONNECTION_STRING=...`
+- **Tools:** 9 tools, ~3k tokens
 
-**Installation:**
-```bash
-cd /path/to/project
-claude mcp add mongodb npx -y mongodb-mcp-server \
-  -e MDB_MCP_CONNECTION_STRING="mongodb://user:pass@host:port/db?authSource=admin"
-```
+**PostgreSQL MCP** - Query PostgreSQL databases
+- SQL queries, schema inspection, read-only by default
+- **Setup:** `docker pull mcp/postgres` + `.mcp.json` config
+- **Tools:** 3 tools, ~2.5k tokens
 
-**Tools:**
-- list-databases, list-collections
-- find, aggregate, count
-- insert-many, update-many, delete-many
-- collection-schema (infer schema)
+**SQLite MCP** - Lightweight database operations
+- Read/write queries, table management
+- **Setup:** `npm install -g @modelcontextprotocol/server-sqlite`
+- **Tools:** 6 tools, ~2.5k tokens
 
-**Token Cost:** ~3k tokens
+**Redis MCP** - Key operations, cache inspection, pub/sub
+- Get/set/delete, TTL management
+- **Setup:** `docker pull mcp/redis` + `.mcp.json` config
+- **Tools:** 8 tools, ~2k tokens
 
-#### PostgreSQL MCP
-**Purpose:** Query and inspect PostgreSQL databases
+**Neo4j MCP** - Graph database queries
+- Cypher queries, graph traversal
+- **Setup:** `npm install -g @modelcontextprotocol/server-neo4j`
+- **Tools:** 4 tools, ~3k tokens
+- **Note:** You already use Neo4j for PRISM (port 7688)
 
-**Installation:**
-```bash
-# Via Docker
-docker pull mcp/postgres
-
-# Per-project config (.mcp.json)
-{
-  "mcpServers": {
-    "postgres": {
-      "command": "docker",
-      "args": [
-        "run", "--rm", "-i", "--network", "host",
-        "mcp/postgres",
-        "--connection-string", "postgresql://user:pass@localhost:5432/dbname"
-      ]
-    }
-  }
-}
-```
-
-**Tools:** Execute queries, schema inspection, read-only by default
-**Token Cost:** ~2.5k tokens
-
-#### SQLite MCP
-**Purpose:** Lightweight database operations and testing
-
-**Installation:**
-```bash
-npm install -g @modelcontextprotocol/server-sqlite
-
-# Per-project config
-{
-  "mcpServers": {
-    "sqlite": {
-      "command": "mcp-server-sqlite",
-      "args": ["--db-path", "./data"]
-    }
-  }
-}
-```
-
-**Tools:** read_query, write_query, create_table, list_tables, describe_table, append_insight
-**Token Cost:** ~2.5k tokens
-
-#### Redis MCP
-**Purpose:** Key operations, cache inspection, pub/sub
-
-**Installation:**
-```bash
-docker pull mcp/redis
-
-# Per-project config
-{
-  "mcpServers": {
-    "redis": {
-      "command": "docker",
-      "args": [
-        "run", "--rm", "-i", "--network", "host",
-        "mcp/redis",
-        "--url", "redis://localhost:6379"
-      ]
-    }
-  }
-}
-```
-
-**Tools:** get, set, delete, TTL management, pub/sub
-**Token Cost:** ~2k tokens
-
-#### Neo4j MCP
-**Purpose:** Graph database queries (Cypher, graph traversal)
-
-**Installation:**
-```bash
-npm install -g @modelcontextprotocol/server-neo4j
-
-# Per-project config
-{
-  "mcpServers": {
-    "neo4j": {
-      "command": "mcp-server-neo4j",
-      "env": {
-        "NEO4J_URI": "bolt://localhost:7687",
-        "NEO4J_USER": "neo4j",
-        "NEO4J_PASSWORD": "password"
-      }
-    }
-  }
-}
-```
-
-**Tools:** Cypher queries, graph traversal, node/relationship operations
-**Token Cost:** ~3k tokens
-
-**Note:** You already use Neo4j for PRISM (port 7688)
-
-### MCPs Evaluated and Rejected
-
-**Why Not Install:**
-
-| MCP | Reason Skipped | Alternative |
-|-----|----------------|-------------|
-| Filesystem MCP | Built-in Read/Write/Edit sufficient | Use Read, Write, Edit, Grep |
-| Containerd MCP | nerdctl bash commands work fine | Use `nerdctl` via Bash tool |
-| Brave Search MCP | WebSearch tool redundant | Use built-in WebSearch |
-| Exa MCP | WebSearch tool redundant | Use built-in WebSearch |
-| Semgrep MCP | Can run via Bash, Tech Scanner exists | `semgrep --config auto .` |
-
-**Key Lesson:** Don't add MCPs just because they exist. Evaluate if they provide value over existing tools.
+**For detailed setup instructions, see `reference.md`.**
 
 ---
 
-## Setup and Configuration
+## Quick Setup Guide
 
 ### Installing Global External MCPs
 
@@ -316,7 +170,7 @@ claude mcp list
 ```bash
 cd /path/to/your/repo
 claude mcp add mongodb npx -y mongodb-mcp-server \
-  -e MDB_MCP_CONNECTION_STRING="mongodb://localhost:27017/rthree?authSource=admin"
+  -e MDB_MCP_CONNECTION_STRING="mongodb://localhost:27017/mydb?authSource=admin"
 ```
 
 **Verify in subdirectory:**
@@ -338,7 +192,7 @@ claude mcp list
       "command": "python3",
       "args": ["-m", "prism_mcp.interfaces.mcp_server"],
       "env": {
-        "PYTHONPATH": "/home/rmurphy/repos/claude_mcp/prism_mcp",
+        "PYTHONPATH": "~/repos/claude_mcp/prism_mcp",
         "NEO4J_URI": "bolt://localhost:7688",
         "QDRANT_HOST": "localhost",
         "QDRANT_PORT": "6334"
@@ -349,20 +203,6 @@ claude mcp list
 ```
 
 **Restart Claude Code after config changes.**
-
-### Environment Variables and Paths
-
-**Python virtualenv requirements:**
-- Custom Python MCPs need `PYTHONPATH` or virtualenv activation
-- Use absolute paths for `command` (e.g., `/opt/envs/imports/bin/python3`)
-- Or use system python with `-m module.path` args
-
-**Common environment variables:**
-- Database MCPs: Connection strings (URI, host, port, auth)
-- API MCPs: API tokens/keys (GITHUB_TOKEN, ATLASSIAN_API_TOKEN)
-- Path MCPs: Directory paths (OBSIDIAN_VAULT_PATH)
-
-**Security note:** Credentials stored in plaintext in config files. Protect with filesystem permissions.
 
 ---
 
@@ -439,11 +279,9 @@ Claude will use Package Registry MCP to search PyPI and get security info.
 
 ### Server Not Starting
 
-**Symptoms:**
-- MCP tools not available after restart
-- `claude mcp list` shows "✗ Disconnected"
+**Symptoms:** MCP tools not available after restart, `claude mcp list` shows "✗ Disconnected"
 
-**Fixes:**
+**Quick Fixes:**
 
 1. **Verify command path:**
    ```bash
@@ -453,91 +291,47 @@ Claude will use Package Registry MCP to search PyPI and get security info.
 
 2. **Check config syntax:**
    ```bash
-   # Validate JSON
-   cat ~/.claude/mcp_config.json | python3 -m json.tool
-   cat ~/.config/claude/mcp_config.json | python3 -m json.tool
+   python3 -m json.tool ~/.claude/mcp_config.json
+   python3 -m json.tool ~/.config/claude/mcp_config.json
    ```
 
 3. **Test server manually:**
    ```bash
-   # Custom MCP
-   python3 -m prism_mcp.interfaces.mcp_server
-
-   # NPM MCP
-   npx @modelcontextprotocol/server-github
-
-   # Check for errors
+   python3 -m prism_mcp.interfaces.mcp_server  # Custom MCP
+   npx @modelcontextprotocol/server-github     # NPM MCP
    ```
 
-4. **Check environment variables:**
-   ```bash
-   # MongoDB
-   echo $MDB_MCP_CONNECTION_STRING
-
-   # Verify connection string works
-   mongosh "mongodb://localhost:27017/rthree?authSource=admin"
-   ```
-
-5. **Restart Claude Code:**
-   - Config changes require full restart
-   - Exit and relaunch, don't just reload
+4. **Restart Claude Code** - Config changes require full restart (exit and relaunch)
 
 ### Connection Issues
 
-**MongoDB/PostgreSQL/Redis connection failed:**
+**Database connection failed:**
 
 1. **Verify service is running:**
    ```bash
-   # MongoDB
-   mongosh "mongodb://localhost:27017/rthree?authSource=admin"
-
-   # PostgreSQL
-   psql "postgresql://user:pass@localhost:5432/dbname"
-
-   # Redis
+   mongosh "mongodb://localhost:27017/mydb?authSource=admin"
    redis-cli ping
+   psql "postgresql://user:pass@localhost:5432/dbname"
    ```
 
 2. **Check network access:**
    ```bash
-   # Test port connectivity
    nc -zv localhost 27017  # MongoDB
    nc -zv localhost 5432   # PostgreSQL
    nc -zv localhost 6379   # Redis
    ```
 
-3. **Verify credentials:**
-   - Double-check username, password, database name
-   - Test credentials outside of MCP first
-
-4. **Check Docker network:**
-   ```bash
-   # If using Docker MCP servers
-   docker network ls
-   # Ensure --network host in config
-   ```
+3. **Verify credentials** - Double-check username, password, database name
 
 **GitHub MCP not connecting:**
 
-1. **Verify token:**
-   ```bash
-   # Test token via gh CLI
-   gh auth status
-   ```
-
-2. **Check token permissions:**
-   - Go to https://github.com/settings/tokens
-   - Ensure token has repo, workflow, read:org scopes
-
-3. **Regenerate if expired:**
-   - GitHub tokens can expire
-   - Generate new token, update config
+1. **Verify token:** `gh auth status`
+2. **Check token permissions:** repo, workflow, read:org scopes
+3. **Regenerate if expired** - Update config with new token
 
 ### Configuration Errors
 
 **"Project MCP servers require approval" (working in subdirectories):**
-
-**Cause:** Server added with `-s project` scope, requires approval settings
 
 **Fix:** Remove and re-add with local scope:
 ```bash
@@ -545,19 +339,7 @@ claude mcp remove -s project server-name
 claude mcp add server-name command -e KEY=value  # Uses local by default
 ```
 
-**"Server shows in .mcp.json but doesn't load":**
-
-**Cause:** Project scope requires approval in `.claude/settings.local.json`
-
-**Fix:** Use local scope instead (stores in `~/.claude.json` per-project):
-```bash
-claude mcp remove -s project mongodb
-claude mcp add mongodb npx -y mongodb-mcp-server -e MDB_MCP_CONNECTION_STRING="..."
-```
-
 **"Too many tools - context budget exceeded":**
-
-**Cause:** MCP servers consume context tokens
 
 **Fix:** Increase token budget in `~/.config/claude/settings.json`:
 ```json
@@ -568,49 +350,10 @@ claude mcp add mongodb npx -y mongodb-mcp-server -e MDB_MCP_CONNECTION_STRING=".
 }
 ```
 
-**Default:** 25k tokens (supports ~8-10 MCP servers)
-**Recommended:** 60k tokens (supports 20+ servers comfortably)
+**Default:** 25k tokens (8-10 servers)
+**Recommended:** 60k tokens (20+ servers)
 
-### Log Locations
-
-**Claude Code logs:**
-```bash
-# Check for MCP startup errors
-~/.config/claude/logs/
-
-# Recent log file (varies by date)
-tail -f ~/.config/claude/logs/claude-code-2025-10-17.log
-```
-
-**Custom MCP logs:**
-- PRISM MCP: Check stdout/stderr where launched
-- Add logging to your MCP server code
-
-**NPM MCP logs:**
-- Usually printed to Claude Code logs
-- Run manually to see direct output: `npx server-name`
-
-### Common Issues
-
-**ObsidianPilot slow writes on Windows filesystem:**
-- Expected with `/mnt/c/` paths (WSL→Windows overhead)
-- Still 100x faster than REST API approach
-- For max speed, use WSL native path
-
-**MongoDB query returns no results:**
-- Check database name in connection string
-- List databases first: `mcp__mongodb__list-databases`
-- Verify collection exists: `mcp__mongodb__list-collections`
-
-**Jira tools not available:**
-- Verify server added with local scope (default)
-- Check site name doesn't include `.atlassian.net`
-- Run `claude mcp get jira` to verify config
-
-**GitHub MCP tools not showing:**
-- Restart Claude Code after adding server
-- Check token has correct permissions
-- Verify global install: `which mcp-server-github`
+**For advanced troubleshooting, see `reference.md`.**
 
 ---
 
@@ -651,56 +394,6 @@ tail -f ~/.config/claude/logs/claude-code-2025-10-17.log
 
 ---
 
-## Integration with Workflows
-
-### PRISM Memory Integration
-
-**When to query PRISM:**
-- Before making architectural decisions
-- When encountering similar problems
-- To retrieve past patterns/conventions
-- To check if issue already solved
-
-**How Claude uses it:**
-```
-You: "How should I structure error handling in this module?"
-Claude: [Queries PRISM for past error handling patterns]
-Claude: "Based on past decisions, we use centralized exception classes..."
-```
-
-### Orchestration MCP Integration
-
-**When orchestration activates:**
-- Complex multi-step tasks
-- Parallel work coordination
-- Checkpoint/resume workflows
-- Git worktree management
-
-**How it works:**
-```
-You: "Refactor this 5000-line module into separate components"
-Claude: [Uses orchestration MCP to decompose, checkpoint, coordinate]
-```
-
-### Database MCP Patterns
-
-**MongoDB example workflow:**
-```
-1. List databases to find correct DB
-2. List collections to find target collection
-3. Infer schema to understand structure
-4. Query documents with filters
-5. Aggregate for complex analysis
-```
-
-**Why MCP > Bash:**
-- Structured JSON responses (no parsing)
-- Type safety (prevents injection)
-- Aggregation pipelines (complex queries)
-- Schema inference (understand data)
-
----
-
 ## Quick Reference Commands
 
 ### Managing MCPs
@@ -717,7 +410,6 @@ claude mcp add -s user server-name command -e KEY=value
 
 # Remove server
 claude mcp remove server-name
-claude mcp remove -s user server-name
 
 # Get server details
 claude mcp get server-name
@@ -747,14 +439,12 @@ cat ~/.config/claude/settings.json
 ```bash
 # Test custom MCP
 python3 -m prism_mcp.interfaces.mcp_server
-python3 -m orchestration_mcp.mcp_server
 
 # Test NPM MCP
 npx @modelcontextprotocol/server-github
-npx mongodb-mcp-server "mongodb://localhost:27017/rthree"
 
 # Test ObsidianPilot
-/home/rmurphy/.local/bin/uvx obsidianpilot
+~/.local/bin/uvx obsidianpilot
 ```
 
 ### Debugging
@@ -762,46 +452,18 @@ npx mongodb-mcp-server "mongodb://localhost:27017/rthree"
 ```bash
 # Validate JSON config
 python3 -m json.tool ~/.claude/mcp_config.json
-python3 -m json.tool ~/.config/claude/mcp_config.json
 
 # Check service connectivity
 nc -zv localhost 27017  # MongoDB
 nc -zv localhost 6379   # Redis
-nc -zv localhost 5432   # PostgreSQL
 
 # Test database connection
-mongosh "mongodb://localhost:27017/rthree?authSource=admin"
+mongosh "mongodb://localhost:27017/mydb?authSource=admin"
 redis-cli ping
-psql "postgresql://user:pass@localhost:5432/dbname"
 
 # Check logs
 tail -f ~/.config/claude/logs/claude-code-*.log
 ```
-
----
-
-## Resources
-
-### Official Documentation
-- **MCP Protocol:** https://modelcontextprotocol.io/
-- **MCP Registry:** https://github.com/modelcontextprotocol/registry
-- **MCP Servers:** https://github.com/modelcontextprotocol/servers
-
-### Community Resources
-- **Awesome MCP Servers:** https://github.com/wong2/awesome-mcp-servers
-- **Docker MCP Catalog:** https://hub.docker.com/mcp
-
-### Your Custom MCPs
-- **PRISM:** `/home/randy/repos/claude_mcp/prism_mcp/CLAUDE.md`
-- **Orchestration:** `/home/randy/repos/claude_mcp/orchestration_mcp/CLAUDE.md`
-- **Tech Scanner:** `/home/randy/repos/claude_mcp/tech_scanner_mcp/`
-
-### Installed MCP Documentation
-- **ObsidianPilot:** https://github.com/that0n3guy/ObsidianPilot
-- **Jira MCP:** https://github.com/aashari/mcp-server-atlassian-jira
-- **MongoDB MCP:** https://www.npmjs.com/package/mongodb-mcp-server
-- **GitHub MCP:** https://github.com/modelcontextprotocol/servers/tree/main/src/github
-- **Package Registry:** https://github.com/artmann/package-registry-mcp
 
 ---
 
@@ -829,4 +491,4 @@ tail -f ~/.config/claude/logs/claude-code-*.log
 - Troubleshooting configuration problems
 - Planning token budget for new MCPs
 
-**For operational issues, check logs and test manually. For architecture decisions, consult PRISM first.**
+**For detailed server setups and advanced troubleshooting, see `reference.md`.**

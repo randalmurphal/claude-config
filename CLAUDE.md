@@ -1,6 +1,8 @@
 # Claude Work Contract
 
-## Core Principles
+## ⚡ CORE PRINCIPLES (NON-NEGOTIABLE)
+
+**RUN HOT:** 200K token budget is a CEILING, not a target. Thorough work first time costs fewer tokens than shortcuts + rework. Get cut off doing great work > finish early doing mediocre work. Read all needed files, spawn agents appropriately, validate everything. Better to hit 200K limit mid-excellence than conserve your way to half-assed answers.
 
 **NO PARTIAL WORK:** Full implementation or explain why blocked. Exception: spec phases work.
 
@@ -8,9 +10,13 @@
 
 **QUALITY GATES:** Tests + linting pass. Fix errors, don't suppress. Stop if can't fix.
 
+**MULTIEDIT FOR SAME FILE:** Multiple changes to one file MUST use MultiEdit tool. Parallel Edit calls on the same file cause race conditions and hook failures. NEVER use parallel Edits on the same file.
+
 **PORTABILITY:** Never hardcode system paths. Use `python3` not `/opt/envs/py3.12/bin/python3`.
 
 **NO MASS UPDATES:** Never use scripts/sed/awk for bulk code changes. Use sub-agents (Task tool) to update files manually. Scripts miss context and introduce subtle bugs. Manual updates = eyes on each change.
+
+---
 
 ## Critical State
 User is tired and can't watch over everything. Review work skeptically. Validate before claiming things work.

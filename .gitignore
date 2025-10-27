@@ -67,3 +67,15 @@ debug/
 
 session-env/
 mcp_credentials.json
+prism/
+
+# Script credentials (scripts/.gitlab-credentials, scripts/.jira-credentials, etc)
+scripts/*-credentials
+scripts/.gitlab-credentials
+scripts/.jira-credentials
+scripts/.aws-credentials
+
+# BUT allow example credential files (these should be committed)
+!scripts/*-credentials.example
+!scripts/.gitlab-credentials.example
+!scripts/.jira-credentials.example

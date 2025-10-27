@@ -13,6 +13,8 @@ allowed-tools:
 
 **When to use:** Writing tests, checking coverage, validating test organization, debugging test failures.
 
+**For detailed examples and language-specific patterns:** See [reference.md](./reference.md)
+
 ---
 
 ## Core Principles (Remember These)
@@ -60,53 +62,7 @@ src/api/endpoints.py      → tests/unit/test_api_endpoints.py
 - Deterministic (same input = same output)
 - Don't hit database/network/filesystem
 
-**Example:**
-```python
-# tests/unit/test_auth_service.py
-
-import pytest
-from unittest.mock import Mock, AsyncMock
-from src.auth.service import AuthService
-
-@pytest.fixture
-def mock_user_repo():
-    """Mock user repository."""
-    repo = Mock()
-    repo.find_by_email = AsyncMock()
-    return repo
-
-@pytest.fixture
-def auth_service(mock_user_repo):
-    """Auth service with mocked dependencies."""
-    return AuthService(user_repo=mock_user_repo)
-
-class TestAuthenticate:
-    """Test AuthService.authenticate()"""
-
-    async def test_success_valid_credentials(self, auth_service, mock_user_repo):
-        """Should return token when credentials valid."""
-        # Arrange
-        user = User(id="123", email="test@example.com", password_hash="$2b$...")
-        mock_user_repo.find_by_email.return_value = user
-
-        # Act
-        token = await auth_service.authenticate("test@example.com", "password123")
-
-        # Assert
-        assert token.access_token is not None
-        assert token.token_type == "bearer"
-        mock_user_repo.find_by_email.assert_called_once_with("test@example.com")
-
-    async def test_failure_invalid_password(self, auth_service, mock_user_repo):
-        """Should raise AuthError when password invalid."""
-        # Arrange
-        user = User(id="123", email="test@example.com", password_hash="$2b$...")
-        mock_user_repo.find_by_email.return_value = user
-
-        # Act & Assert
-        with pytest.raises(AuthError, match="Invalid credentials"):
-            await auth_service.authenticate("test@example.com", "wrongpassword")
-```
+**For full example:** See reference.md Layer 1 section
 
 ### Layer 2: Integration Tests (85% coverage)
 
@@ -130,52 +86,7 @@ API module           → tests/integration/test_api_endpoints.py
 - Verify data persistence, transactions
 - Don't test external APIs (mock those)
 
-**Example:**
-```python
-# tests/integration/test_auth_flow.py
-
-import pytest
-from src.auth.service import AuthService
-from src.auth.repository import UserRepository
-from src.database import get_test_db
-
-@pytest.fixture
-async def db():
-    """Test database with migrations applied."""
-    db = await get_test_db()
-    await db.execute("DELETE FROM users")  # Clean slate
-    yield db
-    await db.close()
-
-@pytest.fixture
-def auth_service(db):
-    """Real auth service with real repository."""
-    user_repo = UserRepository(db)
-    return AuthService(user_repo=user_repo)
-
-class TestAuthFlow:
-    """Test complete authentication flow."""
-
-    async def test_register_then_login(self, auth_service, db):
-        """Should register user and then login successfully."""
-        # Register
-        user = await auth_service.register(
-            email="test@example.com",
-            password="password123"
-        )
-        assert user.id is not None
-
-        # Verify user in database
-        result = await db.fetch_one("SELECT * FROM users WHERE email = ?", "test@example.com")
-        assert result is not None
-
-        # Login
-        token = await auth_service.authenticate(
-            email="test@example.com",
-            password="password123"
-        )
-        assert token.access_token is not None
-```
+**For full example:** See reference.md Layer 2 section
 
 ### Layer 3: E2E Tests (Critical paths)
 
@@ -194,48 +105,7 @@ tests/e2e/test_admin_workflows.py
 - Test realistic user scenarios
 - Don't test every edge case (that's what unit tests are for)
 
-**Example:**
-```python
-# tests/e2e/test_user_workflows.py
-
-import pytest
-from httpx import AsyncClient
-
-@pytest.fixture
-async def client():
-    """HTTP client for API."""
-    async with AsyncClient(base_url="http://localhost:8000") as client:
-        yield client
-
-class TestUserRegistrationFlow:
-    """Test complete user registration and first login."""
-
-    async def test_happy_path(self, client):
-        """User registers, verifies email, and logs in."""
-        # Register
-        response = await client.post("/api/auth/register", json={
-            "email": "newuser@example.com",
-            "password": "SecurePass123!"
-        })
-        assert response.status_code == 201
-        user_id = response.json()["user_id"]
-
-        # Login
-        response = await client.post("/api/auth/login", json={
-            "email": "newuser@example.com",
-            "password": "SecurePass123!"
-        })
-        assert response.status_code == 200
-        access_token = response.json()["access_token"]
-
-        # Access protected endpoint
-        response = await client.get(
-            "/api/users/me",
-            headers={"Authorization": f"Bearer {access_token}"}
-        )
-        assert response.status_code == 200
-        assert response.json()["email"] == "newuser@example.com"
-```
+**For full example:** See reference.md Layer 3 section
 
 ---
 
@@ -320,256 +190,50 @@ Complete workflows         →   tests/e2e/test_user_workflows.py
 
 **Choose based on complexity:**
 
-### 1. Simple Functions: Single Test Function
+1. **Simple Functions:** Single test function covering all cases (good when signature changes often)
+2. **Complex Functions:** Parametrized tests (recommended - clear failure reporting)
+3. **Critical Functions:** Separate test methods (security-critical code, complex setup)
 
-```python
-async def test_authenticate(self, auth_service):
-    """Test authenticate with all cases."""
-    # Happy path
-    token = await auth_service.authenticate("test@example.com", "password")
-    assert token.access_token is not None
-
-    # Error cases
-    with pytest.raises(AuthError, match="Invalid credentials"):
-        await auth_service.authenticate("test@example.com", "wrong")
-
-    with pytest.raises(AuthError):
-        await auth_service.authenticate("notfound@example.com", "password")
-```
-
-**When:** Simple functions, independent cases, signature changes often
-**Pros:** One place to update when function signature changes
-**Cons:** Less clear which case failed
-
-### 2. Complex Functions: Parametrized Tests (Recommended)
-
-```python
-@pytest.mark.parametrize("email,password,expected_error", [
-    ("test@example.com", "password", None),  # Happy path
-    ("test@example.com", "wrong", "Invalid credentials"),
-    ("notfound@example.com", "password", "Invalid credentials"),
-    ("", "password", "Email required"),
-])
-async def test_authenticate(self, auth_service, email, password, expected_error):
-    if expected_error:
-        with pytest.raises((AuthError, ValidationError), match=expected_error):
-            await auth_service.authenticate(email, password)
-    else:
-        token = await auth_service.authenticate(email, password)
-        assert token.access_token is not None
-```
-
-**When:** Many cases, need clear failure reporting
-**Pros:** Single definition + individual case isolation + clear test names
-**Cons:** Slightly more complex syntax
-
-### 3. Critical Functions: Separate Test Methods
-
-```python
-class TestAuthenticate:
-    async def test_success_valid_credentials(self, auth_service):
-        token = await auth_service.authenticate("test@example.com", "password")
-        assert token.access_token is not None
-
-    async def test_failure_invalid_password(self, auth_service):
-        with pytest.raises(AuthError, match="Invalid credentials"):
-            await auth_service.authenticate("test@example.com", "wrong")
-```
-
-**When:** Security-critical code, complex setup per case
-**Pros:** Maximum clarity, can skip/run individual cases easily
-**Cons:** More maintenance when signature changes
+**For detailed examples:** See reference.md Test Organization Patterns section
 
 ---
 
 ## Fixtures and Test Data
 
-**Use conftest.py for shared fixtures:**
-
-```python
-# tests/conftest.py
-
-import pytest
-from src.database import get_test_db
-
-@pytest.fixture(scope="session")
-async def db():
-    """Test database (created once per test session)."""
-    db = await get_test_db()
-    yield db
-    await db.close()
-
-@pytest.fixture
-async def clean_db(db):
-    """Clean database before each test."""
-    await db.execute("DELETE FROM users")
-    await db.execute("DELETE FROM sessions")
-    yield db
-
-@pytest.fixture
-def sample_user():
-    """Sample user data."""
-    return {
-        "email": "test@example.com",
-        "password": "password123",
-        "name": "Test User"
-    }
-```
+**Use conftest.py for shared fixtures** across test files
 
 **Fixture scopes:**
 - `scope="session"` - Created once for entire test run (databases, connections)
 - `scope="module"` - Created once per test file
 - `scope="function"` - Created for each test (default)
 
-**Use fixtures/ for complex test data:**
+**Use fixtures/ directory** for complex test data (JSON, CSV, etc.)
 
-```python
-# tests/unit/test_auth_service.py
-
-import json
-from pathlib import Path
-
-@pytest.fixture
-def user_data():
-    """Load user test data from file."""
-    path = Path(__file__).parent.parent / "fixtures" / "users.json"
-    with open(path) as f:
-        return json.load(f)
-```
+**For detailed examples:** See reference.md Fixtures and Test Data section
 
 ---
 
 ## Best Practices
 
 ### 1. Arrange-Act-Assert Pattern
-
-```python
-async def test_authenticate_success(self, auth_service, mock_user_repo):
-    # ARRANGE: Set up test data and mocks
-    user = User(id="123", email="test@example.com")
-    mock_user_repo.find_by_email.return_value = user
-
-    # ACT: Call the method under test
-    token = await auth_service.authenticate("test@example.com", "password123")
-
-    # ASSERT: Verify behavior
-    assert token.access_token is not None
-    mock_user_repo.find_by_email.assert_called_once()
-```
+Structure tests clearly: Set up → Execute → Verify
 
 ### 2. Descriptive Test Names
+Use clear names like `test_authenticate_fails_with_invalid_password` not `test_auth_1`
 
-```python
-# GOOD - clear what's being tested
-async def test_authenticate_success_with_valid_credentials()
-async def test_authenticate_fails_with_invalid_password()
-async def test_authenticate()  # If covers all cases in one function
-
-# BAD - unclear
-async def test_auth_1()
-async def test_login()
-async def test_failure()
-```
-
-### 3. Test Error Cases (Always Test Failure Paths)
-
-```python
-# Test happy path + all error cases
-async def test_authenticate(self):
-    # Happy path
-    token = await auth_service.authenticate("test@example.com", "password")
-    assert token.access_token is not None
-
-    # Error cases
-    with pytest.raises(AuthError, match="Invalid credentials"):
-        await auth_service.authenticate("test@example.com", "wrong")
-
-    with pytest.raises(AuthError):
-        await auth_service.authenticate("notfound@example.com", "password")
-
-    with pytest.raises(ValidationError, match="Email required"):
-        await auth_service.authenticate("", "password")
-```
+### 3. Test Error Cases
+Always test happy path + error cases + edge cases
 
 ### 4. Don't Test Implementation Details
+Test public behavior, not private methods
 
-```python
-# BAD - testing private method
-def test_hash_password():
-    service = AuthService()
-    hashed = service._hash_password("password")  # Private method!
-    assert hashed != "password"
+### 5. Mock Properly (Critical)
 
-# GOOD - test public behavior
-async def test_authenticate_uses_secure_password_hashing():
-    # Register user
-    user = await auth_service.register("test@example.com", "password123")
+**Unit tests:** Mock everything external to the function being tested (even other internal functions)
+**Integration tests:** Use real dependencies (test database, cache)
+**E2E tests:** No mocks, test complete workflows
 
-    # Password should be hashed in database
-    db_user = await user_repo.find_by_id(user.id)
-    assert db_user.password_hash != "password123"
-    assert db_user.password_hash.startswith("$2b$")  # bcrypt
-```
-
-### 5. Mock Properly
-
-**CRITICAL: Mock everything external to the function being tested, including other internal functions.**
-
-Unit tests should test ONLY the function itself, not its dependencies.
-
-```python
-# GOOD - mock all dependencies external to the function
-@pytest.fixture
-def mock_user_repo():
-    """Mock user repository (external to authenticate function)"""
-    repo = Mock()
-    repo.find_by_email = AsyncMock(return_value=User(id="123", email="test@example.com"))
-    return repo
-
-@pytest.fixture
-def mock_password_hasher():
-    """Mock password verification (external to authenticate function)"""
-    hasher = Mock()
-    hasher.verify = Mock(return_value=True)
-    return hasher
-
-async def test_authenticate_success(mock_user_repo, mock_password_hasher):
-    """Test authenticate function in isolation"""
-    auth_service = AuthService(user_repo=mock_user_repo, hasher=mock_password_hasher)
-
-    # Test ONLY authenticate, not user_repo.find_by_email or hasher.verify
-    token = await auth_service.authenticate("test@example.com", "password")
-
-    assert token.access_token is not None
-    mock_user_repo.find_by_email.assert_called_once_with("test@example.com")
-    mock_password_hasher.verify.assert_called_once()
-
-# GOOD - even mock internal helper functions when testing orchestration function
-def test_process_user_data():
-    """Test process_user_data orchestration logic only"""
-    with patch('src.services.user_service._validate_user') as mock_validate:
-        with patch('src.services.user_service._transform_user') as mock_transform:
-            with patch('src.services.user_service._save_user') as mock_save:
-                mock_validate.return_value = True
-                mock_transform.return_value = {"id": "123"}
-
-                # Test ONLY the orchestration logic, not helper implementations
-                result = process_user_data({"email": "test@example.com"})
-
-                mock_validate.assert_called_once()
-                mock_transform.assert_called_once()
-                mock_save.assert_called_once_with({"id": "123"})
-
-# BAD - testing multiple functions together (not a unit test)
-async def test_authenticate_integration():
-    """This is an integration test, not a unit test"""
-    # Using real user_repo and real password hasher
-    auth_service = AuthService(user_repo=UserRepository(db), hasher=PasswordHasher())
-    token = await auth_service.authenticate("test@example.com", "password")
-    # This tests authenticate + find_by_email + password verification together
-```
-
-**What to mock:**
+**What to mock in unit tests:**
 - Database/repository calls
 - External API calls
 - File I/O operations
@@ -580,13 +244,10 @@ async def test_authenticate_integration():
 
 **What NOT to mock:**
 - The function you're testing
-- Simple data transformations (let them run)
+- Simple data transformations
 - Pure functions with no side effects (unless part of external dependency)
 
-**Testing strategy:**
-- **Unit tests**: Mock everything external to the function (test function in isolation)
-- **Integration tests**: Use real dependencies to test components working together
-- **E2E tests**: No mocks, test complete workflows
+**For detailed examples and code samples:** See reference.md Best Practices section
 
 ---
 
@@ -652,72 +313,11 @@ pytest-watch  # Requires pytest-watch
 
 ## Common Patterns by Language
 
-### Python (pytest)
+**Python (pytest):** Fixtures in conftest.py, parametrize decorator, pytest.raises
+**JavaScript/TypeScript (Jest/Vitest):** describe/it blocks, expect assertions, mocking with vi
+**Go (testing package):** Table-driven tests, t.Run for subtests, t.Errorf for failures
 
-```python
-# conftest.py
-import pytest
-
-@pytest.fixture
-def sample_data():
-    return {"key": "value"}
-
-# test_module.py
-def test_function(sample_data):
-    assert sample_data["key"] == "value"
-```
-
-### JavaScript/TypeScript (Jest/Vitest)
-
-```javascript
-// test_module.test.js
-import { describe, it, expect, beforeEach } from 'vitest';
-import { authenticate } from './auth';
-
-describe('authenticate', () => {
-  it('should return token for valid credentials', async () => {
-    const token = await authenticate('test@example.com', 'password');
-    expect(token.accessToken).toBeDefined();
-  });
-
-  it('should throw error for invalid credentials', async () => {
-    await expect(authenticate('test@example.com', 'wrong'))
-      .rejects.toThrow('Invalid credentials');
-  });
-});
-```
-
-### Go (testing package)
-
-```go
-// auth_test.go
-package auth
-
-import (
-    "testing"
-)
-
-func TestAuthenticate(t *testing.T) {
-    tests := []struct {
-        name      string
-        email     string
-        password  string
-        expectErr bool
-    }{
-        {"valid credentials", "test@example.com", "password", false},
-        {"invalid password", "test@example.com", "wrong", true},
-    }
-
-    for _, tt := range tests {
-        t.Run(tt.name, func(t *testing.T) {
-            _, err := Authenticate(tt.email, tt.password)
-            if (err != nil) != tt.expectErr {
-                t.Errorf("expected error: %v, got: %v", tt.expectErr, err)
-            }
-        })
-    }
-}
-```
+**For detailed syntax and examples:** See reference.md Common Patterns by Language section
 
 ---
 

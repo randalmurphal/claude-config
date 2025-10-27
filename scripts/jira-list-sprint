@@ -1,0 +1,222 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# jira-list-sprint - Show current sprint issues
+#
+# Usage: jira-list-sprint [board-id]
+# Example: jira-list-sprint
+# Example: jira-list-sprint 123
+#
+# Returns: Formatted markdown with sprint issues
+# Exit codes: 0 = success, 1 = usage error, 3 = API error, 4 = credentials missing
+#
+# Note: If no board-id provided, attempts to find default board for project.
+#       You can set JIRA_DEFAULT_BOARD_ID in .jira-credentials to specify default.
+
+# Get script directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CREDS_FILE="${SCRIPT_DIR}/.jira-credentials"
+
+# Function to show credential setup instructions
+show_credential_instructions() {
+    cat >&2 <<'EOF'
+❌ Jira credentials not found or incomplete.
+
+STOP: This script requires Jira API credentials to be configured.
+
+The script uses the same credentials as the Jira MCP. Make sure these
+environment variables are set:
+
+    ATLASSIAN_API_TOKEN="your-token"
+    ATLASSIAN_SITE_NAME="fortressinfosec"
+    ATLASSIAN_USER_EMAIL="your.email@fortressinfosec.com"
+
+These should already be set in your environment if the Jira MCP is working.
+
+If not set, the credentials file (~/.claude/scripts/.jira-credentials) will
+try to load them from the environment, but they must exist there first.
+
+Check: env | grep ATLASSIAN
+
+EOF
+    exit 4
+}
+
+# Check if credentials file exists
+if [ ! -f "$CREDS_FILE" ]; then
+    echo "❌ Credentials file not found: $CREDS_FILE" >&2
+    echo "" >&2
+    show_credential_instructions
+fi
+
+# Source credentials
+# shellcheck source=/dev/null
+source "$CREDS_FILE"
+
+# Validate required credentials are set
+if [ -z "${ATLASSIAN_API_TOKEN:-}" ]; then
+    echo "❌ ATLASSIAN_API_TOKEN not set" >&2
+    echo "" >&2
+    show_credential_instructions
+fi
+
+if [ -z "${ATLASSIAN_USER_EMAIL:-}" ]; then
+    echo "❌ ATLASSIAN_USER_EMAIL not set" >&2
+    echo "" >&2
+    show_credential_instructions
+fi
+
+if [ -z "${JIRA_INSTANCE_URL:-}" ]; then
+    echo "❌ JIRA_INSTANCE_URL not set (needs ATLASSIAN_SITE_NAME)" >&2
+    echo "" >&2
+    show_credential_instructions
+fi
+
+# Parse command line arguments
+BOARD_ID="${1:-}"
+
+if [ "$BOARD_ID" = "--help" ] || [ "$BOARD_ID" = "-h" ]; then
+    echo "Usage: jira-list-sprint [board-id]"
+    echo ""
+    echo "Shows issues in the active sprint for the specified board."
+    echo ""
+    echo "Arguments:"
+    echo "  board-id    Optional board ID. If not provided, uses JIRA_DEFAULT_BOARD_ID"
+    echo "              from .jira-credentials or attempts to find the default board."
+    echo ""
+    echo "Examples:"
+    echo "  jira-list-sprint       # Use default board"
+    echo "  jira-list-sprint 123   # Use board ID 123"
+    exit 0
+fi
+
+# Use default board if not provided
+if [ -z "$BOARD_ID" ]; then
+    if [ -n "${JIRA_DEFAULT_BOARD_ID:-}" ]; then
+        BOARD_ID="$JIRA_DEFAULT_BOARD_ID"
+        echo "ℹ️  Using default board ID: $BOARD_ID" >&2
+        echo "" >&2
+    else
+        echo "❌ No board ID provided and JIRA_DEFAULT_BOARD_ID not set in credentials" >&2
+        echo "" >&2
+        echo "Usage: jira-list-sprint <board-id>" >&2
+        echo "   Or: Set JIRA_DEFAULT_BOARD_ID in ~/.claude/scripts/.jira-credentials" >&2
+        echo "" >&2
+        echo "To find your board ID, visit your board in Jira and check the URL:" >&2
+        echo "https://fortressinfosec.atlassian.net/jira/software/projects/INT/boards/123" >&2
+        echo "                                                                         ^^^" >&2
+        exit 1
+    fi
+fi
+
+# Remove trailing slash from instance URL if present
+JIRA_INSTANCE_URL="${JIRA_INSTANCE_URL%/}"
+
+# Get active sprint for board
+sprint_response=$(curl -s -w "\n%{http_code}" \
+    -u "${ATLASSIAN_USER_EMAIL}:${ATLASSIAN_API_TOKEN}" \
+    -H "Accept: application/json" \
+    "${JIRA_INSTANCE_URL}/rest/agile/1.0/board/${BOARD_ID}/sprint?state=active")
+
+# Split response into body and status code
+sprint_http_code=$(echo "$sprint_response" | tail -1)
+sprint_body=$(echo "$sprint_response" | sed '$d')
+
+# Check HTTP status
+if [ "$sprint_http_code" = "404" ]; then
+    echo "❌ Board not found: $BOARD_ID" >&2
+    echo "" >&2
+    echo "To find your board ID, visit your board in Jira and check the URL:" >&2
+    echo "https://fortressinfosec.atlassian.net/jira/software/projects/INT/boards/123" >&2
+    echo "                                                                         ^^^" >&2
+    exit 3
+elif [ "$sprint_http_code" = "401" ]; then
+    echo "❌ Authentication failed. Check your ATLASSIAN_API_TOKEN and ATLASSIAN_USER_EMAIL" >&2
+    exit 3
+elif [ "$sprint_http_code" = "403" ]; then
+    echo "❌ Access denied. You may not have permission to view this board." >&2
+    exit 3
+elif [[ ! "$sprint_http_code" =~ ^2[0-9][0-9]$ ]]; then
+    echo "❌ Jira API error (HTTP $sprint_http_code)" >&2
+    error_msg=$(echo "$sprint_body" | jq -r '.errorMessages[]? // .message? // "Unknown error"' 2>/dev/null || echo "Unknown error")
+    echo "Error: $error_msg" >&2
+    exit 3
+fi
+
+# Parse active sprint
+sprint_count=$(echo "$sprint_body" | jq -r '.values | length')
+
+if [ "$sprint_count" -eq 0 ]; then
+    echo "No active sprint found for board $BOARD_ID"
+    exit 0
+fi
+
+# Get first active sprint (there should typically be only one)
+sprint_id=$(echo "$sprint_body" | jq -r '.values[0].id')
+sprint_name=$(echo "$sprint_body" | jq -r '.values[0].name')
+sprint_state=$(echo "$sprint_body" | jq -r '.values[0].state')
+sprint_start=$(echo "$sprint_body" | jq -r '.values[0].startDate // "Unknown" | split("T")[0]')
+sprint_end=$(echo "$sprint_body" | jq -r '.values[0].endDate // "Unknown" | split("T")[0]')
+
+# Get issues in sprint
+issues_response=$(curl -s -w "\n%{http_code}" \
+    -u "${ATLASSIAN_USER_EMAIL}:${ATLASSIAN_API_TOKEN}" \
+    -H "Accept: application/json" \
+    "${JIRA_INSTANCE_URL}/rest/agile/1.0/sprint/${sprint_id}/issue?maxResults=100")
+
+# Split response into body and status code
+issues_http_code=$(echo "$issues_response" | tail -1)
+issues_body=$(echo "$issues_response" | sed '$d')
+
+# Check HTTP status
+if [[ ! "$issues_http_code" =~ ^2[0-9][0-9]$ ]]; then
+    echo "❌ Jira API error fetching sprint issues (HTTP $issues_http_code)" >&2
+    error_msg=$(echo "$issues_body" | jq -r '.errorMessages[]? // .message? // "Unknown error"' 2>/dev/null || echo "Unknown error")
+    echo "Error: $error_msg" >&2
+    exit 3
+fi
+
+# Parse total issues
+total=$(echo "$issues_body" | jq -r '.total')
+
+# Print sprint header
+echo "🏃 Active Sprint: $sprint_name ($sprint_start to $sprint_end)"
+echo ""
+echo "## Sprint Tickets ($total found):"
+echo ""
+
+if [ "$total" -eq 0 ]; then
+    echo "No issues in this sprint."
+    exit 0
+fi
+
+# Parse and format each issue
+echo "$issues_body" | jq -r '.issues[] |
+    "### " + .key + ": " + .fields.summary + "\n" +
+    "**Status:** " + .fields.status.name + "\n" +
+    "**Type:** " + .fields.issuetype.name + "\n" +
+    "**Assignee:** " + (.fields.assignee.displayName // "Unassigned") + "\n" +
+    "**Story Points:** " + (.fields.customfield_10016 // "None" | tostring) + "\n" +
+    "---\n"
+'
+
+# Calculate status summary
+echo ""
+echo "**Summary:**"
+echo "$issues_body" | jq -r '
+    .issues |
+    group_by(.fields.status.name) |
+    map({
+        status: .[0].fields.status.name,
+        count: length
+    }) |
+    sort_by(.status) |
+    map("- " + .status + ": " + (.count | tostring)) |
+    join("\n")
+'
+
+# Print sprint info
+echo ""
+echo "**Total Issues:** $total"
+echo "**Sprint ID:** $sprint_id"
+echo "**Board ID:** $BOARD_ID"

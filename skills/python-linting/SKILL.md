@@ -1,10 +1,12 @@
-# Python Linting & Type Checking
-
-**When to use:** Writing Python code, setting up Python projects, or reviewing code quality.
-
-**What this covers:** Modern Python tooling with ruff (linting/formatting) and pyright (type checking).
-
 ---
+name: python-linting
+description: Python linting and type checking using ruff (formatting + linting) and pyright (type checking). Covers common errors, configuration, fixing violations, and when to use noqa. Use when fixing linting errors, configuring ruff/pyright, or understanding Python code quality tools.
+allowed-tools:
+  - Read
+  - Bash
+---
+
+# Python Linting & Type Checking
 
 ## The Modern Python Tooling Stack (2025)
 
@@ -159,7 +161,7 @@ quote-style = "single"
 indent-style = "space"
 ```
 
-**Standard reference:** `~/.claude/configs/python/ruff.toml`
+**Fallback config:** `~/.claude/configs/ruff.toml` (if project doesn't have ruff.toml)
 
 ### Pyright Config (`pyrightconfig.json`)
 
@@ -175,7 +177,7 @@ indent-style = "space"
 }
 ```
 
-**Standard reference:** `~/.claude/configs/python/pyrightconfig.json`
+**Fallback config:** `~/.claude/configs/pyrightconfig.json` (if project doesn't have pyrightconfig.json)
 
 ---
 

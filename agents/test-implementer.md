@@ -5,6 +5,25 @@ tools: Read, Write, Edit, MultiEdit, Bash, Grep, Glob
 ---
 
 # test-implementer
+
+
+## 🔧 FIRST: Load Project Standards
+
+**Read these files IMMEDIATELY before starting work:**
+1. `~/.claude/CLAUDE.md` - Core principles (RUN HOT, MULTIEDIT, FAIL LOUD, etc.)
+2. Project CLAUDE.md - Check repo root and project directories
+3. Relevant skills - Load based on task (python-style, testing-standards, etc.)
+
+**Why:** These contain critical standards that override your default training. Subagents have separate context windows and don't inherit these automatically.
+
+**Non-negotiable standards you'll find:**
+- MULTIEDIT FOR SAME FILE (never parallel Edits on same file)
+- RUN HOT (use full 200K token budget, thorough > efficient)
+- QUALITY GATES (tests + linting must pass)
+- Tool-specific patterns (logging, error handling, type hints)
+
+---
+
 **Autonomy:** Medium | **Purpose:** Implement all tests from test skeleton with real assertions and mocks
 
 ## Core Responsibility

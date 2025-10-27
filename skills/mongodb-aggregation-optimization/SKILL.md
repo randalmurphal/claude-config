@@ -8,8 +8,9 @@ allowed-tools: [Read, Grep, Bash]
 
 General optimization patterns for MongoDB aggregation pipelines. Applicable to ANY MongoDB project, regardless of domain or schema.
 
-**Project-Specific Skills**:
-- For M32RIMM/FISIO patterns, see `mongodb-m32rimm-patterns` skill (subscription isolation, businessObjects queries, DV/Asset aggregations)
+**Companion Documents**:
+- **reference.md**: Detailed examples, benchmarks, and debugging workflows (in this skill directory)
+- **mongodb-m32rimm-patterns**: M32RIMM/FISIO-specific patterns (subscription isolation, businessObjects queries)
 
 ---
 
@@ -159,237 +160,107 @@ db.orders.aggregate([
 
 **USE**: Array operators (`$filter`, `$map`, `$reduce`, `$arrayElemAt`, `$size`).
 
-### Anti-Pattern Example
+### Quick Example
 
 ```javascript
-// BAD - unwind explodes documents, then regroups
+// BAD - explodes documents
 db.products.aggregate([
-    {$match: {category: 'electronics'}},
     {$unwind: '$tags'},
     {$match: {'tags': 'sale'}},
-    {$group: {
-        _id: '$_id',
-        sale_tags: {$push: '$tags'}
-    }}
+    {$group: {_id: '$_id', sale_tags: {$push: '$tags'}}}
 ])
-```
 
-### Optimized Example
-
-```javascript
-// GOOD - filter array in place
+// GOOD - filter in place
 db.products.aggregate([
     {$match: {category: 'electronics'}},
     {$project: {
-        _id: 1,
-        sale_tags: {
-            $filter: {
-                input: '$tags',
-                cond: {$eq: ['$$this', 'sale']}
-            }
-        }
+        sale_tags: {$filter: {input: '$tags', cond: {$eq: ['$$this', 'sale']}}}
     }}
 ])
 ```
 
-### Array Operator Patterns
+### Common Array Operators
 
 ```javascript
-// Filter array elements
-{$filter: {
-    input: '$items',
-    cond: {$eq: ['$$this.status', 'active']}
-}}
-
-// Transform array elements
-{$map: {
-    input: '$products',
-    in: {id: '$$this._id', price: '$$this.price'}
-}}
-
-// Get first/last element
-{$arrayElemAt: ['$items', 0]}   // First
-{$arrayElemAt: ['$items', -1]}  // Last
-
-// Array size
-{$size: '$items'}
-
-// Check if array has elements
-{$gt: [{$size: '$items'}, 0]}
-
-// Reduce (aggregate array into single value)
-{$reduce: {
-    input: '$items',
-    initialValue: 0,
-    in: {$add: ['$$value', '$$this.price']}
-}}
+{$filter: {input: '$items', cond: {$eq: ['$$this.status', 'active']}}}
+{$map: {input: '$products', in: {id: '$$this._id', price: '$$this.price'}}}
+{$arrayElemAt: ['$items', 0]}  // First element
+{$size: '$items'}  // Array length
+{$reduce: {input: '$items', initialValue: 0, in: {$add: ['$$value', '$$this.price']}}}
 ```
 
-**Performance**: 5-10x faster for large arrays (1000+ elements).
+**Performance**: 5-10x faster for large arrays. See reference.md for detailed examples.
 
 ---
 
 ## 4. $lookup Optimization
 
-**Index foreign collection**: Ensure lookup field has index.
+**Critical**: Index foreign collection on lookup field (10-50x speedup).
 
-**Limit lookup results**: Use pipeline in $lookup to filter early.
-
-**Avoid multiple lookups**: Denormalize if data rarely changes.
-
-### Basic Lookup Pattern
+### Basic vs Optimized Lookup
 
 ```javascript
-{$lookup: {
-    from: 'customers',
-    localField: 'customer_id',
-    foreignField: '_id',
-    as: 'customer'
-}}
-```
+// Basic lookup
+{$lookup: {from: 'customers', localField: 'customer_id', foreignField: '_id', as: 'customer'}}
 
-### Optimized Lookup with Pipeline
-
-```javascript
+// Optimized with pipeline (filter + project)
 {$lookup: {
     from: 'customers',
     let: {customer_id: '$customer_id'},
     pipeline: [
-        // Filter early in lookup
-        {$match: {
-            $expr: {$eq: ['$_id', '$$customer_id']},
-            status: 'active'
-        }},
-        // Project only needed fields
-        {$project: {
-            _id: 1,
-            name: 1,
-            email: 1
-        }}
+        {$match: {$expr: {$eq: ['$_id', '$$customer_id']}, status: 'active'}},
+        {$project: {_id: 1, name: 1, email: 1}}  // Only needed fields
     ],
     as: 'customer'
 }}
 ```
 
-### Index Requirements
+### Required Index
 
 ```javascript
-// MUST have index on lookup field
-db.customers.createIndex({'_id': 1})  // Usually exists
-db.customers.createIndex({
-    '_id': 1,
-    'status': 1
-})
-
-// Check index usage
-db.collection.explain('executionStats').aggregate([...])
+// CRITICAL: Index on foreign field
+db.customers.createIndex({_id: 1, status: 1})
 ```
 
-### Multiple Lookup Optimization
+### Multiple Lookups
 
 ```javascript
-// BAD - sequential lookups
-db.orders.aggregate([
-    {$lookup: {from: 'customers', ...}},
-    {$lookup: {from: 'products', ...}},
-    {$lookup: {from: 'shipping', ...}}
-])
-
-// BETTER - combine lookups where possible
-db.orders.aggregate([
-    {$lookup: {
-        from: 'customers',
-        let: {customer_id: '$customer_id'},
-        pipeline: [
-            {$match: {$expr: {$eq: ['$_id', '$$customer_id']}}},
-            // Nested lookup within first lookup (if needed)
-            {$lookup: {from: 'addresses', ...}}
-        ],
-        as: 'customer'
-    }},
-    {$lookup: {from: 'products', ...}}
-])
-
-// BEST - denormalize if data rarely changes
-// Store customer name/email in orders collection
+// AVOID: Sequential lookups on multiple collections
+// BETTER: Nest related lookups, use pipeline to filter
+// BEST: Denormalize if data rarely changes
 ```
 
-**Performance**: 10-50x faster with indexed lookup field.
+See reference.md for detailed multiple lookup patterns and benchmarks.
 
 ---
 
 ## 5. $group Optimization
 
-**Group before sort**: Reduce data volume before sorting.
+**Key principles**: Group before sort, use $first/$last instead of $push, enable allowDiskUse for large datasets.
 
-**Use $first/$last**: Instead of $push when only need one value.
-
-**Limit accumulator size**: Use $slice on large arrays.
-
-### Efficient Grouping Pattern
+### Efficient Grouping
 
 ```javascript
-// BAD - accumulates large arrays
-db.orders.aggregate([
-    {$match: {status: 'completed'}},
-    {$group: {
-        _id: '$customer_id',
-        orders: {$push: '$$ROOT'}  // Entire documents
-    }},
-    {$sort: {count: -1}}
-])
+// BAD - accumulates entire documents
+{$group: {_id: '$customer_id', orders: {$push: '$$ROOT'}}}
 
-// GOOD - accumulate only needed data
-db.orders.aggregate([
-    {$match: {status: 'completed'}},
-    {$group: {
-        _id: '$customer_id',
-        count: {$sum: 1},
-        first_order_id: {$first: '$_id'},
-        last_order_date: {$max: '$created_at'}
-    }},
-    {$sort: {count: -1}}
-])
+// GOOD - accumulate only needed metrics
+{$group: {
+    _id: '$customer_id',
+    count: {$sum: 1},
+    first_order_id: {$first: '$_id'},
+    last_order_date: {$max: '$created_at'}
+}}
 ```
 
-### Memory Considerations
+### Memory Limit (100MB)
 
-MongoDB has 100MB memory limit for blocking stages ($group, $sort):
 ```javascript
 // Enable disk usage for large aggregations
-db.collection.aggregate(
-    pipeline,
-    {allowDiskUse: true}
-)
+db.collection.aggregate(pipeline, {allowDiskUse: true})
 ```
 
-### Nested Grouping Pattern
-
-```javascript
-// Group twice - first by subcategory, then by category
-db.products.aggregate([
-    {$match: {status: 'active'}},
-    {$group: {  // First group: category + subcategory
-        _id: {
-            category: '$category',
-            subcategory: '$subcategory'
-        },
-        count: {$sum: 1},
-        avg_price: {$avg: '$price'}
-    }},
-    {$group: {  // Second group: category only
-        _id: '$_id.category',
-        subcategories: {
-            $push: {
-                name: '$_id.subcategory',
-                count: '$count',
-                avg_price: '$avg_price'
-            }
-        },
-        total: {$sum: '$count'}
-    }}
-], {allowDiskUse: true})
-```
+See reference.md for nested grouping patterns and detailed examples.
 
 ---
 
@@ -402,244 +273,82 @@ db.products.aggregate([
 | Feature | $merge | $out |
 |---------|--------|------|
 | Behavior | Upserts into target | Replaces entire collection |
-| Preserves other data | Yes | No |
-| Update strategy | Configurable | N/A |
 | Use when | Incremental updates | Full refresh |
 
-### $merge Pattern
+### Quick Example
 
 ```javascript
-// Materialize daily sales summary
-db.orders.aggregate([
-    {$match: {
-        status: 'completed',
-        created_at: {$gte: ISODate('2025-01-01')}
-    }},
-    {$group: {
-        _id: {
-            year: {$year: '$created_at'},
-            month: {$month: '$created_at'},
-            day: {$dayOfMonth: '$created_at'}
-        },
-        total_sales: {$sum: '$amount'},
-        order_count: {$sum: 1},
-        last_updated: {$max: '$updated_at'}
-    }},
-    {$merge: {
-        into: 'dailySales',
-        on: '_id',
-        whenMatched: 'replace',
-        whenNotMatched: 'insert'
-    }}
-])
+// Incremental update with $merge
+{$merge: {into: 'dailySales', on: '_id', whenMatched: 'replace', whenNotMatched: 'insert'}}
+
+// Full replace with $out
+{$out: 'productsByCategory'}
 ```
 
-### $out Pattern
-
-```javascript
-// Full refresh of aggregated data
-db.products.aggregate([
-    {$match: {status: 'active'}},
-    {$group: {
-        _id: '$category',
-        count: {$sum: 1},
-        avg_price: {$avg: '$price'}
-    }},
-    {$out: 'productsByCategory'}  // Replaces collection
-])
-```
-
-### Scheduling Strategy
-
-```python
-# Run during low-load periods
-def refresh_materialized_views(db):
-    """Refresh materialized views for dashboard metrics."""
-    pipeline = [...]
-    db.orders.aggregate(
-        pipeline + [{$merge: {into: 'dailySales', ...}}],
-        allowDiskUse=True
-    )
-```
+See reference.md for detailed patterns, update strategies, and scheduling examples.
 
 ---
 
-## 7. Slot-Based Execution Engine (MongoDB 5.0+)
+## 7. MongoDB Version Features
 
-**Automatic performance improvement** for certain stage combinations.
+**MongoDB 5.0+**: Slot-based execution engine (automatic optimization), $setWindowFields.
+**MongoDB 6.0+**: Improved $lookup performance, better memory management.
 
-**Benefits**: Better CPU/memory utilization, faster execution.
-
-**No code changes needed** - optimize pipelines to leverage this.
-
-**Works best with**:
-- Sequential $match stages
-- $project followed by $match
-- Simple $group operations
-- Covered queries
-
-**Check if enabled**:
-```javascript
-db.adminCommand({getParameter: 1, internalQuerySlotBasedExecutionEngine: 1})
-```
+Check version: `db.version()`
 
 ---
 
 ## 8. Debugging Slow Pipelines
 
-### Step 1: Explain Query
+### 1. Explain Query
 
 ```javascript
 db.collection.explain('executionStats').aggregate([...])
 ```
 
-**Key metrics**:
-- `totalDocsExamined` - should be close to `nReturned`
-- `executionTimeMillis` - total execution time
-- `totalKeysExamined` - index usage
-- `stage` - IXSCAN (good) vs COLLSCAN (bad)
+**Check**: `totalDocsExamined` (should be close to `nReturned`), `executionTimeMillis`, `stage` (IXSCAN good, COLLSCAN bad).
 
-### Step 2: Check Index Usage
+### 2. Profile Slow Queries
 
 ```javascript
-// Look for COLLSCAN (collection scan)
-explain_result.stages[0].COLLSCAN  // BAD
-explain_result.stages[0].IXSCAN    // GOOD
+db.setProfilingLevel(1, {slowms: 100})  // Enable
+db.system.profile.find().sort({ts: -1}).limit(10)  // Check
+db.setProfilingLevel(0)  // Disable
 ```
 
-**If COLLSCAN found**: Create index on filtered fields.
+### 3. Iterative Testing
 
-### Step 3: Profile Slow Queries
+Test pipeline stages one at a time to find bottleneck. Add stages incrementally and measure time/doc count.
 
-```javascript
-// Enable profiling for slow queries
-db.setProfilingLevel(1, {slowms: 100})
+### 4. MongoDB Compass
 
-// Check profiler output
-db.system.profile.find().sort({ts: -1}).limit(10).pretty()
+Use visual explain in Compass to identify COLLSCAN stages and memory bottlenecks.
 
-// Disable when done
-db.setProfilingLevel(0)
-```
-
-### Step 4: Iterative Testing
-
-```python
-# Test pipeline stages incrementally
-pipeline = [
-    {$match: {...}},  # Test this first
-]
-result = db.collection.aggregate(pipeline)
-print(f"Stage 1: {len(list(result))} docs")
-
-pipeline.append({$project: {...}})  # Add next stage
-result = db.collection.aggregate(pipeline)
-print(f"Stage 2: {len(list(result))} docs")
-
-# Continue until bottleneck found
-```
-
-### Step 5: MongoDB Compass Visual Explain
-
-Use MongoDB Compass for visual pipeline analysis:
-1. Copy pipeline to Compass
-2. Click "Explain" tab
-3. View stage-by-stage execution plan
-4. Identify bottlenecks (COLLSCAN, large doc transfers)
+See reference.md for detailed debugging workflow with examples.
 
 ---
 
-## 9. Common Patterns & Examples
-
-### Pattern 1: Count by Category
+## 9. Common Patterns (Quick Reference)
 
 ```javascript
-db.products.aggregate([
-    {$match: {status: 'active'}},
-    {$group: {
-        _id: '$category',
-        count: {$sum: 1},
-        avg_price: {$avg: '$price'}
-    }},
-    {$sort: {count: -1}}
-])
+// Count by category
+{$group: {_id: '$category', count: {$sum: 1}, avg_price: {$avg: '$price'}}}
+
+// Top N results
+{$sort: {order_count: -1}}, {$limit: 10}
+
+// Time-based grouping
+{$group: {_id: {year: {$year: '$created_at'}, week: {$week: '$created_at'}}, count: {$sum: 1}}}
+
+// Conditional aggregation
+{$group: {
+    _id: null,
+    pending: {$sum: {$cond: [{$eq: ['$status', 'pending']}, 1, 0]}},
+    completed: {$sum: {$cond: [{$eq: ['$status', 'completed']}, 1, 0]}}
+}}
 ```
 
-### Pattern 2: Top N Results
-
-```javascript
-// Top 10 customers by order count
-db.orders.aggregate([
-    {$match: {status: 'completed'}},
-    {$group: {
-        _id: '$customer_id',
-        order_count: {$sum: 1},
-        total_spent: {$sum: '$amount'}
-    }},
-    {$sort: {order_count: -1}},
-    {$limit: 10}
-])
-```
-
-### Pattern 3: Time-Based Aggregation
-
-```javascript
-// Orders per week for last 90 days
-const ninety_days_ago = new Date();
-ninety_days_ago.setDate(ninety_days_ago.getDate() - 90);
-
-db.orders.aggregate([
-    {$match: {
-        created_at: {$gte: ninety_days_ago}
-    }},
-    {$group: {
-        _id: {
-            year: {$year: '$created_at'},
-            week: {$week: '$created_at'}
-        },
-        count: {$sum: 1},
-        total: {$sum: '$amount'}
-    }},
-    {$sort: {'_id.year': 1, '_id.week': 1}}
-])
-```
-
-### Pattern 4: Join and Aggregate
-
-```javascript
-// Order totals with customer info
-db.orders.aggregate([
-    {$match: {status: 'completed'}},
-    {$lookup: {
-        from: 'customers',
-        let: {customer_id: '$customer_id'},
-        pipeline: [
-            {$match: {$expr: {$eq: ['$_id', '$$customer_id']}}},
-            {$project: {_id: 1, name: 1, email: 1}}
-        ],
-        as: 'customer'
-    }},
-    {$project: {
-        _id: 1,
-        amount: 1,
-        customer: {$arrayElemAt: ['$customer', 0]}
-    }}
-])
-```
-
-### Pattern 5: Conditional Aggregation
-
-```javascript
-// Count orders by status category
-db.orders.aggregate([
-    {$group: {
-        _id: null,
-        pending: {$sum: {$cond: [{$eq: ['$status', 'pending']}, 1, 0]}},
-        completed: {$sum: {$cond: [{$eq: ['$status', 'completed']}, 1, 0]}},
-        cancelled: {$sum: {$cond: [{$eq: ['$status', 'cancelled']}, 1, 0]}}
-    }}
-])
-```
+See reference.md for complete pattern implementations with context.
 
 ---
 
@@ -667,17 +376,25 @@ db.orders.aggregate([
 
 ---
 
-## Performance Benchmarks (Generic Patterns)
+## Performance Checklist
 
-| Optimization | Before | After | Speedup |
-|--------------|--------|-------|---------|
-| Early $match (1M → 10K docs) | 45s | 0.5s | 90x |
-| Covered query (indexed fields only) | 2.3s | 0.2s | 11x |
-| Array $filter vs $unwind/$group | 8.1s | 0.9s | 9x |
-| Indexed $lookup | 120s | 2.4s | 50x |
-| Project before $lookup | 15s | 1.8s | 8x |
+Before deploying aggregation pipeline:
 
-**Note**: Actual performance depends on collection size, hardware, and data distribution.
+1. **Early filtering**: $match with most selective filters first
+2. **Index usage**: Check explain() shows IXSCAN (not COLLSCAN)
+3. **Projection**: Reduce fields before expensive operations
+4. **Array operators**: Use $filter/$map instead of $unwind/$group
+5. **Lookup indexes**: Ensure foreign collection has index on join field
+6. **allowDiskUse**: Enable for large aggregations (>100MB)
+7. **Testing**: Run explain() on production-sized data
+
+**Performance targets** (1M doc collection):
+- Early $match: 90x speedup
+- Covered query: 11x speedup
+- Array operators: 9x speedup
+- Indexed $lookup: 50x speedup
+
+See reference.md for detailed benchmarks.
 
 ---
 
@@ -718,49 +435,16 @@ db.collection.aggregate(pipeline, {allowDiskUse: true})
 
 ---
 
-## MongoDB Version Considerations
-
-### MongoDB 4.4+
-- $accumulator and $function for custom aggregations
-- $merge stage for incremental updates
-- Union with $unionWith
-
-### MongoDB 5.0+
-- Slot-based execution engine (automatic optimization)
-- Time series collections optimizations
-- $setWindowFields for window functions
-
-### MongoDB 6.0+
-- Encrypted aggregation pipelines
-- Improved $lookup performance
-- Better memory management
-
-**Check version**: `db.version()`
-
----
-
 ## Remember
 
-**General Priorities**:
-1. **Filter early** - Smallest dataset possible before expensive operations
-2. **Use indexes** - Query time from minutes to milliseconds
-3. **Test with explain()** - Validate index usage before deploying
-4. **Profile slow queries** - Find bottlenecks in production
+**Core priorities**:
+1. Filter early (smallest dataset before expensive ops)
+2. Use indexes (IXSCAN not COLLSCAN)
+3. Test with explain() on production-sized data
+4. Profile slow queries in production
 
-**When in doubt**:
-- Start with explain() to check index usage
-- Test on production-sized data
-- Profile slow queries to find bottlenecks
-- Use MongoDB Compass for visual pipeline analysis
+**When stuck**: Check explain() → Profile → Test stages incrementally → Use Compass visual explain.
 
----
+**Documentation**: [MongoDB Aggregation Optimization](https://docs.mongodb.com/manual/core/aggregation-pipeline-optimization/)
 
-## See Also
-
-- **MongoDB Documentation**: [Aggregation Pipeline Optimization](https://docs.mongodb.com/manual/core/aggregation-pipeline-optimization/)
-- **Project-Specific Skills**:
-  - `mongodb-m32rimm-patterns`: M32RIMM/FISIO-specific aggregation patterns (subscription isolation, businessObjects, DV/Asset queries)
-- **Related Topics**:
-  - Index design best practices
-  - Query performance tuning
-  - Schema design for aggregation efficiency
+**Related skills**: `mongodb-m32rimm-patterns` for M32RIMM/FISIO-specific patterns.

@@ -3,8 +3,9 @@ set -euo pipefail
 
 # jira-get-issue - Fetch Jira issue details
 #
-# Usage: jira-get-issue <ticket-id>
+# Usage: jira-get-issue <ticket-id> [--no-related]
 # Example: jira-get-issue INT-3877
+# Example: jira-get-issue INT-3877 --no-related  # Skip fetching related tickets
 #
 # Returns: Formatted markdown with issue details
 # Exit codes: 0 = success, 1 = usage error, 2 = ticket not found, 3 = API error, 4 = credentials missing
@@ -68,11 +69,27 @@ if [ -z "${JIRA_INSTANCE_URL:-}" ]; then
     show_credential_instructions
 fi
 
-# Get ticket ID from argument
-ticket="${1:-}"
+# Parse arguments
+ticket=""
+fetch_related=true
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --no-related)
+            fetch_related=false
+            shift
+            ;;
+        *)
+            ticket="$1"
+            shift
+            ;;
+    esac
+done
+
 if [ -z "$ticket" ]; then
-    echo "Usage: jira-get-issue <ticket-id>" >&2
+    echo "Usage: jira-get-issue <ticket-id> [--no-related]" >&2
     echo "Example: jira-get-issue INT-3877" >&2
+    echo "Example: jira-get-issue INT-3877 --no-related  # Skip related tickets" >&2
     exit 1
 fi
 
@@ -186,6 +203,106 @@ acceptance_criteria=$(echo "$body" | jq -r '
     null
 ' | sed 's/null//')
 
+# Developer Checklist (customfield_11848)
+developer_checklist=$(echo "$body" | jq -r '
+    if .fields.customfield_11848 then
+        if .fields.customfield_11848.type == "doc" then
+            # ADF format - extract text from content nodes
+            [.fields.customfield_11848.content[]? |
+                if .type == "paragraph" then
+                    [.content[]?.text // ""] | join("")
+                elif .type == "heading" then
+                    "\n## " + ([.content[]?.text // ""] | join(""))
+                elif .type == "bulletList" then
+                    [.content[]? | "- " + ([.content[]?.content[]?.text // ""] | join(""))] | join("\n")
+                elif .type == "orderedList" then
+                    [.content[]? | "1. " + ([.content[]?.content[]?.text // ""] | join(""))] | join("\n")
+                elif .type == "codeBlock" then
+                    "```\n" + ([.content[]?.text // ""] | join("")) + "\n```"
+                else
+                    [.content[]?.text // ""] | join("")
+                end
+            ] | join("\n\n")
+        else
+            # Plain text
+            .fields.customfield_11848
+        end
+    else
+        ""
+    end
+')
+
+# Test Plan (customfield_11003)
+test_plan=$(echo "$body" | jq -r '
+    if .fields.customfield_11003 then
+        if .fields.customfield_11003.type == "doc" then
+            # ADF format - extract text from content nodes
+            [.fields.customfield_11003.content[]? |
+                if .type == "paragraph" then
+                    [.content[]?.text // ""] | join("")
+                elif .type == "heading" then
+                    "\n## " + ([.content[]?.text // ""] | join(""))
+                elif .type == "bulletList" then
+                    [.content[]? | "- " + ([.content[]?.content[]?.text // ""] | join(""))] | join("\n")
+                elif .type == "orderedList" then
+                    [.content[]? | "1. " + ([.content[]?.content[]?.text // ""] | join(""))] | join("\n")
+                elif .type == "codeBlock" then
+                    "```\n" + ([.content[]?.text // ""] | join("")) + "\n```"
+                else
+                    [.content[]?.text // ""] | join("")
+                end
+            ] | join("\n\n")
+        else
+            # Plain text
+            .fields.customfield_11003
+        end
+    else
+        ""
+    end
+')
+
+# Dev Complete Checklist (customfield_11340)
+dev_complete_checklist=$(echo "$body" | jq -r '
+    if .fields.customfield_11340 then
+        if .fields.customfield_11340.type == "doc" then
+            [.fields.customfield_11340.content[]? |
+                if .type == "paragraph" then [.content[]?.text // ""] | join("")
+                elif .type == "heading" then "\n## " + ([.content[]?.text // ""] | join(""))
+                elif .type == "bulletList" then [.content[]? | "- " + ([.content[]?.content[]?.text // ""] | join(""))] | join("\n")
+                elif .type == "orderedList" then [.content[]? | "1. " + ([.content[]?.content[]?.text // ""] | join(""))] | join("\n")
+                elif .type == "codeBlock" then "```\n" + ([.content[]?.text // ""] | join("")) + "\n```"
+                else [.content[]?.text // ""] | join("")
+                end
+            ] | join("\n\n")
+        else
+            .fields.customfield_11340
+        end
+    else
+        ""
+    end
+')
+
+# Development and Implementation Checklist (customfield_11661)
+implementation_checklist=$(echo "$body" | jq -r '
+    if .fields.customfield_11661 then
+        if .fields.customfield_11661.type == "doc" then
+            [.fields.customfield_11661.content[]? |
+                if .type == "paragraph" then [.content[]?.text // ""] | join("")
+                elif .type == "heading" then "\n## " + ([.content[]?.text // ""] | join(""))
+                elif .type == "bulletList" then [.content[]? | "- " + ([.content[]?.content[]?.text // ""] | join(""))] | join("\n")
+                elif .type == "orderedList" then [.content[]? | "1. " + ([.content[]?.content[]?.text // ""] | join(""))] | join("\n")
+                elif .type == "codeBlock" then "```\n" + ([.content[]?.text // ""] | join("")) + "\n```"
+                else [.content[]?.text // ""] | join("")
+                end
+            ] | join("\n\n")
+        else
+            .fields.customfield_11661
+        end
+    else
+        ""
+    end
+')
+
 # Issue links
 issue_links=$(echo "$body" | jq -r '
     if .fields.issuelinks and (.fields.issuelinks | length > 0) then
@@ -202,6 +319,77 @@ issue_links=$(echo "$body" | jq -r '
         ""
     end
 ')
+
+# Fetch comments (with pagination handling - get ALL comments)
+comments=""
+start_at=0
+max_results=100
+total_comments=0
+
+while true; do
+    comments_response=$(curl -s -w "\n%{http_code}" \
+        -u "${ATLASSIAN_USER_EMAIL}:${ATLASSIAN_API_TOKEN}" \
+        -H "Accept: application/json" \
+        "${JIRA_INSTANCE_URL}/rest/api/3/issue/${ticket}/comment?startAt=${start_at}&maxResults=${max_results}")
+
+    comments_http_code=$(echo "$comments_response" | tail -1)
+    comments_body=$(echo "$comments_response" | sed '$d')
+
+    if [[ "$comments_http_code" =~ ^2[0-9][0-9]$ ]]; then
+        # Parse comments from this page
+        page_comments=$(echo "$comments_body" | jq -r '
+            if .comments and (.comments | length > 0) then
+                [.comments[] |
+                    "### Comment by " + .author.displayName + " (" + (.created | split("T")[0]) + ")\n\n" +
+                    if .body.type == "doc" then
+                        # ADF format - extract text
+                        ([.body.content[]? |
+                            if .type == "paragraph" then
+                                [.content[]?.text // ""] | join("")
+                            elif .type == "heading" then
+                                "\n#### " + ([.content[]?.text // ""] | join(""))
+                            elif .type == "bulletList" then
+                                [.content[]? | "- " + ([.content[]?.content[]?.text // ""] | join(""))] | join("\n")
+                            elif .type == "orderedList" then
+                                [.content[]? | "1. " + ([.content[]?.content[]?.text // ""] | join(""))] | join("\n")
+                            elif .type == "codeBlock" then
+                                "```\n" + ([.content[]?.text // ""] | join("")) + "\n```"
+                            else
+                                [.content[]?.text // ""] | join("")
+                            end
+                        ] | join("\n\n"))
+                    else
+                        # Plain text
+                        .body
+                    end + "\n\n---"
+                ] | join("\n\n")
+            else
+                ""
+            end
+        ')
+
+        if [ -n "$page_comments" ]; then
+            if [ -n "$comments" ]; then
+                comments="${comments}\n\n${page_comments}"
+            else
+                comments="$page_comments"
+            fi
+        fi
+
+        # Check if there are more comments
+        total=$(echo "$comments_body" | jq -r '.total // 0')
+        retrieved=$((start_at + max_results))
+
+        if [ "$retrieved" -ge "$total" ]; then
+            break
+        fi
+
+        start_at=$retrieved
+    else
+        # Comment fetch failed - not critical, continue without comments
+        break
+    fi
+done
 
 # Format output as markdown
 cat <<EOF
@@ -238,6 +426,56 @@ ${acceptance_criteria}
 EOF
 fi
 
+# Add Developer Checklist if present
+if [ -n "$developer_checklist" ]; then
+    cat <<EOF
+
+## Developer Checklist
+
+${developer_checklist}
+EOF
+fi
+
+# Add Test Plan if present
+if [ -n "$test_plan" ]; then
+    cat <<EOF
+
+## Test Plan
+
+${test_plan}
+EOF
+fi
+
+# Add Dev Complete Checklist if present
+if [ -n "$dev_complete_checklist" ]; then
+    cat <<EOF
+
+## Dev Complete Checklist
+
+${dev_complete_checklist}
+EOF
+fi
+
+# Add Implementation Checklist if present
+if [ -n "$implementation_checklist" ]; then
+    cat <<EOF
+
+## Development and Implementation Checklist
+
+${implementation_checklist}
+EOF
+fi
+
+# Add comments if present
+if [ -n "$comments" ]; then
+    cat <<EOF
+
+## Comments
+
+${comments}
+EOF
+fi
+
 # Add issue links if present
 if [ -n "$issue_links" ]; then
     cat <<EOF
@@ -246,6 +484,49 @@ if [ -n "$issue_links" ]; then
 
 ${issue_links}
 EOF
+
+    # Fetch FULL details for related tickets (no recursion)
+    if [ "$fetch_related" = true ]; then
+        related_keys=$(echo "$body" | jq -r '
+            if .fields.issuelinks and (.fields.issuelinks | length > 0) then
+                [.fields.issuelinks[] |
+                    if .outwardIssue then .outwardIssue.key
+                    elif .inwardIssue then .inwardIssue.key
+                    else empty
+                    end
+                ] | join(" ")
+            else
+                ""
+            end
+        ')
+
+        if [ -n "$related_keys" ]; then
+            echo ""
+            echo "### Related Ticket Details (Full)"
+            echo ""
+            echo "---"
+            echo ""
+
+            for related_key in $related_keys; do
+                # Recursively call this script with --no-related to get full ticket data without further recursion
+                related_ticket_data=$("${SCRIPT_DIR}/jira-get-issue" "$related_key" --no-related 2>/dev/null || echo "")
+
+                if [ -n "$related_ticket_data" ]; then
+                    echo "$related_ticket_data"
+                    echo ""
+                    echo "---"
+                    echo ""
+                else
+                    echo "#### ${related_key}"
+                    echo ""
+                    echo "⚠️ Failed to fetch related ticket details"
+                    echo ""
+                    echo "---"
+                    echo ""
+                fi
+            done
+        fi
+    fi
 fi
 
 # Add link to issue

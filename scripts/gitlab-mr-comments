@@ -112,16 +112,39 @@ if [ -z "$mr_iid" ]; then
     fi
 fi
 
-# Fetch discussions
-discussions=$(curl -s -H "PRIVATE-TOKEN: $GITLAB_PERSONAL_ACCESS_TOKEN" \
-    "${GITLAB_API_URL}/projects/${GITLAB_PROJECT_ID}/merge_requests/${mr_iid}/discussions")
+# Fetch all discussions with pagination
+all_discussions="[]"
+page=1
+per_page=100
 
-# Check for API errors
-if echo "$discussions" | jq -e '.message' >/dev/null 2>&1; then
-    error_msg=$(echo "$discussions" | jq -r '.message')
-    echo "❌ GitLab API error: $error_msg" >&2
-    exit 3
-fi
+while true; do
+    # Fetch current page
+    response=$(curl -s -D /tmp/gitlab-headers-$$.txt -H "PRIVATE-TOKEN: $GITLAB_PERSONAL_ACCESS_TOKEN" \
+        "${GITLAB_API_URL}/projects/${GITLAB_PROJECT_ID}/merge_requests/${mr_iid}/discussions?per_page=${per_page}&page=${page}")
+
+    # Check for API errors
+    if echo "$response" | jq -e '.message' >/dev/null 2>&1; then
+        error_msg=$(echo "$response" | jq -r '.message')
+        echo "❌ GitLab API error: $error_msg" >&2
+        rm -f /tmp/gitlab-headers-$$.txt
+        exit 3
+    fi
+
+    # Merge this page into all_discussions
+    all_discussions=$(echo "$all_discussions" "$response" | jq -s '.[0] + .[1]')
+
+    # Check if there's a next page in Link header
+    if grep -q 'rel="next"' /tmp/gitlab-headers-$$.txt 2>/dev/null; then
+        page=$((page + 1))
+    else
+        break
+    fi
+done
+
+# Clean up temp file
+rm -f /tmp/gitlab-headers-$$.txt
+
+discussions="$all_discussions"
 
 # Count total discussions
 discussion_count=$(echo "$discussions" | jq 'length')

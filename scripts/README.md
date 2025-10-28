@@ -115,19 +115,62 @@ gitlab-update-mr 1234 --assignee jdoe --description "New description"
 
 ---
 
+#### gitlab-inline-comment
+
+Add inline comment to specific code line in a merge request.
+
+**Usage:**
+```bash
+gitlab-inline-comment INT-3877 src/auth.py 45 "Missing validation here"
+gitlab-inline-comment 1234 src/auth.py 45 "Missing validation here"  # Can use MR IID directly
+```
+
+**Output:** Discussion ID and confirmation on success
+
+**What it does:**
+- Accepts ticket ID or MR IID as first argument
+- Auto-resolves ticket to MR if ticket provided
+- Uses GitLab position API for inline comments
+- Adds comment to specific line in specific file
+
+**Status:** ✅ Production-ready
+
+---
+
 ### Jira Scripts
 
 All Jira scripts require credentials in `~/.claude/scripts/.jira-credentials` (see Credential Management below).
 
 #### jira-get-issue
 
-Fetch complete Jira issue details including description and acceptance criteria.
+Fetch comprehensive Jira issue details including ALL custom fields, comments, and related tickets.
 
-**Usage:** `jira-get-issue INT-4013`
+**Usage:**
+```bash
+jira-get-issue INT-4013              # Fetch with related tickets
+jira-get-issue INT-4013 --no-related # Skip related ticket fetch
+```
 
-**Output:** Full ticket details in markdown format
+**Output:** Complete ticket context in markdown format including:
+- Description, Acceptance Criteria
+- **Developer Checklist** (customfield_11848) - technical implementation details, data structures, API changes
+- **Test Plan** (customfield_11003) - testing strategy and test cases
+- **Dev Complete Checklist**, **Implementation Checklist** (if present)
+- **ALL Comments** - full pagination, no limits, with author and date
+- **Related Ticket Details (FULL)** - fetches COMPLETE data for FE/BE pairs, clones, blocking tickets
+  - Each related ticket includes: Description, Developer Checklist, Test Plan, Comments
+  - No recursion (only fetches related tickets of main ticket)
+  - Perfect for FE/BE coordination
 
-**Status:** ✅ Tested with INT-4013, AIM-418
+**Output size:** ~80 lines (basic ticket) to ~1100 lines (ticket with Developer Checklist, Test Plan, Comments, and 5 related tickets)
+
+**Example:** `jira-get-issue PLAT-54` returns:
+- PLAT-54 full data (343 lines)
+- PLAT-53 (FE pair) full data with Developer Checklist, Test Plan, Comments
+- 4 other related tickets with full data
+- Total: ~1100 lines of comprehensive context
+
+**Status:** ✅ Production-ready, tested with INT-4013, AIM-418, PLAT-54
 
 ---
 

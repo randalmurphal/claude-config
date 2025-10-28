@@ -62,6 +62,7 @@ else:
 **Labels:** None
 **Components:** Build and dependencies
 **Fix Versions:** VRM 6.22.0
+**Story Points:** 5
 
 ## Description
 
@@ -71,13 +72,80 @@ else:
 
 [Acceptance criteria if present]
 
+## Developer Checklist
+
+[Technical implementation details from customfield_11848 - shows data structures, API changes, migration notes]
+
+## Test Plan
+
+[Testing strategy and test cases from customfield_11003]
+
+## Dev Complete Checklist
+
+[Completion checklist from customfield_11340 if present]
+
+## Development and Implementation Checklist
+
+[Implementation checklist from customfield_11661 if present]
+
+## Comments
+
+### Comment by John Doe (2025-10-20)
+
+[Comment body with formatting preserved]
+
+---
+
+### Comment by Jane Smith (2025-10-21)
+
+[Another comment]
+
+---
+
+[All comments with full pagination - no limits]
+
 ## Related Issues
 
 - Relates to: INT-1234 (Other ticket title)
+- clones: PLAT-53 (Frontend ticket)
+
+### Related Ticket Details
+
+#### PLAT-53
+
+**Status:** In Progress
+**Summary:** (FE) Add the ability to see what notification was sent in the activity stream
+
+**Description (preview):**
+[First 500 chars of description]
+
+**Developer Checklist (preview):**
+[First 1000 chars of developer checklist]
+
+**View:** https://fortressinfosec.atlassian.net/browse/PLAT-53
+
+---
+
+[Additional related tickets...]
 
 ---
 **View in Jira:** https://fortressinfosec.atlassian.net/browse/INT-4013
 ```
+
+**What's included:**
+- **All custom checklists** - Developer Checklist, Test Plan, Dev Complete, Implementation Checklist
+- **All comments** - Full pagination, no limits, ADF format parsed
+- **Related ticket details (FULL)** - Fetches COMPLETE data for FE/BE pairs, clones, blocking tickets:
+  - Each related ticket includes: Description, Acceptance Criteria, Developer Checklist, Test Plan, Comments
+  - No recursion: Only fetches related tickets of the main ticket (not related-to-related)
+  - Perfect for FE/BE coordination - see both tickets' checklists and requirements
+- **Full ADF parsing** - All text content extracted from Atlassian Document Format
+
+**Example:** Fetching PLAT-54 returns:
+- PLAT-54 full data (343 lines)
+- PLAT-53 full data (FE pair) with its own Developer Checklist, Test Plan, Comments
+- 4 other related tickets with full data
+- Total: ~1100 lines of comprehensive context
 
 **Exit codes:**
 - 0 = Success (ticket fetched)

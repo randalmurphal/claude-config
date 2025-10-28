@@ -35,41 +35,46 @@ Examples:
 
 **Multi-round verification approach with supervision:**
 
-1. **Phase 1:** Specialized domain reviews (4 parallel agents)
+1. **Phase 1:** Load skills & prepare
+2. **Phase 2:** Parse input & setup worktrees
+3. **Phase 3:** Context gathering (Jira ticket, MR comments, git analysis, comment thread analysis)
+4. **Phase 4:** Specialized domain reviews (4 parallel agents)
    - All outputs tagged with [AGENT: name] for traceability
 
-2. **Phase 1.5:** Supervisory quality check (general-investigator)
+5. **Phase 5:** Supervisory quality check (general-investigator)
    - Verify agents stayed in their lanes (no role drift)
    - Check completeness (all files covered, evidence present)
    - Detect contradictions between agents
    - Flag weak evidence or vague claims
 
-3. **Phase 2:** Requirements & ripple effect analysis (3-4 parallel agents)
+6. **Phase 6:** Requirements & ripple effect analysis (3-4 parallel agents)
    - All outputs tagged for traceability
 
-4. **Phase 3:** Verification round (N parallel agents)
+7. **Phase 7:** Verification round (N parallel agents)
    - Prove/disprove critical findings
    - Pass original agent reasoning for context
    - Each verifier gets full context of what original agent saw
 
-5. **Phase 3.5:** Meta-verification (verify the verifiers)
+8. **Phase 8:** Meta-verification (verify the verifiers)
    - Double-check FALSE_POSITIVE claims
    - Prevent overzealous verifiers from removing real issues
    - Restore findings if verifier was wrong
 
-6. **Phase 4:** Second investigation pass (2-3 investigators with fresh perspective)
+9. **Phase 9:** Second investigation pass (2-3 investigators with fresh perspective)
    - Different focus areas (edge cases, data flow, observability)
 
-7. **Phase 4.5:** Deep investigation (unlimited time on "needs investigation")
-   - Items flagged as suspicious get thorough analysis
-   - Read related files, check git history, trace call chains
+10. **Phase 10:** Deep investigation (unlimited time on "needs investigation")
+    - Items flagged as suspicious get thorough analysis
+    - Read related files, check git history, trace call chains
 
-8. **Phase 5:** Contradiction resolution (tie-breaker investigators)
-   - Resolve conflicting findings from different agents
-   - Provide definitive verdict with evidence
+11. **Phase 11:** Contradiction resolution (tie-breaker investigators)
+    - Resolve conflicting findings from different agents
+    - Provide definitive verdict with evidence
 
-9. **Phase 6:** Synthesis
-   - Cross-validate, remove false positives, generate report
+12. **Phase 12:** Synthesis
+    - Cross-validate, remove false positives, generate report
+
+13. **Phase 13:** Cleanup worktrees
 
 **Why multi-round with supervision?**
 - Supervisor catches role drift before it propagates
@@ -82,7 +87,7 @@ Examples:
 
 ---
 
-## Phase 0: Load Skills & Prepare
+## Phase 1: Load Skills & Prepare
 
 **MANDATORY FIRST STEP:**
 
@@ -98,9 +103,9 @@ Skill(command="agent-prompting")
 
 ---
 
-## Phase 1: Parse Input & Setup
+## Phase 2: Parse Input & Setup
 
-### 1.1 Parse Input & Normalize Branch
+### 2.1 Parse Input & Normalize Branch
 
 ```python
 # Parse
@@ -122,7 +127,7 @@ branch_mappings = {
 target_branch = branch_mappings.get(target_branch, target_branch)
 ```
 
-### 1.2 Setup Worktrees
+### 2.2 Setup Worktrees
 
 ```bash
 # Fetch latest
@@ -147,7 +152,7 @@ cd /tmp/pr-review-$ticket/wt-pr && git checkout origin/$source_branch -b review-
 
 ---
 
-## Phase 2: Context Gathering (Parallel)
+## Phase 3: Context Gathering (Parallel)
 
 **Single message with multiple tool calls:**
 
@@ -170,7 +175,7 @@ else:
 git log origin/$target_branch..origin/$source_branch --oneline
 git diff --name-status origin/$target_branch...origin/$source_branch
 git diff --stat origin/$target_branch...origin/$source_branch
-git diff origin/$target_branch...origin/$source_branch  # Full diff
+full_diff = git diff origin/$target_branch...origin/$source_branch  # Full diff - used for scoping
 
 # 4. Categorize changed files
 code_files = [f for f in changed_files if f.endswith('.py') and not f.startswith('test_')]
@@ -179,7 +184,7 @@ config_files = [f for f in changed_files if f.endswith(('.json', '.yaml', '.yml'
 migration_files = [f for f in changed_files if 'migration' in f.lower() or 'schema' in f.lower() or f.endswith('.sql')]
 ```
 
-### 2.1 Detect Review Context
+### 3.1 Detect Review Context
 
 **Determine what kind of code this is (affects security scrutiny):**
 
@@ -213,9 +218,218 @@ context_analysis = {
 - PII handling → Data exposure, logging, encryption checks
 - DB changes → Schema compatibility, migration safety
 
+### 3.2 Analyze MR Comment Threads
+
+**If MR comments exist, analyze threads to understand what's been addressed:**
+
+```python
+if mr_comments:
+    Task(general-investigator, f"""
+You are the MR COMMENT THREAD ANALYZER.
+
+Parse ALL MR comment threads (including replies) to categorize what's been addressed, dismissed, or outstanding.
+
+MR COMMENT THREADS:
+{mr_comments}
+
+GIT DIFF (what changed since comments):
+{full_diff}
+
+YOUR JOB: For EACH top-level comment thread, determine its status.
+
+CATEGORIES:
+
+1. **ADDRESSED** - Code was changed to fix the concern
+   - Check git diff for evidence of fix
+   - Note file:line where fix was applied
+
+2. **DISMISSED_WITH_REASONING** - Author explained why not fixing
+   - Extract the reasoning (important: later review agents should know this)
+   - Note if reasoning is sound or questionable
+
+3. **OUTSTANDING** - No response or unresolved discussion
+   - Flag for review agents to check
+
+4. **PLANNED_FOLLOWUP** - Acknowledged but out of scope for this PR
+   - Extract what's planned and why it's separate
+   - Should be verified that it's actually tracked (ticket mentioned?)
+
+5. **RESOLVED_BY_DISCUSSION** - Concern was clarified/misunderstanding
+   - No code change needed, but misunderstanding resolved
+
+For EACH comment thread, analyze:
+- Original comment + all replies
+- Check if code changed at mentioned file:line
+- Extract reasoning from author responses
+- Determine final status
+
+RETURN JSON:
+{{{{
+  "addressed": [
+    {{{{
+      "original_comment": "Comment text",
+      "author": "@username",
+      "file": "path/to/file.py",
+      "line": 123,
+      "evidence_of_fix": "Code at line 123 now validates input (see diff +125-130)",
+      "fix_quality": "complete | partial | overcorrected"
+    }}}}
+  ],
+  "dismissed_with_reasoning": [
+    {{{{
+      "original_comment": "Comment text",
+      "author": "@username",
+      "file": "path/to/file.py",
+      "line": 123,
+      "reasoning": "Author's explanation why not fixing",
+      "reasoning_quality": "sound | questionable | insufficient",
+      "flag_for_review": true/false  // If reasoning is questionable
+    }}}}
+  ],
+  "outstanding": [
+    {{{{
+      "original_comment": "Comment text",
+      "author": "@username",
+      "file": "path/to/file.py",
+      "line": 123,
+      "severity": "critical | high | medium | low",
+      "days_since_comment": 3
+    }}}}
+  ],
+  "planned_followup": [
+    {{{{
+      "original_comment": "Comment text",
+      "author": "@username",
+      "what_planned": "What will be done in follow-up",
+      "tracked_in": "TICKET-123 | mentioned but not tracked | not mentioned",
+      "verify_needed": true/false  // Should review agents verify it's actually tracked?
+    }}}}
+  ],
+  "resolved_by_discussion": [
+    {{{{
+      "original_comment": "Comment text",
+      "author": "@username",
+      "resolution": "How misunderstanding was resolved"
+    }}}}
+  ]
+}}}}
+
+CRITICAL: Read entire comment threads (original + all replies). Don't just look at top-level comments.
+
+BUDGET DIRECTIVE: Use full token budget if needed. Don't skip analysis.
+""")
+
+    # Parse result
+    mr_comment_analysis = result
+
+    # Pass this to all review agents so they:
+    # - Don't re-flag addressed issues
+    # - Question dismissed items if reasoning is questionable
+    # - Prioritize outstanding items
+    # - Verify planned follow-ups are actually tracked
+```
+
+**Why this matters:**
+- Avoids re-flagging issues already addressed
+- Surfaces questionable dismissals for re-review
+- Ensures outstanding comments aren't ignored
+- Verifies follow-up work is actually tracked (not just promised)
+
 ---
 
-## Phase 3: Round 1 - Specialized Review (Parallel)
+## Phase 4: Round 1 - Specialized Review (Parallel)
+
+**CRITICAL: All agent prompts MUST include these directives:**
+
+```
+BUDGET DIRECTIVE (NON-NEGOTIABLE):
+
+You have a 200K token budget. USE IT ALL if needed.
+
+DO NOT stop short. DO NOT conserve tokens. DO NOT skip analysis.
+
+If you're running long:
+- Prioritize critical findings first
+- But DO NOT skip medium/low severity analysis
+- Complete the FULL review, every time, no exceptions
+
+Stopping short = incomplete review = unacceptable.
+
+---
+
+SCOPING RULES (MANDATORY):
+
+You are reviewing PR changes for ticket: {ticket}
+
+Ticket context:
+{ticket_content}
+
+**CRITICAL:** You MUST analyze ALL sections of the ticket data provided:
+- If a section exists in the ticket data, it is MANDATORY to review it
+- DO NOT skip sections because they're "not your focus" - review EVERYTHING
+- If ticket data is missing, that's noted below - proceed with code-only review
+
+The ticket includes multiple sections that provide critical context:
+- **Description** - Overall requirements and goals
+- **Acceptance Criteria** - What must be true when done
+- **Developer Checklist** - Technical implementation details (data structures, API changes, migrations)
+- **Test Plan** - What should be tested and how
+- **Comments** - ALL discussion threads, clarifications, decisions made during development
+- **Related Ticket Details (FULL)** - Frontend/Backend pairs, clones, dependencies with COMPLETE ticket data (description, checklists, test plans, comments)
+
+**If ticket says "check Developer Checklist" or references any section - YOU MUST check it.**
+
+Review agents MUST:
+1. Check Developer Checklist against actual code (does code match planned data structures, API changes, etc.?)
+2. Verify Test Plan is covered by actual tests
+3. Read ALL Comments for context on decisions, dismissed concerns, or out-of-scope items
+4. Review Related Tickets THOROUGHLY - you get FULL ticket data (not previews) for:
+   - FE/BE pairs - Check if backend changes match what frontend expects (or vice versa)
+   - Clones/splits - Understand what was done in parent ticket vs this one
+   - Blocking tickets - Ensure dependencies are satisfied
+   - Each related ticket includes its own Description, Developer Checklist, Test Plan, Comments
+
+ONLY report issues that meet ONE of these criteria:
+1. **Introduced/Modified in this PR** - Code that appears in the git diff (added/modified lines)
+2. **Related to ticket requirements** - Pre-existing code that's related to what the ticket is trying to accomplish
+3. **Breaking changes** - Pre-existing code that will BREAK due to this PR's changes
+
+DO NOT report:
+- Pre-existing issues unrelated to the ticket scope
+- Pre-existing issues not modified by this PR
+- General code quality issues in unchanged code (unless they block the ticket's goals)
+
+How to determine if something is "introduced/modified":
+- Check the git diff: {full_diff}
+- Look for +/- lines at the specific file:line you're flagging
+- If the line wasn't touched (no + or -), it's pre-existing
+
+Pre-existing issues ARE relevant if:
+- They're in the same function/class being modified and impact the changes
+- They're called by new code and will cause failures
+- They're similar patterns to what's being added (consistency concern)
+- They directly relate to ticket requirements
+
+When in doubt: Include the finding but mark it as "pre-existing, related to {specific ticket requirement}"
+
+---
+
+MR COMMENT ANALYSIS:
+{mr_comment_analysis}
+
+**MANDATORY:** If MR comments exist in the data above, you MUST use them:
+
+USE THIS DATA TO:
+1. **Don't re-flag addressed issues** - If comment analysis shows something was addressed, verify the fix quality instead of re-reporting
+2. **Question dismissals** - If comment was dismissed with "questionable" reasoning, flag it in your review with context
+3. **Prioritize outstanding** - If comment is outstanding (no response), check if it's still valid and escalate if critical
+4. **Verify follow-ups** - If planned follow-up mentioned, verify it's actually tracked (ticket exists, linked, etc.)
+
+DO NOT:
+- Ignore outstanding comments (must be checked)
+- Accept questionable dismissals without review
+- Re-report issues already confirmed as addressed (unless fix is incomplete)
+```
 
 **Load all templates and populate with worktree paths:**
 
@@ -236,25 +450,37 @@ test_tmpl = read('~/.claude/templates/pr-review-tests.md')
 Task(general-investigator, code_tmpl.format(
     worktree_path=worktree,
     changed_files='\n'.join(code_files + test_files),
-    mr_comments=mr_comments or "No existing comments"
+    mr_comments=mr_comments or "No existing comments",
+    mr_comment_analysis=mr_comment_analysis if mr_comments else "No comment analysis",
+    ticket_content=ticket_content or "No ticket available",  # NEW: Ticket scope
+    full_diff=full_diff  # NEW: Git diff to distinguish new vs existing
 ))
 
 Task(security-auditor, sec_tmpl.format(
     worktree_path=worktree,
     changed_files='\n'.join(code_files + test_files),
-    context=context_analysis  # Tells agent what kind of code this is
+    context=context_analysis,  # Tells agent what kind of code this is
+    mr_comment_analysis=mr_comment_analysis if mr_comments else "No comment analysis",
+    ticket_content=ticket_content or "No ticket available",  # NEW: Ticket scope
+    full_diff=full_diff  # NEW: Git diff to distinguish new vs existing
 ))
 
 Task(performance-optimizer, perf_tmpl.format(
     worktree_path=worktree,
     changed_files='\n'.join(code_files + test_files),
-    db_type=context_analysis['db_type']
+    db_type=context_analysis['db_type'],
+    mr_comment_analysis=mr_comment_analysis if mr_comments else "No comment analysis",
+    ticket_content=ticket_content or "No ticket available",  # NEW: Ticket scope
+    full_diff=full_diff  # NEW: Git diff to distinguish new vs existing
 ))
 
 Task(general-investigator, test_tmpl.format(
     worktree_path=worktree,
     code_files='\n'.join(code_files),
-    test_files='\n'.join(test_files)
+    test_files='\n'.join(test_files),
+    mr_comment_analysis=mr_comment_analysis if mr_comments else "No comment analysis",
+    ticket_content=ticket_content or "No ticket available",  # NEW: Ticket scope
+    full_diff=full_diff  # NEW: Git diff to distinguish new vs existing
 ))
 ```
 
@@ -275,7 +501,7 @@ test_output = f"[AGENT: test-implementer]\n{test_response}"
 
 ---
 
-## Phase 1.5: Supervisory Quality Check
+## Phase 5: Supervisory Quality Check
 
 **After Round 1 completes, verify quality before proceeding:**
 
@@ -352,7 +578,7 @@ elif supervisor_result.recommendation == "ESCALATE":
 
 ---
 
-## Phase 4: Round 2 - Requirements & Ripple Effects (Parallel)
+## Phase 6: Round 2 - Requirements & Ripple Effects (Parallel)
 
 **After Round 1 completes, launch Round 2:**
 
@@ -362,15 +588,22 @@ ripple_breaking_tmpl = read('~/.claude/templates/pr-review-ripple-breaking.md')
 ripple_integration_tmpl = read('~/.claude/templates/pr-review-ripple-integration.md')
 ripple_db_tmpl = read('~/.claude/templates/pr-review-ripple-db.md')
 
-# Launch in parallel (single message, 3-4 Tasks)
+# Launch in parallel (single message, 4 Tasks)
 
-# 1. Requirements verification (only if ticket fetched)
-if ticket_content:
-    Task(general-investigator, req_tmpl.format(
-        worktree_path=worktree,
-        ticket_content=ticket_content,
-        changed_files='\n'.join(code_files + test_files)
-    ))
+# 1. Requirements verification (ALWAYS runs)
+# If ticket exists: verify code matches all ticket sections
+# If no ticket: do code-only quality review
+Task(general-investigator, req_tmpl.format(
+    worktree_path=worktree,
+    ticket_content=ticket_content if ticket_content else "NO TICKET DATA - Perform code-only quality review",
+    changed_files='\n'.join(code_files + test_files),
+    full_diff=full_diff
+))
+
+# NOTE: req_tmpl MUST instruct agent to:
+# - If ticket data exists: Check ALL ticket sections (Description, Acceptance Criteria, Developer Checklist, Test Plan, Comments, Related Tickets)
+# - If no ticket: Review code quality, test coverage, documentation
+# - NEVER skip analysis because "no ticket" - code review is still mandatory
 
 # 2. Ripple effect analysis - breaking changes
 Task(general-investigator, ripple_breaking_tmpl.format(
@@ -404,7 +637,7 @@ ripple_db_output = f"[AGENT: ripple-db-compatibility]\n{ripple_db_response}" if 
 
 ---
 
-## Phase 5: Round 3 - Verification Round (Parallel)
+## Phase 7: Round 3 - Verification Round (Parallel)
 
 **Prove or disprove critical/high findings to eliminate false positives:**
 
@@ -454,7 +687,7 @@ for idx, verification in enumerate(verifier_responses):
 
 ---
 
-## Phase 3.5: Meta-Verification (Verify the Verifiers)
+## Phase 8: Meta-Verification (Verify the Verifiers)
 
 **For each FALSE_POSITIVE verdict, double-check the verifier's claim:**
 
@@ -509,7 +742,7 @@ Be thorough. False positives waste reviewer time, but removing real issues is da
 
 ---
 
-## Phase 6: Round 4 - Second Investigation Pass (Parallel)
+## Phase 9: Round 4 - Second Investigation Pass (Parallel)
 
 **Fresh perspective to catch what Round 1 missed:**
 
@@ -561,7 +794,7 @@ Expected output format:
 }}}}
 
 Return valid JSON only - no prose, no markdown.
-""", max_tokens=100000)
+""")
 
 # Investigator 2: Focus on data flow and state management
 Task(general-investigator, f"""
@@ -608,7 +841,7 @@ Expected output format:
 }}}}
 
 Return valid JSON only - no prose, no markdown.
-""", max_tokens=100000)
+""")
 
 # Investigator 3: Focus on observability and debugging
 Task(general-investigator, f"""
@@ -655,7 +888,7 @@ Expected output format:
 }}}}
 
 Return valid JSON only - no prose, no markdown.
-""", max_tokens=100000)
+""")
 ```
 
 **Why second pass?**
@@ -674,7 +907,7 @@ observability_output = f"[AGENT: investigator-observability]\n{observability_res
 
 ---
 
-## Phase 4.5: Deep Investigation (Needs Investigation Items)
+## Phase 10: Deep Investigation (Needs Investigation Items)
 
 **Items flagged as "needs_investigation" get unlimited investigation time:**
 
@@ -720,7 +953,7 @@ If still uncertain after deep dive, verdict should be NEEDS_DISCUSSION with huma
 
 ---
 
-## Phase 6.5: Contradiction Resolution
+## Phase 11: Contradiction Resolution
 
 **Before synthesis, resolve any contradictions between agents:**
 
@@ -783,9 +1016,71 @@ Your evidence must include actual code snippet from the worktree.
 
 ---
 
-## Phase 7: Synthesis & Final Report
+## Phase 12: Synthesis & Final Report
 
-### 7.1 Cross-Validate All Findings
+### 12.1 Filter Irrelevant Findings (Ticket Scope Check)
+
+**Before cross-validation, filter findings against ticket scope:**
+
+```python
+# Launch scope validator to check each finding's relevance
+Task(general-investigator, f"""
+You are the RELEVANCE FILTER. Check all findings against ticket scope.
+
+TICKET: {ticket}
+TICKET REQUIREMENTS:
+{ticket_content}
+
+GIT DIFF (what changed in this PR):
+{full_diff}
+
+ALL FINDINGS FROM PREVIOUS ROUNDS:
+{json.dumps(all_findings, indent=2)}
+
+YOUR JOB: Filter out findings that are NOT relevant to this PR.
+
+KEEP findings that:
+1. Are on lines that appear in the git diff (+/- lines)
+2. Are in functions/classes modified by this PR (even if specific line not in diff)
+3. Relate to ticket requirements (even if pre-existing)
+4. Will BREAK due to this PR's changes
+5. Are similar patterns to what's being added (consistency)
+
+REMOVE findings that:
+1. Are pre-existing issues in unmodified code
+2. Are unrelated to ticket requirements
+3. Are general code quality issues in unchanged code
+4. Are in files touched by PR but unrelated to the changes
+
+For EACH finding:
+1. Check the file:line in the git diff
+2. Check if it relates to ticket requirements
+3. Determine if it's relevant
+
+RETURN JSON:
+{{
+  "kept_findings": [
+    {{
+      "finding_id": "original_id",
+      "reason": "Modified in PR at line X" | "Relates to ticket req: Y" | "Called by new code at Z"
+    }}
+  ],
+  "removed_findings": [
+    {{
+      "finding_id": "original_id",
+      "reason": "Pre-existing, unrelated to ticket" | "Unchanged code, no ticket relation"
+    }}
+  ]
+}}
+
+Be conservative: When in doubt, KEEP the finding (false positive better than false negative).
+""")
+
+# Apply scope filter
+all_findings = [f for f in all_findings if f.id in scope_filter_result.kept_findings]
+```
+
+### 12.2 Cross-Validate All Findings
 
 ```python
 # Consolidate findings from all rounds
@@ -829,7 +1124,7 @@ contradictions = find_contradictions(deduped_findings)
 # Example: Agent A says "SQL injection at line 45", Agent B says "Parameterized query at line 45"
 ```
 
-### 7.2 Add PEP 8 Style Check
+### 12.3 Add PEP 8 Style Check
 
 **You do this (agents don't):**
 
@@ -847,7 +1142,7 @@ contradictions = find_contradictions(deduped_findings)
 # Add findings to "medium" severity if violations found
 ```
 
-### 7.3 Categorize by Severity
+### 12.4 Categorize by Severity
 
 ```python
 # Sort findings into buckets
@@ -865,7 +1160,7 @@ needs_verification = [f for f in deduped_findings if f.verdict == "UNCERTAIN"]
 # 🟣 Needs Verification: Uncertain findings requiring human judgment
 ```
 
-### 7.4 Generate Final Report
+### 12.5 Generate Final Report
 
 ```markdown
 # PR Review: {ticket} - {jira_title}
@@ -952,9 +1247,9 @@ needs_verification = [f for f in deduped_findings if f.verdict == "UNCERTAIN"]
 
 ---
 
-## 📊 Requirements Coverage
+## 📊 Ticket Coverage Analysis
 
-{If Jira ticket available}
+### Requirements (from Description/Acceptance Criteria)
 
 **Requirement 1:** {description from ticket}
 - ✅ Implemented in: file.py:line-range
@@ -963,6 +1258,45 @@ needs_verification = [f for f in deduped_findings if f.verdict == "UNCERTAIN"]
 **Requirement 2:** {description}
 - ⚠️ Partially implemented - missing {specific gap}
 - ❌ No tests for this requirement
+
+### Developer Checklist Coverage
+
+**Checklist Item 1:** Create new collection "activitiesEmail"
+- ✅ Implemented: models/activity_email.py:15-45
+- ✅ Matches spec: Schema matches documented structure
+
+**Checklist Item 2:** Update nodemailer endpoint to accept "activity_meta"
+- ⚠️ Partial: Endpoint updated but validation incomplete
+- Location: api/nodemailer.py:123
+
+[If no Developer Checklist in ticket data: State "No Developer Checklist in ticket"]
+
+### Test Plan Coverage
+
+**Test Case 1:** {from Test Plan}
+- ✅ Covered: test_notifications.py:67-89
+
+**Test Case 2:** {from Test Plan}
+- ❌ Missing: No test found for this scenario
+
+[If no Test Plan or says "TODO": State "Test Plan not provided or marked TODO - assessed test coverage from code review"]
+
+### Ticket Comments Context
+
+**Relevant decisions from comments:**
+- Milind Joshi (2024-12-18): Email content retention set to 5 years (implemented: retention_policy.py:34)
+- Kelly Peyton (2024-12-17): Archive message added for old content (implemented: activity_service.py:156)
+
+[If no relevant comments: State "No relevant context from ticket comments"]
+
+### Related Tickets Impact
+
+**PLAT-53 (Frontend pair):**
+- Status: In Progress
+- Impact: BE provides "activitiesEmail" collection, FE consumes for display
+- Coordination needed: Ensure FE team aware of schema changes
+
+[If no related tickets: State "No related tickets"]
 
 ---
 
@@ -1001,8 +1335,6 @@ needs_verification = [f for f in deduped_findings if f.verdict == "UNCERTAIN"]
 ---
 
 ## 💾 Database Changes
-
-{If DB changes present}
 
 **Schema Changes:**
 - Added column: `users.tax_rate` (DECIMAL(5,4), default 0.0)
@@ -1073,18 +1405,55 @@ needs_verification = [f for f in deduped_findings if f.verdict == "UNCERTAIN"]
 
 ---
 
-## 🎯 Addressed MR Comments
+## 🎯 MR Comment Status
 
-{If GitLab comments available}
+### ✅ Addressed Comments ({count})
 
 **Comment 1** (by @reviewer, 2 days ago): "Missing validation for negative amounts"
-- ✅ Resolved: Added validation at file.py:78
+- ✅ Fixed at: file.py:78
+- Fix quality: Complete
+- Evidence: Added `if amount < 0: raise ValueError()`
 
 **Comment 2** (by @reviewer, 1 day ago): "Should we batch these DB calls?"
-- ✅ Resolved: Batching added at file.py:123-145
+- ✅ Fixed at: file.py:123-145
+- Fix quality: Complete
+- Evidence: Replaced loop with bulk_insert()
+
+### ⚠️ Dismissed With Reasoning ({count})
 
 **Comment 3** (by @security, 3 hours ago): "Potential SQL injection?"
-- ✅ Addressed: False positive - parameterized query used (verified)
+- 🟢 Reasoning: "Uses parameterized query - see line 45"
+- Quality: Sound
+- Verified: ✅ Confirmed parameterized query used
+
+**Comment 4** (by @reviewer, 1 day ago): "Should handle edge case X?"
+- 🟡 Reasoning: "Rare edge case, will handle in follow-up INT-4567"
+- Quality: Questionable - Follow-up ticket not found in Jira
+- Verified: ❌ INT-4567 doesn't exist - **needs follow-up**
+
+### 🔴 Outstanding Comments (No Response) ({count})
+
+**Comment 5** (by @lead, 2 days ago): "This breaks backward compatibility"
+- Severity: CRITICAL
+- Days outstanding: 2
+- **REQUIRES RESPONSE** - Breaking change concern unaddressed
+
+### 📋 Planned Follow-ups ({count})
+
+**Comment 6** (by @reviewer): "Refactor this for better performance"
+- Planned: "Will optimize in INT-4568"
+- Tracked in: INT-4568 (verified in Jira)
+- Status: ✅ Properly tracked
+
+**Comment 7** (by @reviewer): "Add more test coverage"
+- Planned: "Will add in next sprint"
+- Tracked in: ❌ Not tracked - **needs ticket**
+
+### 💬 Resolved by Discussion ({count})
+
+**Comment 8** (by @reviewer): "Why use X instead of Y?"
+- Resolution: Clarified that Y doesn't support feature Z needed here
+- No code change needed
 
 ---
 
@@ -1097,6 +1466,11 @@ needs_verification = [f for f in deduped_findings if f.verdict == "UNCERTAIN"]
 1. Critical issue #1 - {specific fix needed}
 2. Critical issue #2 - {specific fix needed}
 3. High priority #1 - {specific fix needed}
+
+**Must address:**
+- Outstanding MR comments (critical/high priority)
+- Questionable dismissals need re-evaluation
+- Untracked follow-ups need tickets created
 
 **Should fix (optional for this PR, but create follow-up tickets):**
 - Medium issue #1
@@ -1124,14 +1498,14 @@ needs_verification = [f for f in deduped_findings if f.verdict == "UNCERTAIN"]
 ## 📊 Review Statistics
 
 **Agent Rounds:**
-- Phase 1 (Specialized): 4 agents, {X} findings
-- Phase 1.5 (Supervisor): Quality check passed/failed, {Y} issues flagged
-- Phase 2 (Requirements/Ripple): 4 agents, {Z} findings
-- Phase 3 (Verification): {N} verifiers, {W} false positives removed
-- Phase 3.5 (Meta-Verification): {M} verifier claims checked, {P} findings restored
-- Phase 4 (Second Pass): 3 agents, {Q} additional findings
-- Phase 4.5 (Deep Investigation): {R} deep dives completed
-- Phase 5 (Contradiction Resolution): {S} contradictions resolved
+- Phase 4 (Specialized): 4 agents, {X} findings
+- Phase 5 (Supervisor): Quality check passed/failed, {Y} issues flagged
+- Phase 6 (Requirements/Ripple): 4 agents, {Z} findings
+- Phase 7 (Verification): {N} verifiers, {W} false positives removed
+- Phase 8 (Meta-Verification): {M} verifier claims checked, {P} findings restored
+- Phase 9 (Second Pass): 3 agents, {Q} additional findings
+- Phase 10 (Deep Investigation): {R} deep dives completed
+- Phase 11 (Contradiction Resolution): {S} contradictions resolved
 
 **Verification Results:**
 - Total findings (all rounds): {total}
@@ -1155,7 +1529,7 @@ needs_verification = [f for f in deduped_findings if f.verdict == "UNCERTAIN"]
 
 ---
 
-## Phase 8: Cleanup
+## Phase 13: Cleanup
 
 ```bash
 # Always cleanup worktrees when done
@@ -1301,15 +1675,21 @@ Different angles = comprehensive coverage.
 
 - [ ] agent-prompting skill loaded before spawning agents
 - [ ] All agent prompts include critical inline standards
+- [ ] All agent prompts include BUDGET DIRECTIVE (never stop short)
+- [ ] All agent prompts include SCOPING RULES (ticket relevance filter)
+- [ ] All agents receive ticket_content and full_diff for scoping
+- [ ] No token limits on agents (max_tokens=None or omitted)
 - [ ] LLM tagging implemented for all agent outputs ([AGENT: name] format)
-- [ ] Phase 1 complete (4 specialized agents)
-- [ ] Phase 1.5 complete (supervisory quality check)
-- [ ] Phase 2 complete (3-4 requirements/ripple agents)
-- [ ] Phase 3 complete (N verification agents with original agent reasoning)
-- [ ] Phase 3.5 complete (meta-verification of FALSE_POSITIVE claims)
-- [ ] Phase 4 complete (2-3 second-pass investigators)
-- [ ] Phase 4.5 complete (deep investigations of needs_investigation items)
-- [ ] Phase 5 complete (contradiction resolution)
+- [ ] Phase 3.2 complete (MR comment thread analysis if comments exist)
+- [ ] Phase 4 complete (4 specialized agents)
+- [ ] Phase 5 complete (supervisory quality check)
+- [ ] Phase 6 complete (3-4 requirements/ripple agents)
+- [ ] Phase 7 complete (N verification agents with original agent reasoning)
+- [ ] Phase 8 complete (meta-verification of FALSE_POSITIVE claims)
+- [ ] Phase 9 complete (2-3 second-pass investigators)
+- [ ] Phase 10 complete (deep investigations of needs_investigation items)
+- [ ] Phase 11 complete (contradiction resolution)
+- [ ] Phase 12.1 complete (scope filter removes irrelevant findings)
 - [ ] All file:line references verified in worktree
 - [ ] False positives removed (verification round results)
 - [ ] Duplicates removed (same file:line:issue)
@@ -1317,9 +1697,9 @@ Different angles = comprehensive coverage.
 - [ ] Findings categorized by severity (critical/high/medium/low/needs_verification)
 - [ ] PEP 8 violations checked and added
 - [ ] Context-aware security applied (internal vs external)
-- [ ] DB schema compatibility verified (if applicable)
-- [ ] Requirements coverage checked (if Jira available)
-- [ ] MR comments addressed (if GitLab available)
+- [ ] DB schema compatibility verified (or confirmed no DB changes)
+- [ ] Requirements coverage checked (or confirmed no ticket data available)
+- [ ] MR comments addressed (or confirmed no MR comments available)
 - [ ] Clear recommendation provided (APPROVE/REQUEST CHANGES/NEEDS DISCUSSION)
 - [ ] Positive findings included ("What's Good" section)
 - [ ] Worktrees cleaned up

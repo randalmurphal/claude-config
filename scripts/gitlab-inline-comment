@@ -1,0 +1,236 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# gitlab-inline-comment - Add inline comment to specific code line in MR
+#
+# Usage: gitlab-inline-comment <ticket-or-mr-iid> <file-path> <line-number> <comment-text>
+# Example: gitlab-inline-comment INT-3877 src/auth.py 45 "Missing validation here"
+# Example: gitlab-inline-comment 1234 src/auth.py 45 "Missing validation here"
+#
+# Returns: Discussion ID and confirmation on success
+# Exit codes: 0 = success, 1 = usage error, 2 = MR not found, 3 = API error, 4 = credentials missing
+
+# Get script directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CREDS_FILE="${SCRIPT_DIR}/.gitlab-credentials"
+
+# Function to show credential setup instructions
+show_credential_instructions() {
+    cat >&2 <<'EOF'
+❌ GitLab credentials not found or incomplete.
+
+STOP: This script requires GitLab API credentials to be configured.
+
+Please create the file: ~/.claude/scripts/.gitlab-credentials
+
+With the following content:
+
+    # GitLab API Credentials
+    GITLAB_PERSONAL_ACCESS_TOKEN="your-token-here"
+    GITLAB_API_URL="https://gitlab.com/api/v4"
+    GITLAB_PROJECT_ID="your-project-id"
+
+How to get these values:
+
+1. GITLAB_PERSONAL_ACCESS_TOKEN:
+   - Go to: https://gitlab.com/-/profile/personal_access_tokens
+   - Create token with 'api' scope
+   - Copy the token (starts with 'glpat-')
+
+2. GITLAB_PROJECT_ID:
+   - Go to your project on GitLab
+   - Look under the project name (e.g., "Project ID: 29007973")
+
+3. GITLAB_API_URL:
+   - Use "https://gitlab.com/api/v4" for gitlab.com
+   - Use your custom URL if self-hosted (e.g., "https://gitlab.yourcompany.com/api/v4")
+
+After creating the file, this script will work automatically.
+The credentials file is gitignored and will not be committed.
+
+EOF
+    exit 4
+}
+
+# Check if credentials file exists
+if [ ! -f "$CREDS_FILE" ]; then
+    echo "❌ Credentials file not found: $CREDS_FILE" >&2
+    echo "" >&2
+    show_credential_instructions
+fi
+
+# Source credentials
+# shellcheck source=/dev/null
+source "$CREDS_FILE"
+
+# Validate required credentials are set
+if [ -z "${GITLAB_PERSONAL_ACCESS_TOKEN:-}" ]; then
+    echo "❌ GITLAB_PERSONAL_ACCESS_TOKEN not set in $CREDS_FILE" >&2
+    echo "" >&2
+    show_credential_instructions
+fi
+
+if [ -z "${GITLAB_PROJECT_ID:-}" ]; then
+    echo "❌ GITLAB_PROJECT_ID not set in $CREDS_FILE" >&2
+    echo "" >&2
+    show_credential_instructions
+fi
+
+# Set default API URL if not provided
+GITLAB_API_URL="${GITLAB_API_URL:-https://gitlab.com/api/v4}"
+
+# Parse arguments
+ticket_or_iid="${1:-}"
+file_path="${2:-}"
+line_number="${3:-}"
+comment_text="${4:-}"
+
+# Validate required arguments
+if [ -z "$ticket_or_iid" ] || [ -z "$file_path" ] || [ -z "$line_number" ] || [ -z "$comment_text" ]; then
+    echo "Usage: gitlab-inline-comment <ticket-or-mr-iid> <file-path> <line-number> <comment-text>" >&2
+    echo "Examples:" >&2
+    echo "  gitlab-inline-comment INT-3877 src/auth.py 45 \"Missing validation\"" >&2
+    echo "  gitlab-inline-comment 1234 src/auth.py 45 \"Missing validation\"" >&2
+    exit 1
+fi
+
+# Validate line number is numeric
+if ! [[ "$line_number" =~ ^[0-9]+$ ]]; then
+    echo "❌ Line number must be numeric: $line_number" >&2
+    exit 1
+fi
+
+# Determine if input is ticket ID or MR IID
+if [[ "$ticket_or_iid" =~ ^[A-Z]+-[0-9]+$ ]]; then
+    # Looks like a ticket ID (e.g., INT-3877)
+    ticket="$ticket_or_iid"
+
+    # Find source branch for ticket
+    source_branch=$(git branch -r 2>/dev/null | grep "origin/$ticket" | grep -v "pre-styling" | head -1 | sed 's|.*origin/||' | xargs)
+
+    if [ -z "$source_branch" ]; then
+        echo "⚠️ No branch found for ticket: $ticket" >&2
+        exit 2
+    fi
+
+    # Get MR for branch
+    mr_response=$(curl -s -H "PRIVATE-TOKEN: $GITLAB_PERSONAL_ACCESS_TOKEN" \
+        "${GITLAB_API_URL}/projects/${GITLAB_PROJECT_ID}/merge_requests?source_branch=${source_branch}&state=opened")
+
+    mr_iid=$(echo "$mr_response" | jq -r '.[0].iid // empty')
+
+    if [ -z "$mr_iid" ]; then
+        # Try all states
+        mr_response=$(curl -s -H "PRIVATE-TOKEN: $GITLAB_PERSONAL_ACCESS_TOKEN" \
+            "${GITLAB_API_URL}/projects/${GITLAB_PROJECT_ID}/merge_requests?source_branch=${source_branch}")
+        mr_iid=$(echo "$mr_response" | jq -r '.[0].iid // empty')
+
+        if [ -z "$mr_iid" ]; then
+            echo "⚠️ No MR found for branch: $source_branch" >&2
+            exit 2
+        fi
+    fi
+else
+    # Assume it's already an MR IID
+    mr_iid="$ticket_or_iid"
+fi
+
+# Fetch MR details to get diff_refs
+mr_details=$(curl -s -H "PRIVATE-TOKEN: $GITLAB_PERSONAL_ACCESS_TOKEN" \
+    "${GITLAB_API_URL}/projects/${GITLAB_PROJECT_ID}/merge_requests/${mr_iid}")
+
+# Check if MR exists
+if echo "$mr_details" | jq -e '.message' >/dev/null 2>&1; then
+    error_msg=$(echo "$mr_details" | jq -r '.message')
+    echo "❌ GitLab API error: $error_msg" >&2
+    exit 2
+fi
+
+# Extract diff_refs
+base_sha=$(echo "$mr_details" | jq -r '.diff_refs.base_sha // empty')
+head_sha=$(echo "$mr_details" | jq -r '.diff_refs.head_sha // empty')
+start_sha=$(echo "$mr_details" | jq -r '.diff_refs.start_sha // empty')
+
+if [ -z "$base_sha" ] || [ -z "$head_sha" ] || [ -z "$start_sha" ]; then
+    echo "❌ Could not get diff_refs from MR !${mr_iid}" >&2
+    echo "This may happen if the MR has no commits or diffs yet." >&2
+    exit 3
+fi
+
+# Build position object for inline comment
+# Note: For added/modified lines, use new_line
+# For removed lines, use old_line instead
+position=$(jq -n \
+    --arg base_sha "$base_sha" \
+    --arg head_sha "$head_sha" \
+    --arg start_sha "$start_sha" \
+    --arg new_path "$file_path" \
+    --arg new_line "$line_number" \
+    '{
+        base_sha: $base_sha,
+        head_sha: $head_sha,
+        start_sha: $start_sha,
+        new_path: $new_path,
+        new_line: ($new_line | tonumber),
+        position_type: "text"
+    }')
+
+# Build JSON payload for discussion
+json_payload=$(jq -n \
+    --arg body "$comment_text" \
+    --argjson position "$position" \
+    '{
+        body: $body,
+        position: $position
+    }')
+
+# Create discussion with inline comment via GitLab API
+response=$(curl -s -w "\n%{http_code}" \
+    -H "PRIVATE-TOKEN: $GITLAB_PERSONAL_ACCESS_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d "$json_payload" \
+    "${GITLAB_API_URL}/projects/${GITLAB_PROJECT_ID}/merge_requests/${mr_iid}/discussions")
+
+# Split response into body and status code
+http_code=$(echo "$response" | tail -1)
+body=$(echo "$response" | sed '$d')
+
+# Check HTTP status
+if [ "$http_code" = "404" ]; then
+    echo "❌ Merge request not found: !${mr_iid}" >&2
+    exit 2
+elif [ "$http_code" = "401" ]; then
+    echo "❌ Authentication failed. Check your GITLAB_PERSONAL_ACCESS_TOKEN" >&2
+    exit 3
+elif [ "$http_code" = "403" ]; then
+    echo "❌ Access denied. You may not have permission to comment on this merge request." >&2
+    exit 3
+elif [ "$http_code" = "400" ]; then
+    echo "❌ Bad request. The line may not exist in the diff or position may be invalid." >&2
+    error_msg=$(echo "$body" | jq -r '.message // "Unknown error"')
+    echo "Error: $error_msg" >&2
+    exit 3
+elif [[ ! "$http_code" =~ ^2[0-9][0-9]$ ]]; then
+    echo "❌ GitLab API error (HTTP $http_code)" >&2
+    error_msg=$(echo "$body" | jq -r '.message // "Unknown error"')
+    echo "Error: $error_msg" >&2
+    exit 3
+fi
+
+# Parse success response
+discussion_id=$(echo "$body" | jq -r '.id')
+note_id=$(echo "$body" | jq -r '.notes[0].id')
+note_author=$(echo "$body" | jq -r '.notes[0].author.username')
+note_created=$(echo "$body" | jq -r '.notes[0].created_at | split("T")[0]')
+
+# Output success message
+echo "✅ Inline comment added to MR !${mr_iid}"
+echo ""
+echo "Discussion ID: ${discussion_id}"
+echo "Note ID: ${note_id}"
+echo "Author: @${note_author}"
+echo "Created: ${note_created}"
+echo "Location: ${file_path}:${line_number}"
+echo ""
+echo "Comment text:"
+echo "${comment_text}"

@@ -1,6 +1,6 @@
 ---
 name: gitlab-scripts
-description: Use GitLab scripts instead of GitLab MCP for both read and write operations. Read operations (gitlab-mr-comments, gitlab-list-mrs) for fetching MR data. Write operations (gitlab-create-mr, gitlab-comment-mr, gitlab-update-mr) for creating/updating MRs. Use when reviewing code, creating MRs, commenting on MRs, updating MR metadata, listing MRs, or working with GitLab merge requests. Replaces 82 MCP functions (80k tokens) with lightweight bash scripts.
+description: Use GitLab scripts instead of GitLab MCP for both read and write operations. Read operations (gitlab-mr-comments, gitlab-list-mrs) for fetching MR data. Write operations (gitlab-create-mr, gitlab-comment-mr, gitlab-inline-comment, gitlab-update-mr) for creating/updating MRs and posting inline code comments. Use when reviewing code, creating MRs, commenting on MRs, adding inline code review comments, updating MR metadata, listing MRs, or working with GitLab merge requests. Replaces 82 MCP functions (80k tokens) with lightweight bash scripts.
 ---
 
 # GitLab Scripts Usage
@@ -235,6 +235,67 @@ LGTM, approved
 **Common errors:**
 - Exit 2: MR IID doesn't exist
 - Exit 3 with "403": No permission to comment on this MR
+
+---
+
+#### gitlab-inline-comment
+
+**Add inline comment to specific code line in merge request (for code review).**
+
+**Usage:**
+```bash
+gitlab-inline-comment <ticket-or-mr-iid> <file-path> <line-number> <comment-text>
+```
+
+**Examples:**
+```bash
+# Using ticket ID (finds MR automatically)
+gitlab-inline-comment INT-3877 src/auth.py 45 "Missing validation for negative amounts"
+
+# Using MR IID directly
+gitlab-inline-comment 1234 src/auth.py 45 "Missing validation for negative amounts"
+
+# Add inline review comment
+gitlab-inline-comment INT-4000 fisio/common/write_manager.py 401 "ReplaceOne should be included in this check for AR enrollment"
+
+# Use in Bash tool
+result = Bash(command='~/.claude/scripts/gitlab-inline-comment INT-3877 src/auth.py 45 "Add null check here"')
+if result.returncode == 0:
+    echo("✅ Inline comment added")
+else:
+    echo(f"❌ Failed to add inline comment: {result.stderr}")
+```
+
+**Output format:**
+```
+✅ Inline comment added to MR !1234
+
+Discussion ID: d987654
+Note ID: n123456
+Author: @rmurphy
+Created: 2025-10-27
+Location: src/auth.py:45
+
+Comment text:
+Missing validation for negative amounts
+```
+
+**Exit codes:**
+- 0 = Success (inline comment added)
+- 1 = Usage error (missing arguments, invalid line number)
+- 2 = MR or branch not found
+- 3 = API error (line doesn't exist in diff, invalid position, permissions, network, auth failed)
+- 4 = Credentials missing
+
+**Common errors:**
+- Exit 3 with "400 Bad Request": Line number doesn't exist in the diff or file wasn't modified in the MR
+- Exit 2: Ticket branch or MR not found
+- Exit 3 with "403": No permission to comment on this MR
+
+**Important notes:**
+- Inline comments only work on **lines that were modified** in the MR
+- For general comments (not tied to code), use `gitlab-comment-mr` instead
+- Line numbers refer to the **new file** (after changes), not the old file
 
 ---
 
@@ -590,9 +651,10 @@ gitlab-list-mrs [--state X] [--author Y]          # List MRs with filters
 
 **Write operations:**
 ```bash
-gitlab-create-mr <source> <target> <title> [desc] # Create MR (title format: "TICKET: desc")
-gitlab-comment-mr <mr-iid> <comment-text>         # Add comment
-gitlab-update-mr <mr-iid> [--title X] [--labels Y] # Update metadata
+gitlab-create-mr <source> <target> <title> [desc]     # Create MR (title format: "TICKET: desc")
+gitlab-comment-mr <mr-iid> <comment-text>             # Add general comment
+gitlab-inline-comment <ticket> <file> <line> <text>   # Add inline code comment
+gitlab-update-mr <mr-iid> [--title X] [--labels Y]    # Update metadata
 ```
 
 **Check exit code:**
@@ -640,6 +702,6 @@ else:
 
 **Available operations:**
 - **Read**: `gitlab-mr-comments`, `gitlab-list-mrs`
-- **Write**: `gitlab-create-mr`, `gitlab-comment-mr`, `gitlab-update-mr`
+- **Write**: `gitlab-create-mr`, `gitlab-comment-mr`, `gitlab-inline-comment`, `gitlab-update-mr`
 
 **Remember:** Scripts are optional tools. If credentials aren't configured, workflows continue without GitLab operations. Don't block on missing optional data.

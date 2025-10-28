@@ -29,7 +29,7 @@ This directory contains Claude Code configuration, hooks, orchestration patterns
 - `/home/rmurphy/.claude/commands/spec.md` - Investigation and planning phase (460 lines)
 - `/home/rmurphy/.claude/commands/conduct.md` - Full orchestration for complex features (278 lines)
 - `/home/rmurphy/.claude/commands/index.md` - Command catalog and usage (193 lines)
-- `/home/rmurphy/.claude/commands/pr_review.md` - Pull request review workflow (165 lines)
+- `/home/rmurphy/.claude/commands/pr_review.md` - Pull request review workflow with comprehensive ticket context (1744 lines)
 - `/home/rmurphy/.claude/commands/docs.md` - Documentation generation (38 lines)
 - `/home/rmurphy/.claude/commands/coda.md` - Session wrap-up and learning capture (85 lines)
 

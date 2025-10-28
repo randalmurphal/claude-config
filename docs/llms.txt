@@ -1,0 +1,262 @@
+# llms.txt - AI Agent Documentation Index for ~/.claude
+
+## Purpose
+This directory contains Claude Code configuration, hooks, orchestration patterns, and documentation standards. Use this index to quickly find relevant documentation for any task.
+
+## Quick Start (New Users)
+
+- `/home/rmurphy/.claude/OVERVIEW.md` - Start here: Complete system overview (150 lines)
+- `/home/rmurphy/.claude/CLAUDE.md` - Global work contract and principles (105 lines)
+- `/home/rmurphy/.claude/README.md` - Installation and setup guide (270 lines)
+- `/home/rmurphy/.claude/ORCHESTRATION_GUIDE.md` - Command decision tree and comparison (291 lines)
+
+## Core Documentation
+
+### AI Documentation Standards
+- `/home/rmurphy/.claude/docs/AI_DOCUMENTATION_STANDARDS.md` - How to write docs for AI agents (798 lines)
+- `/home/rmurphy/.claude/docs/CLAUDE_MD_BEST_PRACTICES.md` - Hierarchical CLAUDE.md patterns (485 lines)
+- `/home/rmurphy/.claude/docs/TESTING_STANDARDS.md` - Test coverage and organization rules (462 lines)
+
+### MCP (Model Context Protocol) Integration
+- `/home/rmurphy/.claude/docs/MCP_SETUP_INSTRUCTIONS.md` - Install and configure MCP servers (284 lines)
+- `/home/rmurphy/.claude/docs/MCP_SERVERS_REFERENCE.md` - Available MCP servers and usage (412 lines)
+- `/home/rmurphy/.claude/docs/OBSIDIAN_VAULT_SETUP.md` - Obsidian vault configuration (297 lines)
+
+## Orchestration System
+
+### Commands (User-Facing)
+- `/home/rmurphy/.claude/commands/solo.md` - Streamlined execution for simple tasks (619 lines)
+- `/home/rmurphy/.claude/commands/spec.md` - Investigation and planning phase (460 lines)
+- `/home/rmurphy/.claude/commands/conduct.md` - Full orchestration for complex features (278 lines)
+- `/home/rmurphy/.claude/commands/index.md` - Command catalog and usage (193 lines)
+- `/home/rmurphy/.claude/commands/pr_review.md` - Pull request review workflow with comprehensive ticket context (1744 lines)
+- `/home/rmurphy/.claude/commands/docs.md` - Documentation generation (38 lines)
+- `/home/rmurphy/.claude/commands/coda.md` - Session wrap-up and learning capture (85 lines)
+
+### Orchestration Patterns (Agent Instructions)
+- `/home/rmurphy/.claude/orchestration/README.md` - Orchestration overview (115 lines)
+- `/home/rmurphy/.claude/orchestration/SPEC_INSTRUCTIONS.md` - Discovery phase for /spec (515 lines)
+- `/home/rmurphy/.claude/orchestration/CONDUCT_INSTRUCTIONS.md` - Execution phase for /conduct (752 lines)
+- `/home/rmurphy/.claude/orchestration/ORCHESTRATOR_PATTERN.md` - General orchestration patterns (217 lines)
+- `/home/rmurphy/.claude/orchestration/READY_TEMPLATE.md` - Final spec readiness validation (270 lines)
+
+## Agent Definitions
+
+- `/home/rmurphy/.claude/agents/skeleton-builder.md` - Create file skeletons with interfaces (254 lines)
+- `/home/rmurphy/.claude/agents/implementation-executor.md` - Implement full working code (294 lines)
+- `/home/rmurphy/.claude/agents/test-implementer.md` - Write comprehensive tests (129 lines)
+- `/home/rmurphy/.claude/agents/test-skeleton-builder.md` - Create test file skeletons (103 lines)
+- `/home/rmurphy/.claude/agents/fix-executor.md` - Fix validation and test failures (91 lines)
+- `/home/rmurphy/.claude/agents/code-reviewer.md` - Review code quality and patterns (229 lines)
+- `/home/rmurphy/.claude/agents/code-beautifier.md` - Clean up code style (143 lines)
+- `/home/rmurphy/.claude/agents/security-auditor.md` - Security vulnerability analysis (222 lines)
+- `/home/rmurphy/.claude/agents/performance-optimizer.md` - Performance analysis and optimization (201 lines)
+- `/home/rmurphy/.claude/agents/general-builder.md` - Simple feature implementation with validation (168 lines)
+- `/home/rmurphy/.claude/agents/general-investigator.md` - Codebase investigation and analysis (146 lines)
+- `/home/rmurphy/.claude/agents/spike-tester.md` - Validate approaches in /tmp (265 lines)
+- `/home/rmurphy/.claude/agents/architecture-planner.md` - High-level architecture design (323 lines)
+- `/home/rmurphy/.claude/agents/dependency-analyzer.md` - Dependency analysis and recommendations (245 lines)
+- `/home/rmurphy/.claude/agents/consolidation-analyzer.md` - Find duplication opportunities (40 lines)
+- `/home/rmurphy/.claude/agents/merge-coordinator.md` - Coordinate worktree merges (25 lines)
+
+## Templates (Referenced by Commands)
+
+### Spec Templates
+- `/home/rmurphy/.claude/templates/spec-minimal.md` - Minimal BUILD spec format for /solo (33 lines)
+- `/home/rmurphy/.claude/templates/spec-full.md` - Full SPEC.md format for /conduct (79 lines)
+
+### Response Templates
+- `/home/rmurphy/.claude/templates/agent-responses.md` - Agent response formats (81 lines)
+- `/home/rmurphy/.claude/templates/operational.md` - Algorithms and procedures (233 lines)
+
+### Review Templates
+- `/home/rmurphy/.claude/templates/pr-review-code-analysis.md` - Code quality review template (23 lines)
+- `/home/rmurphy/.claude/templates/pr-review-security.md` - Security review template (28 lines)
+- `/home/rmurphy/.claude/templates/pr-review-tests.md` - Test review template (31 lines)
+- `/home/rmurphy/.claude/templates/pr-review-performance.md` - Performance review template (30 lines)
+
+### Pattern Templates
+- `/home/rmurphy/.claude/templates/INVARIANTS.md` - Project invariants pattern (76 lines)
+- `/home/rmurphy/.claude/templates/GOTCHAS_TEMPLATE.md` - Gotcha documentation pattern (51 lines)
+- `/home/rmurphy/.claude/templates/README.md` - Templates directory overview (59 lines)
+
+### Configuration Templates
+- `/home/rmurphy/.claude/templates/.credentials.template.json` - Credentials configuration
+- `/home/rmurphy/.claude/templates/.mcp.template.json` - MCP server configuration
+- `/home/rmurphy/.claude/templates/settings.template.json` - Claude Code settings
+- `/home/rmurphy/.claude/templates/preferences.template.json` - User preferences
+
+## Language Configurations
+
+### Python
+- `/home/rmurphy/.claude/configs/python/ruff.toml` - Python formatting and linting
+- `/home/rmurphy/.claude/configs/python/pylint.toml` - Additional code quality checks
+- `/home/rmurphy/.claude/configs/python/mypy.ini` - Type checking configuration
+
+### JavaScript/TypeScript
+- `/home/rmurphy/.claude/configs/javascript/.prettierrc` - Code formatting
+- `/home/rmurphy/.claude/configs/javascript/.eslintrc.json` - Linting rules
+
+### Go
+- `/home/rmurphy/.claude/configs/go/.golangci.yml` - Go linting configuration
+
+## Hook System (Event-Driven Automation)
+
+### Session Hooks
+- `/home/rmurphy/.claude/hooks/prism_http_startup.py` - Start PRISM MCP server on session start
+- `/home/rmurphy/.claude/hooks/vibe_tracker.py` - Personality mode management
+- `/home/rmurphy/.claude/hooks/universal_learner_session_end.py` - Pattern promotion on session end
+
+### Tool Hooks
+- `/home/rmurphy/.claude/hooks/unified_context_provider.py` - Inject memories into prompts and agents
+- `/home/rmurphy/.claude/hooks/unified_bash_guardian.py` - Command safety validation
+- `/home/rmurphy/.claude/hooks/unified_code_validator.py` - Code pattern validation
+- `/home/rmurphy/.claude/hooks/edit_tracker.py` - Extract and store semantic changes
+- `/home/rmurphy/.claude/hooks/auto_formatter.py` - Language-specific code formatting
+- `/home/rmurphy/.claude/hooks/agent_learner.py` - Capture agent discoveries
+- `/home/rmurphy/.claude/hooks/preference_manager.py` - User preference detection and enforcement
+
+### Hook Documentation
+- `/home/rmurphy/.claude/hooks/HOOKS_IDEAS.md` - Hook design patterns and ideas
+- `/home/rmurphy/.claude/hooks/transcript_parsing/` - Session transcript analysis patterns
+
+## For Specific Tasks
+
+### Adding New Feature (Simple)
+1. Read `/home/rmurphy/.claude/commands/solo.md` - Streamlined workflow
+2. Check `/home/rmurphy/.claude/docs/TESTING_STANDARDS.md` - Test requirements
+3. Reference `/home/rmurphy/.claude/CLAUDE.md` - Core principles
+
+### Planning Complex Feature
+1. Start with `/home/rmurphy/.claude/commands/spec.md` - Investigation phase
+2. Reference `/home/rmurphy/.claude/orchestration/SPEC_INSTRUCTIONS.md` - Spike testing approach
+3. Then use `/home/rmurphy/.claude/commands/conduct.md` - Full orchestration
+
+### Implementing from SPEC.md
+1. Read `/home/rmurphy/.claude/commands/conduct.md` - Orchestration workflow
+2. Reference `/home/rmurphy/.claude/orchestration/CONDUCT_INSTRUCTIONS.md` - Detailed execution pattern
+3. Check `/home/rmurphy/.claude/templates/spec-full.md` - SPEC.md format
+
+### Writing Documentation
+1. Follow `/home/rmurphy/.claude/docs/AI_DOCUMENTATION_STANDARDS.md` - AI-optimized patterns
+2. Check `/home/rmurphy/.claude/docs/CLAUDE_MD_BEST_PRACTICES.md` - Hierarchical structure
+3. Use `/home/rmurphy/.claude/templates/` - Template patterns
+
+### Creating Tests
+1. Read `/home/rmurphy/.claude/docs/TESTING_STANDARDS.md` - Coverage requirements
+2. Reference `/home/rmurphy/.claude/agents/test-implementer.md` - Test implementation agent
+3. Check project-specific CLAUDE.md for testing patterns
+
+### Reviewing Code
+1. Use `/home/rmurphy/.claude/commands/pr_review.md` - PR review workflow
+2. Check `/home/rmurphy/.claude/templates/pr-review-*.md` - Review templates
+3. Reference `/home/rmurphy/.claude/agents/code-reviewer.md` - Review patterns
+
+### Debugging Agent Issues
+1. Check `/home/rmurphy/.claude/orchestration/ORCHESTRATOR_PATTERN.md` - Orchestration principles
+2. Review `.spec/PROGRESS.md` in your working directory - Execution state
+3. Check agent definition in `/home/rmurphy/.claude/agents/` - Agent-specific behavior
+
+### Setting Up PRISM Memory System
+1. Read `/home/rmurphy/.claude/docs/MCP_SETUP_INSTRUCTIONS.md` - Installation
+2. Check `/home/rmurphy/.claude/docs/MCP_SERVERS_REFERENCE.md` - PRISM usage
+3. Review `/home/rmurphy/.claude/README.md` - PRISM integration details
+
+### Understanding Hook System
+1. Read `/home/rmurphy/.claude/README.md` - Hook overview (lines 78-118)
+2. Check `/home/rmurphy/.claude/hooks/HOOKS_IDEAS.md` - Hook patterns
+3. Review specific hook files for implementation examples
+
+### Configuring Language Tools
+1. Check `/home/rmurphy/.claude/configs/[language]/` - Language-specific configs
+2. Reference `/home/rmurphy/.claude/CLAUDE.md` - Linting and formatting standards
+3. Update project config first, fallback to ~/.claude configs
+
+## Directory Structure Summary
+
+```
+~/.claude/
+├── llms.txt                    # This file - documentation index
+├── OVERVIEW.md                 # System overview and navigation
+├── CLAUDE.md                   # Global work contract (105 lines)
+├── README.md                   # Installation and setup (270 lines)
+├── ORCHESTRATION_GUIDE.md      # Command comparison (291 lines)
+│
+├── docs/                       # Core documentation (6 files)
+│   ├── AI_DOCUMENTATION_STANDARDS.md
+│   ├── CLAUDE_MD_BEST_PRACTICES.md
+│   ├── TESTING_STANDARDS.md
+│   └── MCP_*.md
+│
+├── commands/                   # User commands (7 files)
+│   ├── solo.md, spec.md, conduct.md
+│   ├── pr_review.md, docs.md, coda.md
+│   └── index.md
+│
+├── orchestration/              # Agent orchestration (5 files)
+│   ├── SPEC_INSTRUCTIONS.md
+│   ├── CONDUCT_INSTRUCTIONS.md
+│   ├── ORCHESTRATOR_PATTERN.md
+│   ├── READY_TEMPLATE.md
+│   └── README.md
+│
+├── agents/                     # Agent definitions (16 files)
+│   ├── *-builder.md, *-executor.md
+│   ├── *-reviewer.md, *-optimizer.md
+│   └── *-investigator.md
+│
+├── templates/                  # Reusable templates (18 files)
+│   ├── spec-*.md, agent-responses.md
+│   ├── pr-review-*.md
+│   └── config templates
+│
+├── hooks/                      # Event-driven automation (20+ files)
+│   ├── Session hooks (startup, end)
+│   ├── Tool hooks (bash, read, write, edit, task)
+│   └── Learning hooks (preferences, patterns)
+│
+└── configs/                    # Language configurations
+    ├── python/                 # ruff, pylint, mypy
+    ├── javascript/             # prettier, eslint
+    └── go/                     # golangci
+```
+
+## Key Principles
+
+1. **Concise > Comprehensive** - AI agents can read code, docs are a MAP not a TUTORIAL
+2. **Structure > Prose** - Tables and bullets over paragraphs
+3. **Location > Explanation** - file:line references over detailed walkthroughs
+4. **Parallel Execution** - Multiple independent operations in single message
+5. **Progressive Refinement** - Evolve specs, validate through spikes
+6. **Quality Gates** - Tests + linting must pass before moving forward
+
+## Finding What You Need
+
+**By task type:**
+- Simple feature → commands/solo.md
+- Complex feature → commands/spec.md + commands/conduct.md
+- Code review → commands/pr_review.md
+- Documentation → docs/AI_DOCUMENTATION_STANDARDS.md
+
+**By role:**
+- User executing commands → commands/
+- Agent following instructions → orchestration/ + agents/
+- Developer writing docs → docs/ + templates/
+
+**By phase:**
+- Discovery → spec.md + SPEC_INSTRUCTIONS.md
+- Planning → SPEC.md format in templates/
+- Implementation → conduct.md + CONDUCT_INSTRUCTIONS.md
+- Validation → TESTING_STANDARDS.md + review agents
+
+## Navigation Tips
+
+1. **Start general, go specific**: OVERVIEW → command → orchestration → agent
+2. **Templates show format**: All templates have clear structure examples
+3. **Agents inherit tools**: All agents can Read, Write, Edit, Bash, Grep, Glob
+4. **Commands reference templates**: Look for "Template:" or "Format:" sections
+5. **Orchestration uses agents**: CONDUCT spawns agents defined in agents/
+
+---
+
+**The system learns across sessions through PRISM integration and hook system. Let documentation guide you, but trust the system to inject relevant context automatically.**

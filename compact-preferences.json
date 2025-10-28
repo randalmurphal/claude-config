@@ -1,15 +1,7 @@
 {
   "always_preserve": [
-    "README.md",
-    "package.json",
-    "requirements.txt",
-    "go.mod",
-    "Cargo.toml",
-    "pyproject.toml",
-    "composer.json",
-    "Gemfile",
-    ".env.example",
-    "**/CLAUDE.md"
+    "**/CLAUDE.md",
+    "README.md"
   ],
   "keyword_boost": [
     "TODO",
@@ -17,21 +9,13 @@
     "HACK",
     "BUG",
     "SECURITY",
+    "NOTE",
     "class",
     "function",
     "def",
-    "interface",
-    "type",
-    "struct",
-    "enum",
-    "impl",
-    "export",
-    "import",
     "return",
     "async",
-    "await",
-    "useState",
-    "useEffect"
+    "await"
   ],
   "file_pattern_boost": [
     "**/*.py",
@@ -72,21 +56,19 @@
     "stack trace",
     "traceback"
   ],
-  "max_context_lines": 500,
+  "max_context_lines": 1000,
   "max_files_to_preserve": 75,
-  "max_requirements": 30,
-  "max_issues": 25,
+  "max_requirements": 50,
+  "max_issues": 40,
   "code_preservation_rules": {
     "preserve_edited_files": true,
-    "preserve_recent_edits_minutes": 30,
+    "preserve_recent_edits_minutes": 90,
     "preserve_files_with_errors": true,
     "preserve_import_chains": true,
     "min_edit_count_to_preserve": 1
   },
   "removal_priority": [
-    "tool_output_grep",
-    "tool_output_ls",
-    "tool_output_find",
+    "tool_output",
     "repetitive_errors",
     "unchanged_file_reads",
     "duplicate_content"

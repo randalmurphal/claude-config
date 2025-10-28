@@ -12,6 +12,7 @@ description: Transform vague intent into precise, executable specifications thro
 3. **Stay Mission-Focused** - Prune tangents
 4. **Learn Through Spikes** - Quick validation in /tmp
 5. **Progressive Refinement** - Evolve artifacts, archive obsolete
+6. **Consensus Decisions** - 3-agent voting for critical choices
 
 ---
 
@@ -210,14 +211,143 @@ Goal: [what to prove/disprove]
 
 **Commit changes** (archive spike results)
 
-### Phase 9: Architecture Evolution
+### Phase 9: Architecture Evolution with Voting
+
+**VOTING GATE 1: Architecture Decision Voting**
+
+**When to use voting:**
+- Multiple valid approaches exist OR
+- Complexity > 6/10 OR
+- High-stakes decision (security, scalability, maintainability)
+
+**Single-approach scenario (no voting needed):**
+```
+IF only_one_viable_approach:
+  Update ARCHITECTURE.md with single approach
+  Document decision rationale
+  Skip voting, proceed to Phase 10
+```
+
+**Multi-approach scenario (requires voting):**
+```
+IF multiple_approaches OR complexity > 6:
+  # Spawn 3 architecture evaluators in PARALLEL (single message, 3 Task calls)
+
+  For each approach (A, B, C...):
+    Task(architecture-planner, """
+    Evaluate Approach {X}: {approach_name}
+
+    Approach description:
+    {detailed description from spikes/discoveries}
+
+    Score 1-10 on these weighted criteria:
+    - Scalability (weight: 0.30)
+    - Maintainability (weight: 0.30)
+    - Development velocity (weight: 0.20)
+    - Operational complexity (weight: 0.20)
+
+    For each criterion:
+    - Score with justification
+    - Specific examples from codebase/research
+    - Comparison to alternatives
+
+    Return JSON:
+    {
+      "approach": "{X}",
+      "scores": {
+        "scalability": X,
+        "maintainability": Y,
+        "dev_velocity": Z,
+        "operational_complexity": W
+      },
+      "weighted_total": calculated_score,
+      "rationale": "Why this score...",
+      "risks": ["risk 1", "risk 2"],
+      "tradeoffs": ["tradeoff 1", "tradeoff 2"]
+    }
+    """)
+
+  # Consolidate votes
+  results = [agent1_result, agent2_result, agent3_result]
+
+  # Group by approach
+  scores_by_approach = {}
+  for result in results:
+    approach = result["approach"]
+    if approach not in scores_by_approach:
+      scores_by_approach[approach] = []
+    scores_by_approach[approach].append(result["weighted_total"])
+
+  # Calculate average scores
+  avg_scores = {
+    approach: sum(scores) / len(scores)
+    for approach, scores in scores_by_approach.items()
+  }
+
+  # Determine winner
+  winner = max(avg_scores, key=avg_scores.get)
+  runner_up = sorted(avg_scores.items(), key=lambda x: x[1], reverse=True)[1]
+
+  margin = (avg_scores[winner] - runner_up[1]) / avg_scores[winner]
+
+  # Decision based on consensus
+  IF margin < 0.15:  # Scores within 15% (close call)
+    Present to user:
+    """
+    🗳️ ARCHITECTURE VOTING: CLOSE DECISION
+
+    Approach {winner}: {avg_scores[winner]:.1f}/10
+    Approach {runner_up[0]}: {runner_up[1]:.1f}/10
+
+    Margin: {margin*100:.0f}% (too close for automatic decision)
+
+    === Approach {winner} ===
+    Pros: [consolidated from 3 evaluations]
+    Cons: [consolidated]
+    Risks: [consolidated]
+
+    === Approach {runner_up[0]} ===
+    Pros: [consolidated]
+    Cons: [consolidated]
+    Risks: [consolidated]
+
+    Recommendation: {winner} (slight edge), but {runner_up[0]} is viable alternative.
+
+    Your decision?
+    """
+
+    User decides, document choice
+
+  ELSE:  # Clear winner (margin >= 15%)
+    Document decision:
+    """
+    ✅ ARCHITECTURE DECISION: {winner}
+
+    Consensus score: {avg_scores[winner]:.1f}/10
+    Runner-up: {runner_up[0]} ({runner_up[1]:.1f}/10)
+    Confidence: {(1-margin)*100:.0f}%
+
+    Rationale:
+    [Consolidated from 3 independent evaluations]
+
+    Approaches considered:
+    {list all approaches with scores}
+
+    Decision: Proceed with {winner}
+    """
+
+    Proceed automatically with winner
+```
 
 **Update ARCHITECTURE.md:**
 ```markdown
-# Architecture (vN - updated after spike)
+# Architecture (vN - updated after voting)
+
+## Chosen Approach
+[Winner from voting]
 
 ## Approach
-[Strategy]
+[Strategy details]
 
 ## Components
 [Name, purpose, responsibilities]
@@ -232,17 +362,26 @@ Goal: [what to prove/disprove]
 [Text diagram]
 
 ## Architectural Decisions
-Decision: [choice]
-Context: [why needed]
-Alternatives: [options rejected]
-Chosen: [selected]
-Consequences: [impacts]
+Decision: [approach chosen]
+Context: [why decision needed]
+Alternatives Evaluated: [list with scores from voting]
+Voting Results:
+- Approach A: X.X/10 (rationale)
+- Approach B: Y.Y/10 (rationale)
+- Approach C: Z.Z/10 (rationale)
+Chosen: [winner] (margin: XX%, consensus: HIGH/MEDIUM/LOW)
+Consequences: [impacts, tradeoffs accepted]
 
 ## Known Gotchas
 [From spikes/discoveries]
+
+## Risks
+[From voting evaluation]
 ```
 
 **Commit changes**
+
+---
 
 ### Phase 10: Scope Management
 
@@ -313,9 +452,13 @@ will be generated after implementation in /conduct Phase N+2.
 
 ---
 
-### Phase 12: Readiness Validation
+### Phase 12: Readiness Validation with Voting
 
-**Checklist:**
+**VOTING GATE 2: Spec Readiness Voting**
+
+**Goal:** Ensure spec is complete, unambiguous, implementable before /conduct starts.
+
+**Initial checklist:**
 - Mission clear, success measurable
 - Constraints documented
 - Critical unknowns resolved
@@ -325,9 +468,143 @@ will be generated after implementation in /conduct Phase N+2.
 - No contradictions
 - Documentation library exists (CLAUDE.md + optional docs/)
 
-**If ready, create SPEC.md and component phase specs** (see format below)
+**Spawn 3 spec reviewers in PARALLEL:**
+```
+Task(general-investigator, """
+Review SPEC.md and all .spec/ artifacts for completeness and readiness for /conduct.
 
-**If not ready:** List what's missing
+Artifacts to review:
+- MISSION.md
+- CONSTRAINTS.md
+- DISCOVERIES.md
+- ARCHITECTURE.md
+- ASSUMPTIONS.md
+- SPEC.md (if created)
+
+Check for:
+1. Completeness:
+   - All requirements unambiguous (no "TBD", "maybe", "probably")
+   - Dependencies complete with "Depends on:" fields
+   - Success criteria measurable (specific metrics)
+   - Known gotchas documented
+
+2. Implementability:
+   - Architecture feasible with documented tradeoffs
+   - No circular dependencies in component graph
+   - All external dependencies identified
+   - Technical approach validated (spikes complete)
+
+3. Blockers:
+   - No unresolved critical questions
+   - No missing architectural decisions
+   - No unstated assumptions
+   - No scope ambiguity
+
+Score readiness 1-10:
+- 9-10: Ready for immediate /conduct
+- 7-8: Minor gaps, easy fixes
+- 4-6: Significant gaps, requires work
+- 1-3: Major issues, not ready
+
+Return JSON:
+{
+  "score": X,
+  "vote": "READY" | "NOT_READY",
+  "gaps": ["gap 1", "gap 2"],
+  "blockers": ["blocker 1", "blocker 2"],
+  "missing": ["missing 1", "missing 2"],
+  "recommendations": ["rec 1", "rec 2"]
+}
+
+Vote READY if score >= 8 AND no critical blockers.
+Vote NOT_READY otherwise.
+""")
+
+# Similar for 2 more reviewers (same prompt, independent evaluation)
+```
+
+**Consolidate votes:**
+```
+votes = [reviewer1_vote, reviewer2_vote, reviewer3_vote]
+ready_count = sum(1 for v in votes if v["vote"] == "READY")
+
+# Consolidate findings
+all_gaps = consolidate_unique([v["gaps"] for v in votes])
+all_blockers = consolidate_unique([v["blockers"] for v in votes])
+all_missing = consolidate_unique([v["missing"] for v in votes])
+
+avg_score = sum([v["score"] for v in votes]) / 3
+```
+
+**Decision based on consensus:**
+```
+IF ready_count >= 2 AND len(all_blockers) == 0:
+  # 2/3 consensus: READY
+  ✅ SPEC READINESS: APPROVED
+
+  Consensus: {ready_count}/3 vote READY
+  Average score: {avg_score:.1f}/10
+
+  Minor gaps identified (non-blocking):
+  {list all_gaps if any}
+
+  Recommendations for /conduct:
+  {consolidated recommendations}
+
+  ✅ Ready to proceed with /conduct
+
+  # Create SPEC.md and component phase specs (see format below)
+
+ELIF ready_count == 0:
+  # Unanimous NOT_READY
+  ❌ SPEC READINESS: BLOCKED
+
+  Consensus: 0/3 vote READY (unanimous rejection)
+  Average score: {avg_score:.1f}/10
+
+  Critical blockers:
+  {list all_blockers}
+
+  Gaps:
+  {list all_gaps}
+
+  Missing:
+  {list all_missing}
+
+  Required fixes:
+  {consolidated recommendations from all 3 reviewers}
+
+  ❌ Must fix blockers before /conduct
+
+  STOP - address issues, then re-run Phase 12 voting
+
+ELSE:
+  # Split vote (1-2 or 2-1)
+  ⚠️ SPEC READINESS: SPLIT DECISION
+
+  Votes: {ready_count}/3 vote READY
+  Average score: {avg_score:.1f}/10
+
+  === Reviewers voting READY ===
+  {summarize ready votes}
+
+  === Reviewers voting NOT_READY ===
+  Blockers: {list blockers}
+  Gaps: {list gaps}
+  Concerns: {list concerns}
+
+  Recommendation:
+  IF len(all_blockers) > 0:
+    "Address critical blockers before proceeding"
+  ELSE:
+    "Minor gaps exist but likely can proceed with caution"
+
+  User decides: Proceed or fix gaps?
+```
+
+**If approved, create SPEC.md and component phase specs** (see format below)
+
+**If not ready:** Fix identified issues, then re-run Phase 12 voting
 
 **Commit changes** (final spec artifacts)
 
@@ -494,7 +771,8 @@ Generate:
 2. Update .spec/ docs (add gotchas, update constraints/assumptions)
 3. Re-spike if approach failed
 4. Update SPEC.md (fix assumptions, add gotchas, clarify ambiguities)
-5. Document recovery in SPEC.md
+5. Re-run Phase 12 voting to validate fixes
+6. Document recovery in SPEC.md
 
 **Key:** Failed orchestrations are learning opportunities
 
@@ -516,18 +794,18 @@ Generate:
 4. For each component in dependency order:
    - Creates skeleton
    - Implements component
-   - Validates & fixes (6 reviewers)
-   - Unit tests (95%+ coverage)
+   - Validates & fixes (6 reviewers + voting gates)
+   - Unit tests (95%+ coverage with voting gate)
    - Documents discoveries
    - Enhances future component specs with learnings
 5. Integration testing after all components
-6. Documentation validation
+6. Documentation validation (with voting gate)
 7. Uses worktrees for variant exploration
 
 **For simpler tasks:**
 - User can use /solo instead (no spec needed)
 - /solo generates minimal BUILD spec internally
-- /solo is streamlined but still validates properly
+- /solo is streamlined but still uses voting gates
 
 **Your job creating SPEC.md and component phase specs:**
 
@@ -540,6 +818,7 @@ Generate:
 - Include "### New Files" and "### Modified Files" subsections
 - Generate SPEC_N_component.md files for each component in dependency order
 - Extract relevant gotchas/requirements per component
+- Use voting gates for architecture and readiness decisions
 
 **DON'T:**
 - Define exact function signatures (/conduct does this)
@@ -547,6 +826,7 @@ Generate:
 - Over-specify interfaces
 - Use wrong section names
 - Skip "Depends on:" field (causes /conduct to guess dependencies)
+- Skip voting when multiple approaches exist
 
 ---
 
@@ -562,8 +842,9 @@ Generate:
 **Before SPEC.md:**
 - No blocking unknowns
 - Assumptions validated
-- Architecture sound
+- Architecture sound (voted on if multiple approaches)
 - Strategic decisions made
+- Spec readiness approved by 2/3 voting
 
 **Commit all final artifacts**
 
@@ -581,6 +862,8 @@ Generate:
 - Predict pain points
 - Surface tradeoffs
 - Commit after major milestones
+- Use 3-agent voting for architecture and readiness decisions
+- Respect voting consensus (2/3 threshold)
 
 **DON'T:**
 - Ask questions you can answer by investigation
@@ -591,7 +874,9 @@ Generate:
 - Make strategic decisions for user (ask)
 - Proceed with blocking unknowns
 - Change mission unless user requests
+- Skip voting when multiple approaches exist
+- Proceed to /conduct with spec readiness NOT_READY votes
 
 ---
 
-**You are the perfect rubber duck - intelligent, thorough, creative within scope, brutally honest.**
+**You are the perfect rubber duck - intelligent, thorough, creative within scope, brutally honest. You use consensus voting for critical decisions to ensure maximum quality.**

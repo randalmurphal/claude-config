@@ -116,6 +116,126 @@ Skill: agent-prompting
 
 5. **Add to SPEC.md "Known Gotchas" section** if high-risk changes identified
 
+---
+
+#### GATE 3: Impact Analysis Voting
+
+**Trigger:** IF transitive_dependents > 10
+
+**Goal:** Multi-agent consensus on risk mitigation strategy for high-impact changes.
+
+**Process:**
+
+1. **Spawn 3 general-investigator agents in PARALLEL (single message with 3 Task calls):**
+
+   ```
+   Task(general-investigator, """
+   Analyze risk and mitigation strategy for high-impact changes.
+
+   Working directory: $WORK_DIR
+   Impact Analysis: $WORK_DIR/.spec/DISCOVERIES.md (Change Impact Analysis section)
+
+   Files to modify: {list}
+   Transitive dependents: {count} files
+   Critical dependencies: {list from impact report}
+
+   Evaluate risk level and vote on best mitigation strategy:
+
+   STRATEGIES:
+   A. BACKWARD_COMPATIBLE: Maintain full backward compatibility, deprecation path
+   B. COORDINATED_ROLLOUT: Breaking changes with coordinated deployment plan
+   C. INCREMENTAL_MIGRATION: Phase migration over multiple releases
+   D. REDESIGN_NEEDED: Impact too high, needs architectural redesign
+
+   Return JSON:
+   {
+     "voter_id": "investigator-1",
+     "risk_level": "HIGH|MEDIUM|LOW",
+     "strategy_vote": "A|B|C|D",
+     "reasoning": "Why this strategy is best",
+     "specific_concerns": ["concern1", "concern2"],
+     "mitigation_steps": ["step1", "step2"]
+   }
+   """)
+
+   # Spawn investigators 2 and 3 with same prompt but different voter_id
+   ```
+
+2. **Collect votes and determine consensus:**
+
+   ```
+   votes = [vote1, vote2, vote3]
+
+   # Count strategy votes
+   strategy_counts = count_votes(votes, 'strategy_vote')
+
+   IF any strategy has >= 2 votes (2/3 consensus):
+     winning_strategy = strategy_with_most_votes
+
+     Update DISCOVERIES.md:
+     ```markdown
+     ## Impact Analysis Voting Results
+
+     Transitive dependents: {count} (threshold exceeded)
+
+     Votes:
+     - Strategy A (BACKWARD_COMPATIBLE): {count} votes
+     - Strategy B (COORDINATED_ROLLOUT): {count} votes
+     - Strategy C (INCREMENTAL_MIGRATION): {count} votes
+     - Strategy D (REDESIGN_NEEDED): {count} votes
+
+     **CONSENSUS: {winning_strategy}** (2/3 threshold met)
+
+     Rationale:
+     {combined reasoning from winning voters}
+
+     Mitigation Steps:
+     {consolidated mitigation steps from all voters}
+
+     Risk Level: {most common risk_level from votes}
+     ```
+
+     Proceed with winning_strategy approach
+
+   ELSE (no 2/3 consensus):
+     ESCALATE to user:
+     ```
+     🚨 DECISION NEEDED: Impact Analysis Voting - No Consensus
+
+     Transitive Dependents: {count} files (high-impact change)
+
+     Votes:
+     - Investigator 1: Strategy {X} - {reasoning}
+     - Investigator 2: Strategy {Y} - {reasoning}
+     - Investigator 3: Strategy {Z} - {reasoning}
+
+     No strategy achieved 2/3 consensus.
+
+     Please choose:
+     A. BACKWARD_COMPATIBLE: {brief description from votes}
+     B. COORDINATED_ROLLOUT: {brief description from votes}
+     C. INCREMENTAL_MIGRATION: {brief description from votes}
+     D. REDESIGN_NEEDED: {brief description from votes}
+
+     Your choice: [wait for user input]
+     ```
+
+     Document user decision in DISCOVERIES.md
+   ```
+
+3. **Update SPEC.md with strategy:**
+   - Add winning strategy to "Implementation Approach" section
+   - Add mitigation steps to "Known Gotchas" section
+
+**Skip this gate if:**
+- New project (no existing code)
+- transitive_dependents <= 10 (low impact)
+- User explicitly says skip voting
+
+**Commit changes**
+
+---
+
 **Skip this phase if:**
 - New project (no existing code)
 - Only creating new files (no modifications to existing files)
@@ -436,7 +556,7 @@ Wave 3 (parallel - 2 independent tasks):
    Return JSON: {"status": "COMPLETE", "critical": [...], "important": [...], "minor": [...]}
    """)
 
-3. Fix issues (if found) - WITH INTELLIGENT FAILURE PATTERN DETECTION:
+3. Fix issues (if found) - WITH INTELLIGENT FAILURE PATTERN DETECTION AND VOTING:
    IF critical or important issues:
      # Track failure patterns across attempts
      failure_history = []
@@ -466,30 +586,10 @@ Wave 3 (parallel - 2 independent tasks):
 
        IF clean: Break
        IF attempt >= 2:
-         # INTELLIGENT PATTERN ANALYSIS
+         # CHECK FOR REPEATED ISSUE PATTERN
          IF same_issue_repeated(failure_history):
-           # Same issue after 2 attempts = architectural problem
-           issue_type = classify_issue(failure_history)
-
-           ESCALATE: """
-           🚨 BLOCKED: {Component} - Repeated Issue Pattern
-
-           Issue Type: {issue_type} (detected across {len(failure_history)} attempts)
-
-           Pattern: {describe_pattern(failure_history)}
-
-           Examples:
-           - Attempt 1: {failure_history[0]}
-           - Attempt 2: {failure_history[1]}
-
-           Root Cause Analysis:
-           {suggest_root_cause(issue_type, failure_history)}
-
-           Recommended Fixes:
-           {suggest_architectural_fix(issue_type)}
-
-           This requires architectural decision or different approach.
-           """
+           # GATE 4: Fix Strategy Voting
+           Trigger_Fix_Strategy_Voting()
          ELSE:
            # Different issues = making progress
            ESCALATE: "Multiple different issues after 2 attempts. Need human review."
@@ -502,6 +602,164 @@ Wave 3 (parallel - 2 independent tasks):
 
 NEXT task...
 ```
+
+---
+
+#### GATE 4: Fix Strategy Voting (Task-by-Task Loop)
+
+**Trigger:** IF same_issue_repeated(failure_history) after 2 fix attempts
+
+**Goal:** Multi-agent consensus on best approach when same issue persists.
+
+**Process:**
+
+1. **Spawn 3 general-investigator agents in PARALLEL:**
+
+   ```
+   Task(general-investigator, """
+   Analyze repeated fix failure and vote on best strategy.
+
+   Component: {component_name}
+   Task: {task_description}
+   Spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
+
+   Failure History (2 attempts):
+   Attempt 1: {failure_history[0]}
+   Attempt 2: {failure_history[1]}
+
+   Issue Classification:
+   {classify_issue(failure_history)}
+
+   The same issue has appeared in both fix attempts. Evaluate best strategy:
+
+   STRATEGIES:
+   - FIX_IN_PLACE: Issue is fixable with proper implementation, try different approach
+   - REFACTOR: Architectural/design issue, needs refactoring (extract function, DI, etc.)
+   - ESCALATE: Requires spec change or human decision (scope change, external dependency)
+
+   Return JSON:
+   {
+     "voter_id": "investigator-1",
+     "strategy_vote": "FIX_IN_PLACE|REFACTOR|ESCALATE",
+     "reasoning": "Why this strategy is best for this specific issue",
+     "issue_type": "circular_dependency|tight_coupling|complexity|type_error|other",
+     "root_cause": "What's actually causing the repeated failure",
+     "recommended_action": "Specific steps to resolve (if FIX_IN_PLACE or REFACTOR)",
+     "spec_change_needed": "boolean - true if ESCALATE"
+   }
+   """)
+
+   # Spawn investigators 2 and 3 with same prompt but different voter_id
+   ```
+
+2. **Collect votes and determine consensus:**
+
+   ```
+   votes = [vote1, vote2, vote3]
+
+   # Count strategy votes
+   strategy_counts = count_votes(votes, 'strategy_vote')
+
+   IF any strategy has >= 2 votes (2/3 consensus):
+     winning_strategy = strategy_with_most_votes
+
+     Document in DISCOVERIES.md:
+     ```markdown
+     ## Fix Strategy Voting: {task_name}
+
+     Issue: {issue_classification}
+     Repeated after 2 fix attempts
+
+     Votes:
+     - FIX_IN_PLACE: {count} votes
+     - REFACTOR: {count} votes
+     - ESCALATE: {count} votes
+
+     **CONSENSUS: {winning_strategy}** (2/3 threshold met)
+
+     Root Cause: {consolidated root_cause from winning voters}
+     Recommended Action: {consolidated recommended_action}
+     ```
+
+     IF winning_strategy == "FIX_IN_PLACE":
+       Task(fix-executor, """
+       Fix with alternative approach (attempt 3).
+
+       Strategy from voting: {consolidated recommended_action}
+       Root cause: {root_cause from votes}
+
+       [include all fix-executor standards]
+       """)
+
+       Re-run 2 reviewers
+       IF still failing: ESCALATE with voting results
+
+     ELIF winning_strategy == "REFACTOR":
+       Task(fix-executor, """
+       Refactor to resolve architectural issue.
+
+       Refactoring approach: {consolidated recommended_action}
+       Root cause: {root_cause from votes}
+
+       Load code-refactoring skill if needed.
+       [include all fix-executor standards]
+       """)
+
+       Re-run 2 reviewers
+       IF still failing: ESCALATE with voting results
+
+     ELIF winning_strategy == "ESCALATE":
+       ESCALATE: """
+       🚨 BLOCKED: {Component} - {Task} - Architectural Decision Needed
+
+       Issue Type: {most_common issue_type from votes}
+       Root Cause: {consolidated root_cause}
+
+       Voting Results:
+       - 2/3 investigators voted ESCALATE
+
+       Attempts Made:
+       - Attempt 1: {failure_history[0]}
+       - Attempt 2: {failure_history[1]}
+
+       Spec Change Needed: {spec_change_needed from votes}
+
+       Recommended Path Forward:
+       {consolidated recommended_action from voters}
+
+       Please decide on approach or modify spec.
+       """
+
+   ELSE (no 2/3 consensus):
+     ESCALATE to user:
+     ```
+     🚨 DECISION NEEDED: Fix Strategy Voting - No Consensus
+
+     Component: {component_name}
+     Task: {task_name}
+
+     Same issue repeated 2 times:
+     {failure_history}
+
+     Votes:
+     - Investigator 1: {strategy} - {reasoning}
+     - Investigator 2: {strategy} - {reasoning}
+     - Investigator 3: {strategy} - {reasoning}
+
+     No strategy achieved 2/3 consensus.
+
+     Please choose:
+     A. FIX_IN_PLACE: Try different implementation approach
+     B. REFACTOR: Refactor to resolve architectural issue
+     C. ESCALATE: I'll make a decision/spec change
+
+     Your choice: [wait for user input]
+     ```
+
+     Document user decision in DISCOVERIES.md
+   ```
+
+---
 
 **Common failure patterns to detect:**
 - **Circular dependency**: Same circular import error → suggest dependency inversion or interface extraction
@@ -597,7 +855,7 @@ Focus: docstring coverage, comment quality, variable naming, function naming.
 - Consolidate critical + important + minor
 - Deduplicate issues
 
-**Fix ALL issues (max 3 attempts with pattern detection):**
+**Fix ALL issues (max 3 attempts with pattern detection and voting):**
 ```
 failure_history = []
 
@@ -632,15 +890,30 @@ LOOP until validation clean:
   3. IF clean: Break
      IF new issues AND attempt < 3: Continue loop
      IF attempt >= 3:
-       # INTELLIGENT PATTERN ANALYSIS
+       # CHECK FOR REPEATED ISSUE PATTERN
        IF same_issues_repeated(failure_history):
-         pattern = analyze_failure_pattern(failure_history)
-         ESCALATE with pattern analysis and architectural recommendations
+         # GATE 4: Fix Strategy Voting (Full Validation Loop)
+         Trigger_Fix_Strategy_Voting()
        ELSE:
          ESCALATE: "Different issues across 3 attempts, need review"
 
   4. Update PROGRESS.md with validation status
 ```
+
+---
+
+#### GATE 4: Fix Strategy Voting (Full Validation Loop)
+
+**Trigger:** IF same_issues_repeated(failure_history) after 3 fix attempts
+
+**Process:** Same as GATE 4 in Task-by-Task loop, but applied to full component validation issues.
+
+**Adjustments:**
+- Context: "Full component validation" instead of specific task
+- Issues: Consolidated issues from linting + 6 reviewers
+- Scope: May involve multiple functions/classes across component
+
+---
 
 **Validation complete criteria:**
 - ✅ Zero linting errors
@@ -649,6 +922,152 @@ LOOP until validation clean:
 - ✅ All minor issues fixed (or documented why skipped)
 
 **Commit changes** (pre-commit validation runs)
+
+---
+
+#### GATE 5: Component Production-Readiness Voting
+
+**Trigger:** After Step 3 (Full Component Validation) passes - ALL fixes applied
+
+**Goal:** Multi-agent consensus on whether component is truly production-ready.
+
+**Process:**
+
+1. **Spawn 3 code-reviewer agents in PARALLEL:**
+
+   ```
+   Task(code-reviewer, """
+   Vote on production readiness for {component}.
+
+   Component: {component_name}
+   Spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
+   Workflow: conduct
+
+   Component has passed:
+   - Task-by-task implementation with 2 reviewers per task
+   - Full component validation (linting + 6 reviewers)
+   - All critical/important/minor fixes applied
+
+   Evaluate if component is TRULY production-ready:
+
+   VOTE OPTIONS:
+   - PRODUCTION_READY: Code is solid, well-tested logic, maintainable, follows standards
+   - NEEDS_WORK: Passes validation but has concerns (code smells, maintainability issues)
+   - RISKY: Technical debt, unclear logic, or fragile implementation despite passing checks
+
+   Return JSON:
+   {
+     "voter_id": "reviewer-1",
+     "vote": "PRODUCTION_READY|NEEDS_WORK|RISKY",
+     "reasoning": "Why this vote",
+     "concerns": ["concern1", "concern2"] (if NEEDS_WORK or RISKY),
+     "blocking_issues": ["issue1"] (if RISKY - must fix before production),
+     "nice_to_haves": ["improvement1"] (if NEEDS_WORK - recommended but not blocking)
+   }
+
+   Load python-style skill.
+
+   Read component: {component_file}
+   Read spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
+   """)
+
+   # Spawn reviewers 2 and 3 with same prompt but different voter_id
+   ```
+
+2. **Collect votes and determine consensus:**
+
+   ```
+   votes = [vote1, vote2, vote3]
+
+   # Count votes
+   vote_counts = count_votes(votes, 'vote')
+
+   IF any vote has >= 2 (2/3 consensus):
+     winning_vote = vote_with_most_votes
+
+     Document in DISCOVERIES.md:
+     ```markdown
+     ## Production Readiness Voting: {component_name}
+
+     Votes:
+     - PRODUCTION_READY: {count} votes
+     - NEEDS_WORK: {count} votes
+     - RISKY: {count} votes
+
+     **CONSENSUS: {winning_vote}** (2/3 threshold met)
+
+     Reasoning: {consolidated reasoning from winning voters}
+     ```
+
+     IF winning_vote == "PRODUCTION_READY":
+       # Great! Component approved
+       Update PROGRESS.md: Component PRODUCTION_READY
+       Proceed to Step 4 (Enhance Future Phase Specs)
+
+     ELIF winning_vote == "NEEDS_WORK":
+       # Non-blocking concerns
+       Document nice-to-haves in DISCOVERIES.md:
+       ```markdown
+       ### Nice-to-Have Improvements
+       {consolidated nice_to_haves from voters}
+       ```
+
+       Update PROGRESS.md: Component PRODUCTION_READY (with recommendations)
+       Proceed to Step 4 (Enhance Future Phase Specs)
+
+     ELIF winning_vote == "RISKY":
+       # Blocking issues
+       blocking = consolidate_blocking_issues(votes)
+
+       Task(fix-executor, """
+       Fix blocking production-readiness issues.
+
+       Component: {component_name}
+       Spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
+
+       Blocking Issues (2/3 reviewers flagged as RISKY):
+       {blocking_issues}
+
+       These must be fixed before production deployment.
+
+       Load python-style skill.
+       Load code-refactoring skill if needed.
+
+       [include all fix-executor standards]
+       """)
+
+       # Re-run GATE 5 voting after fixes
+       Re_trigger_Production_Readiness_Voting()
+
+   ELSE (no 2/3 consensus):
+     ESCALATE to user:
+     ```
+     🚨 DECISION NEEDED: Production Readiness Voting - No Consensus
+
+     Component: {component_name}
+
+     All validation passed, but reviewers disagree on production readiness:
+
+     Votes:
+     - Reviewer 1: {vote} - {reasoning}
+       Concerns: {concerns}
+     - Reviewer 2: {vote} - {reasoning}
+       Concerns: {concerns}
+     - Reviewer 3: {vote} - {reasoning}
+       Concerns: {concerns}
+
+     No vote achieved 2/3 consensus.
+
+     Please decide:
+     A. PRODUCTION_READY: Deploy as-is
+     B. NEEDS_WORK: Note concerns, deploy anyway
+     C. RISKY: Fix blocking issues first
+
+     Your choice: [wait for user input]
+     ```
+
+     Document user decision in DISCOVERIES.md
+   ```
 
 ---
 
@@ -688,6 +1107,7 @@ For each remaining phase spec (SPEC_{M}_{component}.md where M > N):
 - ✅ Skeleton created (prod + test)
 - ✅ All tasks implemented and validated
 - ✅ Full component validation passed
+- ✅ Production-readiness voting approved (GATE 5)
 - ✅ Discoveries documented
 - ✅ Future phase specs enhanced
 
@@ -698,6 +1118,7 @@ For each remaining phase spec (SPEC_{M}_{component}.md where M > N):
 Files: X created, Y modified
 Tasks: Z completed
 Quality: All validation passed
+Production Readiness: {PRODUCTION_READY|PRODUCTION_READY with recommendations}
 Discoveries: [brief summary]
 
 Ready for dependent components.
@@ -788,9 +1209,167 @@ IF validation_result contains CRITICAL or IMPORTANT issues:
   """)
 ```
 
+---
+
+#### GATE 7: Documentation Quality Voting
+
+**Trigger:** After documentation-reviewer fixes applied (if any)
+
+**Goal:** Multi-agent consensus on documentation production-readiness.
+
+**Process:**
+
+1. **Spawn 3 general-builder agents in PARALLEL:**
+
+   ```
+   Task(general-builder, """
+   Vote on documentation quality and production-readiness.
+
+   Working directory: $WORK_DIR
+   Spec: $WORK_DIR/.spec/SPEC.md
+   Workflow: conduct
+
+   Documentation has been:
+   - Validated by documentation-reviewer
+   - Fixed for all CRITICAL/IMPORTANT issues
+   - Enhanced with .spec/DISCOVERIES.md learnings
+
+   Evaluate if documentation is TRULY production-ready:
+
+   VOTE OPTIONS:
+   - PRODUCTION_READY: Accurate, complete, clear, maintainable
+   - GAPS_EXIST: Validated but missing important context/examples/explanations
+   - INACCURATE: Contains errors, outdated info, or contradictions despite fixes
+
+   Return JSON:
+   {
+     "voter_id": "builder-1",
+     "vote": "PRODUCTION_READY|GAPS_EXIST|INACCURATE",
+     "reasoning": "Why this vote",
+     "specific_gaps": ["gap1", "gap2"] (if GAPS_EXIST),
+     "inaccuracies": ["error1", "error2"] (if INACCURATE),
+     "examples_checked": ["example1", "example2"] (which examples you verified)
+   }
+
+   Load ai-documentation skill.
+
+   Read all .md files in $WORK_DIR
+   Read validation report: $WORK_DIR/.spec/DOC_VALIDATION_REPORT.json (if exists)
+   """)
+
+   # Spawn builders 2 and 3 with same prompt but different voter_id
+   ```
+
+2. **Collect votes and determine consensus:**
+
+   ```
+   votes = [vote1, vote2, vote3]
+
+   # Count votes
+   vote_counts = count_votes(votes, 'vote')
+
+   IF any vote has >= 2 (2/3 consensus):
+     winning_vote = vote_with_most_votes
+
+     Document in DISCOVERIES.md:
+     ```markdown
+     ## Documentation Quality Voting
+
+     Votes:
+     - PRODUCTION_READY: {count} votes
+     - GAPS_EXIST: {count} votes
+     - INACCURATE: {count} votes
+
+     **CONSENSUS: {winning_vote}** (2/3 threshold met)
+
+     Reasoning: {consolidated reasoning from winning voters}
+     ```
+
+     IF winning_vote == "PRODUCTION_READY":
+       # Great! Docs approved
+       Update PROGRESS.md: Documentation PRODUCTION_READY
+       Proceed to Phase N+2 (Testing)
+
+     ELIF winning_vote == "GAPS_EXIST":
+       # Need to fill gaps
+       gaps = consolidate_gaps(votes)
+
+       Task(general-builder, """
+       Fill documentation gaps.
+
+       Working directory: $WORK_DIR
+       Spec: $WORK_DIR/.spec/SPEC.md
+
+       Gaps identified by 2/3 builders:
+       {specific_gaps}
+
+       Add missing context, examples, explanations.
+
+       Load ai-documentation skill.
+
+       [include all general-builder standards]
+       """)
+
+       # Re-run GATE 7 voting after gaps filled
+       Re_trigger_Documentation_Quality_Voting()
+
+     ELIF winning_vote == "INACCURATE":
+       # Errors remain despite fixes
+       inaccuracies = consolidate_inaccuracies(votes)
+
+       Task(general-builder, """
+       Fix documentation inaccuracies.
+
+       Working directory: $WORK_DIR
+       Spec: $WORK_DIR/.spec/SPEC.md
+
+       Inaccuracies identified by 2/3 builders:
+       {inaccuracies}
+
+       These were missed by previous validation/fixes.
+
+       Load ai-documentation skill.
+
+       [include all general-builder standards]
+       """)
+
+       # Re-run GATE 7 voting after inaccuracies fixed
+       Re_trigger_Documentation_Quality_Voting()
+
+   ELSE (no 2/3 consensus):
+     ESCALATE to user:
+     ```
+     🚨 DECISION NEEDED: Documentation Quality Voting - No Consensus
+
+     Documentation validated and fixed, but builders disagree on quality:
+
+     Votes:
+     - Builder 1: {vote} - {reasoning}
+       Issues: {specific_gaps or inaccuracies}
+     - Builder 2: {vote} - {reasoning}
+       Issues: {specific_gaps or inaccuracies}
+     - Builder 3: {vote} - {reasoning}
+       Issues: {specific_gaps or inaccuracies}
+
+     No vote achieved 2/3 consensus.
+
+     Please decide:
+     A. PRODUCTION_READY: Docs are good enough
+     B. GAPS_EXIST: Fill identified gaps
+     C. INACCURATE: Fix identified errors
+
+     Your choice: [wait for user input]
+     ```
+
+     Document user decision in DISCOVERIES.md
+   ```
+
+---
+
 **Documentation validation complete criteria:**
 - ✅ All .md files reviewed
 - ✅ No CRITICAL or IMPORTANT issues remaining
+- ✅ Documentation quality voting passed (GATE 7)
 - ✅ .spec/DISCOVERIES.md learnings merged into permanent docs
 - ✅ File:line references accurate
 - ✅ Function signatures match code
@@ -852,6 +1431,8 @@ LOOP until tests pass with coverage:
      pytest tests/unit/ --cov=$WORK_DIR --cov-report=term-missing -v
 
   2. IF passing + coverage >= 95%:
+       # Proceed to GATE 6
+       Trigger_Test_Coverage_Adequacy_Voting()
        Break
 
   3. IF failed:
@@ -878,6 +1459,168 @@ LOOP until tests pass with coverage:
 
   4. IF attempt > 3: ESCALATE with failure details
 ```
+
+---
+
+#### GATE 6: Test Coverage Adequacy Voting
+
+**Trigger:** After tests pass + coverage >= 95%
+
+**Goal:** Multi-agent consensus on whether test coverage is truly adequate (not just meeting percentage threshold).
+
+**Process:**
+
+1. **Spawn 3 code-reviewer agents in PARALLEL:**
+
+   ```
+   Task(code-reviewer, """
+   Vote on test coverage adequacy for {component}.
+
+   Component: {component_name}
+   Spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
+   Workflow: conduct
+
+   Tests PASS with {coverage_percentage}% coverage (>= 95% threshold).
+
+   Evaluate if tests are TRULY adequate:
+
+   VOTE OPTIONS:
+   - ADEQUATE: Coverage meaningful, tests verify behavior, edge cases covered
+   - NEEDS_MORE_TESTS: Percentage met but missing critical scenarios/edge cases
+   - WEAK_TESTS: Tests exist but don't verify behavior properly (trivial assertions, poor mocking)
+
+   Return JSON:
+   {
+     "voter_id": "reviewer-1",
+     "vote": "ADEQUATE|NEEDS_MORE_TESTS|WEAK_TESTS",
+     "reasoning": "Why this vote",
+     "missing_scenarios": ["scenario1", "scenario2"] (if NEEDS_MORE_TESTS),
+     "weak_tests": ["test1", "test2"] (if WEAK_TESTS - which tests are weak and why),
+     "edge_cases_checked": ["case1", "case2"] (which edge cases you verified are tested)
+   }
+
+   Load testing-standards skill.
+
+   Read production code: {component_file}
+   Read tests: tests/unit/test_{component}.py
+   Read coverage report: {coverage_output}
+   """)
+
+   # Spawn reviewers 2 and 3 with same prompt but different voter_id
+   ```
+
+2. **Collect votes and determine consensus:**
+
+   ```
+   votes = [vote1, vote2, vote3]
+
+   # Count votes
+   vote_counts = count_votes(votes, 'vote')
+
+   IF any vote has >= 2 (2/3 consensus):
+     winning_vote = vote_with_most_votes
+
+     Document in DISCOVERIES.md:
+     ```markdown
+     ## Test Coverage Adequacy Voting: {component_name}
+
+     Coverage: {coverage_percentage}% (>= 95%)
+
+     Votes:
+     - ADEQUATE: {count} votes
+     - NEEDS_MORE_TESTS: {count} votes
+     - WEAK_TESTS: {count} votes
+
+     **CONSENSUS: {winning_vote}** (2/3 threshold met)
+
+     Reasoning: {consolidated reasoning from winning voters}
+     ```
+
+     IF winning_vote == "ADEQUATE":
+       # Great! Tests approved
+       Update PROGRESS.md: Component tests ADEQUATE
+       Proceed to next component or integration testing
+
+     ELIF winning_vote == "NEEDS_MORE_TESTS":
+       # Missing scenarios
+       missing = consolidate_missing_scenarios(votes)
+
+       Task(test-implementer, """
+       Add missing test scenarios.
+
+       Component: {component_name}
+       Spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
+
+       Missing scenarios (identified by 2/3 reviewers):
+       {missing_scenarios}
+
+       Add tests for these scenarios, maintain 95%+ coverage.
+
+       Load testing-standards skill.
+
+       [include all test-implementer standards]
+       """)
+
+       Run tests again
+       # Re-run GATE 6 voting after new tests added
+       Re_trigger_Test_Coverage_Adequacy_Voting()
+
+     ELIF winning_vote == "WEAK_TESTS":
+       # Tests don't verify behavior properly
+       weak = consolidate_weak_tests(votes)
+
+       Task(test-implementer, """
+       Strengthen weak tests.
+
+       Component: {component_name}
+       Spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
+
+       Weak tests (identified by 2/3 reviewers):
+       {weak_tests}
+
+       Improve assertions, mocking, behavior verification.
+
+       Load testing-standards skill.
+
+       [include all test-implementer standards]
+       """)
+
+       Run tests again
+       # Re-run GATE 6 voting after tests strengthened
+       Re_trigger_Test_Coverage_Adequacy_Voting()
+
+   ELSE (no 2/3 consensus):
+     ESCALATE to user:
+     ```
+     🚨 DECISION NEEDED: Test Coverage Adequacy Voting - No Consensus
+
+     Component: {component_name}
+     Coverage: {coverage_percentage}% (passes 95% threshold)
+
+     Reviewers disagree on test adequacy:
+
+     Votes:
+     - Reviewer 1: {vote} - {reasoning}
+       Issues: {missing_scenarios or weak_tests}
+     - Reviewer 2: {vote} - {reasoning}
+       Issues: {missing_scenarios or weak_tests}
+     - Reviewer 3: {vote} - {reasoning}
+       Issues: {missing_scenarios or weak_tests}
+
+     No vote achieved 2/3 consensus.
+
+     Please decide:
+     A. ADEQUATE: Tests are good enough
+     B. NEEDS_MORE_TESTS: Add missing scenarios
+     C. WEAK_TESTS: Strengthen test quality
+
+     Your choice: [wait for user input]
+     ```
+
+     Document user decision in DISCOVERIES.md
+   ```
+
+---
 
 **Commit changes** (pre-commit validation runs)
 
@@ -1067,6 +1810,7 @@ Workflow: conduct
 - Architectural decisions needed
 - Critical security unfixable
 - External deps missing
+- Voting gate reaches no consensus and requires user decision
 
 **Format:**
 ```
@@ -1075,6 +1819,7 @@ Workflow: conduct
 Issue: [description]
 Attempts: [what tried]
 Pattern Detected: [if applicable - repeated failure analysis]
+Voting Results: [if applicable - gate voting breakdown]
 Need: [specific question]
 Options: [A, B, C with implications]
 Recommendation: [your suggestion]
@@ -1087,16 +1832,21 @@ Recommendation: [your suggestion]
 **DO:**
 - Require .spec/SPEC.md
 - Run change impact analysis (Phase 3)
+- Run GATE 3 (Impact Analysis Voting) if transitive_dependents > 10
 - Verify dependencies match reality (Phase 4)
 - Batch independent tasks for parallel execution
 - Detect intelligent failure patterns in fix loops
+- Run GATE 4 (Fix Strategy Voting) when same issue repeats
 - Generate SPEC_N_component.md files if not exist
 - Execute per-component: Skeleton (sequential) → Task-by-Task Impl (2 reviewers per task) → Full Validation (6 reviewers)
+- Run GATE 5 (Component Production-Readiness Voting) after full validation passes
 - Update PROGRESS.md + DISCOVERIES.md throughout
-- Parallelize: reviewers, independent tasks, independent component tests
+- Parallelize: reviewers, independent tasks, independent component tests, voting gates
 - Enhance future phase specs with discoveries
 - Documentation phase BEFORE testing
+- Run GATE 7 (Documentation Quality Voting) after doc fixes
 - Testing ONLY if user requested
+- Run GATE 6 (Test Coverage Adequacy Voting) after tests pass with 95%+ coverage
 - Archive .spec/ files after completion
 - Commit after major steps (with pre-commit validation)
 
@@ -1104,6 +1854,7 @@ Recommendation: [your suggestion]
 - Proceed without SPEC.md
 - Skip dependency verification (Phase 4)
 - Skip per-task validation (2 reviewers required)
+- Skip voting gates when triggered
 - Move to next component with failing validation
 - Run tests unless user requested
 - Let sub-agents spawn sub-agents
@@ -1113,4 +1864,4 @@ Recommendation: [your suggestion]
 
 ---
 
-**You are the conductor. Analyze impact, verify dependencies, batch parallel work, detect patterns, execute incrementally with validation at each step, deliver working system.**
+**You are the conductor. Analyze impact with voting when high-risk, verify dependencies, batch parallel work, detect patterns, execute incrementally with validation at each step, use voting gates for critical decisions, deliver working system.**

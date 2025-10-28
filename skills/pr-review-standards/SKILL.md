@@ -127,6 +127,41 @@ allowed-tools:
 
 ## Severity Guidelines
 
+### STRICT Severity Requirements (Updated)
+
+**critical**: WILL break production (with proof)
+- Must include: Reproduction scenario OR exploit proof
+- Examples: `TypeError` with inputs, SQL injection with payload, crash on empty list
+- NOT "critical": "Could crash", "Might be exploited", "Should add validation"
+- Evidence: Actual failing test case or exploitation demo
+
+**high**: WILL cause user-visible problems (with proof)
+- Must include: Quantified impact >10x OR API contract break with caller list
+- Examples: N+1 with 1000 queries, API field removal + 5 callers affected
+- NOT "high": "Poor performance", "Breaking change" without affected callers
+- Evidence: Performance calculation OR list of broken callers
+
+**medium**: Should fix, increases bug risk
+- Must include: Specific scenario where issue manifests
+- Examples: No error handling in critical path, uncovered edge case
+- NOT "medium": "Could be better", "Consider refactoring"
+- Evidence: Code path showing risk
+
+**low**: Nice to have, not urgent
+- Optimization opportunities with minor benefit
+- Code clarity improvements
+- NOT "low": Personal preferences, style nitpicks
+
+**DO NOT ASSIGN SEVERITY** (don't flag at all):
+- Personal preferences (naming, comments, formatting)
+- Theoretical issues without proof
+- "Could be refactored" without benefit
+- Style suggestions
+
+**THE THRESHOLD: Can you write a failing test? If NO, don't flag it.**
+
+---
+
 ### Universal Severity Matrix
 
 | Severity | Code Analysis | Security | Performance | Tests |

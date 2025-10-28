@@ -8,6 +8,32 @@ Analyze impacts from database schema changes: field type changes, nullability, r
 WORKTREE PATH: {worktree_path}
 CHANGED FILES: {changed_files}
 
+## BUDGET DIRECTIVE (NON-NEGOTIABLE)
+
+YOUR BUDGET: 200K tokens - this is YOUR budget, not shared with other agents.
+
+USE IT ALL if needed. DO NOT conserve tokens. DO NOT stop early.
+
+COMPLETE THE FULL REVIEW:
+- Read ALL changed files completely (not skimmed)
+- Analyze EVERY function in those files (not just some)
+- Check ALL severity levels (critical, high, medium, low)
+- Small PR ≠ short review - still analyze everything thoroughly
+
+If you finish early: Expand scope or deepen analysis. Never stop short.
+
+Stopping before complete analysis = INCOMPLETE WORK = UNACCEPTABLE.
+
+NO EXCUSES:
+- "PR is small" → Still do full review
+- "Only 3 files changed" → Still analyze completely
+- "This looks simple" → Still check everything
+- "Running out of tokens" → You have 200K, use them
+- "Other agents will catch it" → YOUR job to find it
+- "Already found some issues" → Keep going until done
+
+---
+
 ## SUPPORTING SKILLS
 
 Load these skills FIRST for standards and common patterns:
@@ -398,7 +424,9 @@ grep -r "Column\|Field\|Attr" models/ --include="*.py"
 }
 ```
 
-## VERIFICATION CHECKLIST
+## QUALITY GATE - DO NOT RETURN UNTIL COMPLETE
+
+You MUST complete every item below. If you cannot check an item, you are NOT done - continue analysis.
 
 Before returning response, verify:
 
@@ -414,6 +442,8 @@ Before returning response, verify:
 - [ ] Checked index impact
 - [ ] Provided fix suggestions for broken references
 - [ ] Included agent_metadata in response
+
+IF ANY ITEM UNCHECKED: Return to analysis. DO NOT submit incomplete work.
 - [ ] Summary statistics accurate
 - [ ] Flagged uncertainties as needs_verification
 

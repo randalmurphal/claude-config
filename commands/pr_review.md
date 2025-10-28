@@ -317,7 +317,7 @@ RETURN JSON:
 CRITICAL: Read entire comment threads (original + all replies). Don't just look at top-level comments.
 
 BUDGET DIRECTIVE: Use full token budget if needed. Don't skip analysis.
-""")
+""", max_tokens=None)
 
     # Parse result
     mr_comment_analysis = result
@@ -342,21 +342,6 @@ BUDGET DIRECTIVE: Use full token budget if needed. Don't skip analysis.
 **CRITICAL: All agent prompts MUST include these directives:**
 
 ```
-BUDGET DIRECTIVE (NON-NEGOTIABLE):
-
-You have a 200K token budget. USE IT ALL if needed.
-
-DO NOT stop short. DO NOT conserve tokens. DO NOT skip analysis.
-
-If you're running long:
-- Prioritize critical findings first
-- But DO NOT skip medium/low severity analysis
-- Complete the FULL review, every time, no exceptions
-
-Stopping short = incomplete review = unacceptable.
-
----
-
 SCOPING RULES (MANDATORY):
 
 You are reviewing PR changes for ticket: {ticket}
@@ -454,7 +439,7 @@ Task(general-investigator, code_tmpl.format(
     mr_comment_analysis=mr_comment_analysis if mr_comments else "No comment analysis",
     ticket_content=ticket_content or "No ticket available",  # NEW: Ticket scope
     full_diff=full_diff  # NEW: Git diff to distinguish new vs existing
-))
+), max_tokens=None)
 
 Task(security-auditor, sec_tmpl.format(
     worktree_path=worktree,
@@ -463,7 +448,7 @@ Task(security-auditor, sec_tmpl.format(
     mr_comment_analysis=mr_comment_analysis if mr_comments else "No comment analysis",
     ticket_content=ticket_content or "No ticket available",  # NEW: Ticket scope
     full_diff=full_diff  # NEW: Git diff to distinguish new vs existing
-))
+), max_tokens=None)
 
 Task(performance-optimizer, perf_tmpl.format(
     worktree_path=worktree,
@@ -472,7 +457,7 @@ Task(performance-optimizer, perf_tmpl.format(
     mr_comment_analysis=mr_comment_analysis if mr_comments else "No comment analysis",
     ticket_content=ticket_content or "No ticket available",  # NEW: Ticket scope
     full_diff=full_diff  # NEW: Git diff to distinguish new vs existing
-))
+), max_tokens=None)
 
 Task(general-investigator, test_tmpl.format(
     worktree_path=worktree,
@@ -481,7 +466,7 @@ Task(general-investigator, test_tmpl.format(
     mr_comment_analysis=mr_comment_analysis if mr_comments else "No comment analysis",
     ticket_content=ticket_content or "No ticket available",  # NEW: Ticket scope
     full_diff=full_diff  # NEW: Git diff to distinguish new vs existing
-))
+), max_tokens=None)
 ```
 
 **Agent outputs:**
@@ -598,7 +583,7 @@ Task(general-investigator, req_tmpl.format(
     ticket_content=ticket_content if ticket_content else "NO TICKET DATA - Perform code-only quality review",
     changed_files='\n'.join(code_files + test_files),
     full_diff=full_diff
-))
+), max_tokens=None)
 
 # NOTE: req_tmpl MUST instruct agent to:
 # - If ticket data exists: Check ALL ticket sections (Description, Acceptance Criteria, Developer Checklist, Test Plan, Comments, Related Tickets)
@@ -609,20 +594,20 @@ Task(general-investigator, req_tmpl.format(
 Task(general-investigator, ripple_breaking_tmpl.format(
     worktree_path=worktree,
     changed_files='\n'.join(code_files)
-))
+), max_tokens=None)
 
 # 3. Ripple effect analysis - integration points
 Task(general-investigator, ripple_integration_tmpl.format(
     worktree_path=worktree,
     changed_files='\n'.join(code_files)
-))
+), max_tokens=None)
 
 # 4. DB field usage compatibility (only if DB changes)
 if migration_files or context_analysis['has_db_changes']:
     Task(general-investigator, ripple_db_tmpl.format(
         worktree_path=worktree,
         changed_files='\n'.join(code_files + migration_files)
-    ))
+    ), max_tokens=None)
 ```
 
 **Tag Round 2 outputs:**
@@ -656,7 +641,7 @@ for finding in critical_findings:
         original_agent_reasoning=finding.agent_metadata,  # NEW: Pass original reasoning
         original_agent_name=finding.agent_name,           # NEW: Which agent found this
         changed_files='\n'.join(code_files + test_files)
-    ))
+    ), max_tokens=None)
 ```
 
 **Verifier outputs:**
@@ -794,7 +779,7 @@ Expected output format:
 }}}}
 
 Return valid JSON only - no prose, no markdown.
-""")
+""", max_tokens=None)
 
 # Investigator 2: Focus on data flow and state management
 Task(general-investigator, f"""
@@ -841,7 +826,7 @@ Expected output format:
 }}}}
 
 Return valid JSON only - no prose, no markdown.
-""")
+""", max_tokens=None)
 
 # Investigator 3: Focus on observability and debugging
 Task(general-investigator, f"""
@@ -888,7 +873,7 @@ Expected output format:
 }}}}
 
 Return valid JSON only - no prose, no markdown.
-""")
+""", max_tokens=None)
 ```
 
 **Why second pass?**
@@ -1016,6 +1001,139 @@ Your evidence must include actual code snippet from the worktree.
 
 ---
 
+## Phase 11.5: Final Reasonableness Filter
+
+**Last sanity check before returning to user - filter out garbage:**
+
+```python
+# After all verification, contradiction resolution, and deep investigation
+# One final filter to remove findings that aren't worth the user's time
+
+Task(general-investigator, f"""
+You are the FINAL REASONABLENESS FILTER.
+
+Your job: Remove findings that waste the user's time.
+
+**LOAD SKILLS FIRST:**
+- pr-review-common-patterns (has DO NOT FLAG list)
+- pr-review-standards (has severity thresholds)
+
+ALL FINDINGS (post-verification):
+{json.dumps(all_findings, indent=2)}
+
+YOUR JOB: Aggressively remove findings that are:
+
+**1. Personal Preferences** (ALWAYS remove):
+- Variable naming style ("data" vs "result")
+- Comment style ("TODO" vs "FIXME")
+- Import ordering
+- Formatting/whitespace preferences
+- Single vs double quotes
+
+**2. Style Nitpicks** (ALWAYS remove):
+- Line length <5 chars over limit
+- Missing docstrings on private functions
+- "Not descriptive enough" variable names
+- Obvious "magic numbers" (port 443, HTTP 200)
+- "Could be more Pythonic"
+
+**3. Theoretical Issues** (ALWAYS remove):
+- "Could be problematic" without reproduction
+- "Might cause issues if..." without demonstrating the "if"
+- "Should validate this" without proving unvalidated input reaches danger
+- "Consider refactoring" without concrete benefit
+- "This looks wrong" without evidence
+
+**4. Not Project Standards** (remove if not enforced):
+- Missing type hints (if project doesn't require them)
+- Line length violations (if project allows longer lines)
+- Naming conventions (if no project standard)
+
+**KEEP findings that are:**
+
+**1. WILL Break Production:**
+- Crashes with reproduction scenario
+- `TypeError`, `AttributeError`, `KeyError` with inputs
+- Division by zero with empty list proof
+- Data corruption with scenario
+
+**2. Security Vulnerabilities:**
+- SQL injection with exploit proof
+- Auth bypass with demonstration
+- Hardcoded secrets (actual secrets, not placeholders)
+- PII in logs (actual PII fields)
+
+**3. Breaking Changes:**
+- API contract changes with list of affected callers
+- Function signature changes with caller analysis
+- Behavior changes that break consumers
+
+**4. Significant Performance Issues:**
+- >10x regression with calculation
+- N+1 queries with quantified impact (1000 users = 1000 queries)
+- O(n) → O(n²) with calculation
+- Removed caching with 100x+ impact
+
+**THE TEST:**
+For EACH finding, ask: "Would I stop a teammate in code review to mention this?"
+- If NO → REMOVE IT
+- If YES → KEEP IT
+
+**ANOTHER TEST:**
+"Can I write a failing test case for this?"
+- If NO → REMOVE IT (it's theoretical)
+- If YES → KEEP IT (it's provable)
+
+**BE AGGRESSIVE:**
+- When in doubt, REMOVE the finding
+- Better to miss a nitpick than waste user's time
+- If finding doesn't have STRONG evidence → REMOVE
+
+RETURN JSON:
+{{
+  "kept_findings": [
+    {{
+      "finding_id": "original_id",
+      "reason": "Will crash with empty list (reproduction: line 45 with [])"
+    }}
+  ],
+  "removed_findings": [
+    {{
+      "finding_id": "original_id",
+      "reason": "Personal preference - variable naming style",
+      "category": "personal_preference" | "nitpick" | "theoretical" | "not_project_standard" | "no_strong_evidence"
+    }}
+  ],
+  "removal_stats": {{
+    "personal_preferences": 5,
+    "style_nitpicks": 3,
+    "theoretical_issues": 2,
+    "no_strong_evidence": 4,
+    "not_project_standard": 1
+  }},
+  "final_finding_count": 12,
+  "summary": "Removed 15 low-value findings (personal preferences, nitpicks, theoretical issues). Kept 12 high-impact findings (3 critical, 5 high, 4 medium)."
+}}
+
+REMEMBER: User is tired of false positives and nitpicks. Only keep findings worth their time.
+""", max_tokens=None)
+
+# Apply reasonableness filter
+all_findings = [f for f in all_findings if f.id in reasonableness_result.kept_findings]
+
+# Log what was removed for transparency
+LOG.info(f"Reasonableness filter removed {len(reasonableness_result.removed_findings)} findings")
+LOG.info(f"Removal breakdown: {reasonableness_result.removal_stats}")
+```
+
+**Why this phase matters:**
+- Agents still flag preferences/nitpicks despite verification
+- Last line of defense against wasting user's time
+- Dramatically reduces false positives and subjective opinions
+- Focus user attention on real, impactful issues
+
+---
+
 ## Phase 12: Synthesis & Final Report
 
 ### 12.1 Filter Irrelevant Findings (Ticket Scope Check)
@@ -1074,7 +1192,7 @@ RETURN JSON:
 }}
 
 Be conservative: When in doubt, KEEP the finding (false positive better than false negative).
-""")
+""", max_tokens=None)
 
 # Apply scope filter
 all_findings = [f for f in all_findings if f.id in scope_filter_result.kept_findings]

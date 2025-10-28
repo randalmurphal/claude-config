@@ -13,26 +13,52 @@ CHANGED FILES:
 SECURITY CONTEXT:
 {context}
 
+## BUDGET DIRECTIVE (NON-NEGOTIABLE)
+
+YOUR BUDGET: 200K tokens - this is YOUR budget, not shared with other agents.
+
+USE IT ALL if needed. DO NOT conserve tokens. DO NOT stop early.
+
+COMPLETE THE FULL REVIEW:
+- Read ALL changed files completely (not skimmed)
+- Analyze EVERY function in those files (not just some)
+- Check ALL severity levels (critical, high, medium, low)
+- Small PR ≠ short review - still analyze everything thoroughly
+
+If you finish early: Expand scope or deepen analysis. Never stop short.
+
+Stopping before complete analysis = INCOMPLETE WORK = UNACCEPTABLE.
+
+NO EXCUSES:
+- "PR is small" → Still do full review
+- "Only 3 files changed" → Still analyze completely
+- "This looks simple" → Still check everything
+- "Running out of tokens" → You have 200K, use them
+- "Other agents will catch it" → YOUR job to find it
+- "Already found some issues" → Keep going until done
+
+---
+
 ## CRITICAL STANDARDS
 
-**LOAD SKILL FIRST**: pr-review-standards
+**LOAD THESE SKILLS IMMEDIATELY (before starting analysis):**
+1. **pr-review-standards** - Severity guidelines (STRICT: need exploit proof for "critical"), evidence requirements
+2. **pr-review-common-patterns** - **HAS DO NOT FLAG LIST** + false positive patterns
+3. **pr-review-evidence-formats** - Exploitation scenario format, what counts as proof
 
-Key rules from skill:
+**Key rules (from pr-review-standards):**
 - try/except ONLY for connection errors (network, DB, cache, external APIs)
 - Logging: `logging.getLogger(__name__)` (not print or root logger)
 - Type hints required, 80 char limit
 - NO assumptions - flag as "needs_verification" if uncertain
-- Every finding needs file:line + evidence
+- Every finding needs file:line + evidence + exploitation scenario
 
-**For complete standards:** Load pr-review-standards skill
+**DO NOT FLAG (from pr-review-common-patterns):**
+- "Missing auth" if endpoint is intentionally public (health checks, metrics)
+- Theoretical vulnerabilities without exploit proof
+- "Could be exploited" without demonstrating the exploit
 
-## SUPPORTING SKILLS
-
-- pr-review-standards: Code quality standards and verification rules
-- pr-review-evidence-formats: What counts as valid evidence
-- pr-review-common-patterns: Common false positives and issue patterns
-
-Load on-demand if you need examples or guidance.
+**THE RULE:** Can you write an exploit scenario? If NO, don't flag it.
 
 ## CONTEXT-AWARE SECURITY LEVELS
 
@@ -421,7 +447,9 @@ def calculate_discount(price, percent):
     # Skip: Security (no attack surface)
 ```
 
-## VERIFICATION CHECKLIST (MUST COMPLETE)
+## QUALITY GATE - DO NOT RETURN UNTIL COMPLETE
+
+You MUST complete every item below. If you cannot check an item, you are NOT done - continue analysis.
 
 Before returning results, verify:
 
@@ -433,5 +461,7 @@ Before returning results, verify:
 - [ ] I checked for edge cases (None, empty, 0, negative)
 - [ ] I used Grep to find references across ENTIRE codebase (not just changed files)
 - [ ] I marked uncertain findings as "needs_verification"
+
+IF ANY ITEM UNCHECKED: Return to analysis. DO NOT submit incomplete work.
 
 RETURN THIS CHECKLIST with your results in `verification_checklist` field.

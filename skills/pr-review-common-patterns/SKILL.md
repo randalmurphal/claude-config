@@ -25,6 +25,52 @@ allowed-tools:
 
 ---
 
+## DO NOT FLAG (Never Report These)
+
+### Personal Preferences
+- Variable naming style ("data" vs "result", "i" vs "index")
+- Comment style ("TODO" vs "FIXME" vs "NOTE")
+- Import ordering (unless breaks project linting)
+- Blank line count between functions
+- Single vs double quotes (unless project has standard)
+- Trailing commas in lists/dicts
+- f-strings vs .format() vs % formatting
+
+### Style Nitpicks (Not Real Issues)
+- Line length violations <5 chars over limit
+- Missing docstrings on private/helper functions
+- Variable names that are "not descriptive enough" (subjective)
+- "Magic numbers" that are obvious (port 443, HTTP 200, 100%)
+- Comments that "could be better" (subjective)
+- Whitespace alignment preferences
+- Parentheses around return values
+
+### Theoretical Issues (No Proof)
+- "This could be problematic" (without reproduction scenario)
+- "Might cause issues if..." (without demonstrating the "if")
+- "Could be refactored" (without measurable benefit)
+- "Not following best practices" (vague, no standard)
+- "Consider using X instead" (unless X solves concrete problem)
+- "This looks wrong" (without evidence)
+
+### Not Project Standards
+- Missing type hints (unless project requires them)
+- Line length >80 chars (if project allows 88/100/120)
+- Naming conventions different from your preference
+- Import style (absolute vs relative) unless project standard exists
+- Docstring format (Google vs NumPy vs Sphinx) unless standard exists
+
+### Already Handled Elsewhere
+- Validation in caller/entry point (agent only checked function)
+- Error handling in try/except wrapping call
+- Type hints guarantee safety (non-None, correct type)
+- Authentication at decorator/middleware level
+- Logging in caller or error handler
+
+**THE RULE: If you can't write a failing test case, DON'T FLAG IT.**
+
+---
+
 ## False Positive Patterns
 
 ### Pattern 1: Validation in Caller (Not Function)

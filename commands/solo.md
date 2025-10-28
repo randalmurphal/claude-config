@@ -40,7 +40,7 @@ description: Streamlined task execution with proper delegation and validation - 
 
 ## Workflow
 
-### Step 0: Load Agent Prompting Skill
+### Phase 1: Load Agent Prompting Skill
 
 **CRITICAL: Load before spawning any sub-agents.**
 
@@ -57,7 +57,7 @@ Skill: agent-prompting
 
 ---
 
-### Step 0.5: Determine Working Directory
+### Phase 2: Determine Working Directory
 
 **Infer from task description which directory/component is being worked on:**
 - Search for relevant files/directories mentioned in task
@@ -74,7 +74,7 @@ Skill: agent-prompting
 
 ---
 
-### Step 1: Generate Minimal Spec
+### Phase 3: Generate Minimal Spec
 
 **Create `.spec/BUILD_[taskname].md`:**
 
@@ -125,11 +125,23 @@ Use template: `~/.claude/templates/spec-minimal.md`
 
 **Initialize PROGRESS.md:** Track implementation progress
 
-**Commit changes** (follow project's commit style from recent commits)
+**Commit changes** (pre-commit validation runs automatically):
+```bash
+# Git pre-commit hook runs automatically on commit:
+# - Auto-format (ruff/prettier/gofmt)
+# - Linting (ruff check/eslint/golangci-lint)
+# - Type checking (pyright/tsc)
+
+# If hooks fail:
+#   - Review output
+#   - Fix issues
+#   - Re-stage files: git add .
+#   - Commit again
+```
 
 ---
 
-### Step 2: Task-by-Task Implementation
+### Phase 4: Task-by-Task Implementation
 
 **Read implementation tasks from BUILD_[taskname].md:**
 ```markdown
@@ -141,8 +153,19 @@ Use template: `~/.claude/templates/spec-minimal.md`
 ```
 
 **Determine if tasks can run in parallel:**
-- If tasks are independent (no dependencies) → spawn implementation-executors in PARALLEL
-- If tasks have dependencies → run sequentially
+```
+# Simple batching for /solo (fewer tasks, simpler dependencies)
+independent_tasks = [tasks with no mutual dependencies]
+
+IF len(independent_tasks) >= 3 AND complexity suggests >30s each:
+  # Batch parallel execution
+  Spawn ALL implementation-executors in PARALLEL (single message)
+  Wait for all to complete
+  Run 2 reviewers per task in PARALLEL
+ELSE:
+  # Sequential execution (overhead not worth it for solo)
+  Execute tasks sequentially
+```
 
 **For EACH task:**
 
@@ -194,8 +217,11 @@ Use template: `~/.claude/templates/spec-minimal.md`
    Return JSON: {"status": "COMPLETE", "critical": [...], "important": [...], "minor": [...]}
    """)
 
-3. Fix issues (if found):
+3. Fix issues (if found) - WITH INTELLIGENT FAILURE PATTERN DETECTION:
    IF critical or important issues:
+     # Track failure patterns across attempts
+     failure_history = []
+
      LOOP (max 2 attempts):
        Task(fix-executor, """
        Fix task validation issues.
@@ -217,15 +243,50 @@ Use template: `~/.claude/templates/spec-minimal.md`
 
        Re-run 2 code-reviewers in parallel (verify fixes)
 
+       failure_history.append(current_issues)
+
        IF clean: Break
-       IF attempt >= 2: ESCALATE
+       IF attempt >= 2:
+         # INTELLIGENT PATTERN ANALYSIS
+         IF same_issue_repeated(failure_history):
+           # Same issue after 2 attempts = architectural problem
+           issue_type = classify_issue(failure_history)
+
+           ESCALATE: """
+           🚨 BLOCKED: {Task} - Repeated Issue Pattern
+
+           Issue Type: {issue_type} (detected across {len(failure_history)} attempts)
+
+           Pattern: {describe_pattern(failure_history)}
+
+           Examples:
+           - Attempt 1: {failure_history[0]}
+           - Attempt 2: {failure_history[1]}
+
+           Root Cause Analysis:
+           {suggest_root_cause(issue_type, failure_history)}
+
+           Recommended Fixes:
+           {suggest_architectural_fix(issue_type)}
+
+           Consider /conduct if task more complex than anticipated.
+           """
+         ELSE:
+           # Different issues = making progress
+           ESCALATE: "Multiple different issues after 2 attempts. Need human review."
 
 4. Update PROGRESS.md with task completion
 
-5. Commit changes for this task
+5. Commit changes for this task (pre-commit validation runs automatically)
 
 NEXT task...
 ```
+
+**Common failure patterns to detect:**
+- **Circular dependency**: Same circular import error → suggest dependency inversion
+- **Tight coupling**: Same coupling violation → suggest interface extraction
+- **Complexity**: Same complexity warning → suggest function decomposition
+- **Type errors**: Same type mismatch → suggest protocol/abstract base class
 
 **After ALL tasks complete:**
 
@@ -237,11 +298,11 @@ Update BUILD spec with any discoveries:
 - {learnings}
 ```
 
-**Commit changes**
+**Commit changes** (pre-commit validation runs)
 
 ---
 
-### Step 3: Full Validation
+### Phase 5: Full Validation
 
 **Goal:** Comprehensive validation of entire implementation after all tasks complete.
 
@@ -308,8 +369,10 @@ Focus: docstring coverage, comment quality, variable naming, function naming.
 - Consolidate critical + important + minor
 - Deduplicate issues
 
-**Fix ALL issues (max 3 attempts):**
+**Fix ALL issues (max 3 attempts with pattern detection):**
 ```
+failure_history = []
+
 LOOP until validation clean:
   1. Spawn fix-executor:
      Task(fix-executor, """
@@ -336,9 +399,17 @@ LOOP until validation clean:
 
   2. Re-run linting + 6 reviewers in PARALLEL (single message - verify fixes)
 
+  failure_history.append(current_issues)
+
   3. IF clean: Break
      IF new issues AND attempt < 3: Continue loop
-     IF attempt >= 3: ESCALATE
+     IF attempt >= 3:
+       # INTELLIGENT PATTERN ANALYSIS
+       IF same_issues_repeated(failure_history):
+         pattern = analyze_failure_pattern(failure_history)
+         ESCALATE with pattern analysis and architectural recommendations
+       ELSE:
+         ESCALATE: "Different issues across 3 attempts, need review"
 
   4. Update PROGRESS.md with validation status
 ```
@@ -349,11 +420,11 @@ LOOP until validation clean:
 - ✅ All important issues fixed
 - ✅ All minor issues fixed (or documented why skipped)
 
-**Commit changes**
+**Commit changes** (pre-commit validation runs)
 
 ---
 
-### Step 4: Documentation (Merge .spec to Permanent Docs)
+### Phase 6: Documentation (Merge .spec to Permanent Docs)
 
 **Goal:** Validate all documentation and merge .spec learnings into permanent docs.
 
@@ -438,11 +509,11 @@ IF validation_result contains CRITICAL or IMPORTANT issues:
 - ✅ Code examples work
 - ✅ CLAUDE.md line counts within targets
 
-**Commit changes**
+**Commit changes** (pre-commit validation runs)
 
 ---
 
-### Step 5: [OPTIONAL] Testing
+### Phase 7: [OPTIONAL] Testing
 
 **Only run if user explicitly requested tests.**
 
@@ -451,7 +522,7 @@ IF validation_result contains CRITICAL or IMPORTANT issues:
 IF user said "create tests" OR "write tests" OR BUILD spec has "Tests" section:
   Proceed with testing
 ELSE:
-  Skip to Step 6
+  Skip to Phase 8
 ```
 
 **Spawn test-implementer:**
@@ -462,7 +533,7 @@ Implement comprehensive tests for working implementation.
 Spec: $WORK_DIR/.spec/BUILD_[taskname].md
 Workflow: solo
 
-Production code: [files from step 2]
+Production code: [files from phase 4]
 
 CRITICAL STANDARDS (from agent-prompting skill):
 - 1:1 file mapping: tests/unit/test_<module>.py for src/<module>.py
@@ -517,11 +588,11 @@ LOOP until tests pass with coverage:
   4. IF attempt > 3: ESCALATE with failure details
 ```
 
-**Commit changes**
+**Commit changes** (pre-commit validation runs)
 
 ---
 
-### Step 6: Cleanup .spec/
+### Phase 8: Cleanup .spec/
 
 **Goal:** Clean up temporary .spec/ artifacts.
 
@@ -542,11 +613,11 @@ mv $WORK_DIR/.spec/BUILD_*.md $WORK_DIR/.spec/archive/
 echo ".spec/archive/" >> $WORK_DIR/.gitignore
 ```
 
-**Commit changes**
+**Commit changes** (pre-commit validation runs)
 
 ---
 
-### Step 7: Complete
+### Phase 9: Complete
 
 **Final summary:**
 ```
@@ -560,7 +631,7 @@ Quality: All validation passed
 Ready for use.
 ```
 
-**Final commit**
+**Final commit** (pre-commit validation runs)
 
 ---
 
@@ -586,7 +657,7 @@ Workflow: solo
 **BUILD spec:** `.spec/BUILD_[taskname].md` - minimal context
 **PROGRESS.md:** Simple task tracking
 **TodoWrite:** Step completion
-**Git commits:** After each major step
+**Git commits:** After each major step (with pre-commit validation)
 
 **Templates:** `~/.claude/templates/spec-minimal.md`, `~/.claude/templates/operational.md`
 
@@ -624,17 +695,18 @@ Let user decide.
 ## Escalation (When Blocked)
 
 **When:**
-- 3 failed attempts
+- 3 failed attempts (with repeated failure pattern)
 - External deps missing
 - Architectural issue discovered
 - Security concern unfixable
 
 **Format:**
 ```
-🚨 BLOCKED: [Step] - [Issue]
+🚨 BLOCKED: [Phase] - [Issue]
 
 Issue: [description]
 Attempts: [what tried]
+Pattern Detected: [if applicable - repeated failure analysis]
 Need: [specific question]
 Options: [A, B, C]
 Recommendation: [your suggestion]
@@ -647,13 +719,15 @@ Recommendation: [your suggestion]
 **DO:**
 - Generate BUILD spec for context
 - Execute task-by-task (2 reviewers per task)
+- Batch independent tasks when beneficial (3+ tasks, >30s each)
+- Detect intelligent failure patterns in fix loops
 - Full validation after all tasks (6 reviewers)
 - Update PROGRESS.md throughout
 - Parallelize: reviewers, independent tasks
 - Documentation phase BEFORE testing
 - Testing ONLY if user requested
 - Archive .spec/ files after completion
-- Commit after major steps
+- Commit after major steps (with pre-commit validation)
 - Escalate to /conduct if complexity discovered
 
 **DON'T:**
@@ -663,8 +737,9 @@ Recommendation: [your suggestion]
 - Run tests unless user requested
 - Accept prose responses from agents
 - Complete with failing validation
-- Continue after 3 failed attempts
+- Continue after 3 failed attempts without pattern analysis
 - Delete .spec/ files before merging learnings to permanent docs
+- Retry blindly without analyzing failure patterns
 
 ---
 
@@ -684,12 +759,12 @@ Recommendation: [your suggestion]
 - ✅ High stakes (security, payments, auth)
 
 **Key difference:**
-- /solo: Streamlined workflow (7 steps: spec → task-by-task impl → full validation → docs → optional tests → cleanup → done)
-- /conduct: Full orchestration (dependency analysis, per-component phases, worktrees, skeletal progression)
+- /solo: Streamlined workflow (9 phases: load skill → determine dir → spec → task-by-task impl → full validation → docs → optional tests → cleanup → done)
+- /conduct: Full orchestration (dependency analysis, impact analysis, per-component phases, skeletal progression)
 - **BOTH:** Same validation rigor (2 reviewers per task, 6 reviewers full validation, comprehensive testing, documentation)
 
 **When in doubt:** Start with /solo, escalate to /conduct if needed.
 
 ---
 
-**You are focused. Delegate task-by-task, validate incrementally, parallelize where possible, deliver.**
+**You are focused. Delegate task-by-task, detect patterns, validate incrementally, parallelize where beneficial, deliver.**

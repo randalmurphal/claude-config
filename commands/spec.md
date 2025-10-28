@@ -32,7 +32,7 @@ description: Transform vague intent into precise, executable specifications thro
 
 ## Workflow
 
-### Phase -2.0: Load Agent Prompting Skill
+### Phase 1: Load Agent Prompting Skill
 
 **CRITICAL: Load before spawning any sub-agents (investigators, spike-testers).**
 
@@ -49,7 +49,7 @@ Skill: agent-prompting
 
 ---
 
-### Phase -1.5: Determine Working Directory
+### Phase 2: Determine Working Directory
 
 **Infer from task description which directory/component is being worked on:**
 - Search for relevant files/directories mentioned in task
@@ -66,7 +66,7 @@ Skill: agent-prompting
 
 ---
 
-### Phase -1: Initial Assessment
+### Phase 3: Initial Assessment
 
 **Get orientation (3-5 questions):**
 1. New project or existing code?
@@ -75,7 +75,9 @@ Skill: agent-prompting
 
 **Create MISSION.md immediately**
 
-### Phase 0: Auto-Investigation (Existing Projects Only)
+**Commit changes** (pre-commit validation runs automatically if in git repo)
+
+### Phase 4: Auto-Investigation (Existing Projects Only)
 
 **Check:**
 - Project structure, tech stack, dependencies
@@ -84,7 +86,9 @@ Skill: agent-prompting
 
 **Tools:** Read manifests, scan directories
 
-### Phase 1: Challenge Mode
+**Commit changes** (document findings in DISCOVERIES.md)
+
+### Phase 5: Challenge Mode
 
 **Find ≥3 concerns:**
 - Conflicts with existing code
@@ -126,14 +130,16 @@ Task(general-investigator, "Investigate error handling patterns...")
 Questions: [3-5 strategic decisions]
 ```
 
-### Phase 2: Strategic Dialogue
+**Commit changes** (document in DISCOVERIES.md)
+
+### Phase 6: Strategic Dialogue
 
 Ask about **tradeoffs and decisions**, NOT facts you can discover.
 
 **GOOD:** "Two auth systems increases complexity. Unify or keep both?"
 **BAD:** "What database?" (check settings.py)
 
-### Phase 3: Discovery Loop
+### Phase 7: Discovery Loop
 
 **Document in DISCOVERIES.md:**
 ```markdown
@@ -160,7 +166,9 @@ Risk: [impact]
 Validation: ASK USER | CHECKED | NEEDS SPIKE
 ```
 
-### Phase 4: Spike Orchestration
+**Commit changes** after significant discoveries
+
+### Phase 8: Spike Orchestration
 
 **When to spike:**
 - Complexity >6/10
@@ -200,7 +208,9 @@ Goal: [what to prove/disprove]
 
 **Save:** `.spec/SPIKE_RESULTS/NNN_description.md`
 
-### Phase 5: Architecture Evolution
+**Commit changes** (archive spike results)
+
+### Phase 9: Architecture Evolution
 
 **Update ARCHITECTURE.md:**
 ```markdown
@@ -232,14 +242,16 @@ Consequences: [impacts]
 [From spikes/discoveries]
 ```
 
-### Phase 6: Scope Management
+**Commit changes**
+
+### Phase 10: Scope Management
 
 For each discovery:
 - Serves MISSION.md? → Investigate
 - Doesn't serve? → Note as "Future"
 - Tangent? → Ask: "Expand scope?" (default: stay focused)
 
-### Phase 7: Documentation Library Setup
+### Phase 11: Documentation Library Setup
 
 **Goal:** Create AI-readable documentation structure if it doesn't exist, before finalizing spec.
 
@@ -297,9 +309,11 @@ ls $WORK_DIR/CLAUDE.md 2>/dev/null
 will be generated after implementation in /conduct Phase N+2.
 ```
 
+**Commit changes**
+
 ---
 
-### Phase 8: Readiness Validation
+### Phase 12: Readiness Validation
 
 **Checklist:**
 - Mission clear, success measurable
@@ -314,6 +328,8 @@ will be generated after implementation in /conduct Phase N+2.
 **If ready, create SPEC.md and component phase specs** (see format below)
 
 **If not ready:** List what's missing
+
+**Commit changes** (final spec artifacts)
 
 ---
 
@@ -449,6 +465,8 @@ Generate:
 - SPEC_3_frontend.md
 ```
 
+**Commit changes**
+
 ---
 
 ## Context Management
@@ -465,6 +483,8 @@ Generate:
 
 **For sub-agents:** Pass only relevant context
 
+**Commit changes** after pruning
+
 ---
 
 ## Recovering from Failed /conduct
@@ -477,6 +497,8 @@ Generate:
 5. Document recovery in SPEC.md
 
 **Key:** Failed orchestrations are learning opportunities
+
+**Commit changes** (updated learnings)
 
 ---
 
@@ -543,6 +565,8 @@ Generate:
 - Architecture sound
 - Strategic decisions made
 
+**Commit all final artifacts**
+
 ---
 
 ## Critical Rules
@@ -556,6 +580,7 @@ Generate:
 - Document gotchas immediately
 - Predict pain points
 - Surface tradeoffs
+- Commit after major milestones
 
 **DON'T:**
 - Ask questions you can answer by investigation

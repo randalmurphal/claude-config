@@ -25,13 +25,14 @@ STOP - do not proceed.
 ## Your Mission
 
 1. Parse SPEC.md and build dependency graph
-2. Generate per-component phase specs
-3. Execute each component: Skeleton → Task-by-Task Implementation → Full Validation
-4. Enhance future phase specs with discoveries
-5. Merge .spec learnings into permanent documentation
-6. [Optional] Testing if user requested
-7. Cleanup .spec/ directory
-8. Deliver working, validated, documented system
+2. Analyze change impact (existing codebases)
+3. Generate per-component phase specs
+4. Execute each component: Skeleton → Task-by-Task Implementation → Full Validation
+5. Enhance future phase specs with discoveries
+6. Merge .spec learnings into permanent documentation
+7. [Optional] Testing if user requested
+8. Cleanup .spec/ directory
+9. Deliver working, validated, documented system
 
 **You are autonomous.** Don't ask permission between phases.
 
@@ -39,7 +40,7 @@ STOP - do not proceed.
 
 ## Workflow
 
-### Phase -2: Load Agent Prompting Skill
+### Phase 1: Load Agent Prompting Skill
 
 **CRITICAL: Load before spawning any sub-agents.**
 
@@ -56,7 +57,7 @@ Skill: agent-prompting
 
 ---
 
-### Phase -1.5: Determine Working Directory
+### Phase 2: Determine Working Directory
 
 **Infer from task description which directory/component is being worked on:**
 - Search for relevant files/directories mentioned in task
@@ -73,7 +74,58 @@ Skill: agent-prompting
 
 ---
 
-### Phase -1: Parse SPEC.md & Build Dependency Graph
+### Phase 3: Change Impact Analysis
+
+**For existing codebases (not new projects):**
+
+**Goal:** Understand blast radius of changes before starting work.
+
+1. **Identify files to be modified** (from task description or SPEC.md if exists)
+
+2. **For each file to modify:**
+   ```bash
+   # Find direct dependents (files that import this file)
+   grep -r "from.*$(basename $file .py)" $WORK_DIR --include="*.py" -l
+   grep -r "import.*$(basename $file .py)" $WORK_DIR --include="*.py" -l
+   ```
+
+3. **Recursively find transitive dependents** (dependents of dependents up to 2-3 levels)
+
+4. **Generate impact report** and add to DISCOVERIES.md:
+   ```markdown
+   ## Change Impact Analysis
+
+   Files to modify: X files
+   Direct dependents: Y files (components: auth, api, frontend)
+   Transitive dependents: Z files
+
+   Critical dependencies:
+   - auth/service.py imported by 8 files → breaking changes affect entire auth flow
+   - api/endpoints.py imported by 23 files → API contract changes very risky
+
+   Recommendations:
+   - Maintain backward compatibility for auth/service.py
+   - Consider deprecation path for api/endpoints.py changes
+   - Plan coordinated rollout for components: [list]
+
+   Test surface:
+   - Must test: [critical dependent components]
+   - Should test: [moderate dependent components]
+   - Nice to test: [transitive dependents]
+   ```
+
+5. **Add to SPEC.md "Known Gotchas" section** if high-risk changes identified
+
+**Skip this phase if:**
+- New project (no existing code)
+- Only creating new files (no modifications to existing files)
+- User explicitly says skip impact analysis
+
+**Commit changes**
+
+---
+
+### Phase 4: Parse SPEC.md & Build Dependency Graph
 
 **Read SPEC.md:**
 - Extract components from "Files to Create/Modify" section
@@ -102,16 +154,52 @@ For each file in "Files to Create/Modify":
 - If cycle found → FAIL LOUD with cycle path
 - Result: component_order (list of components in dependency order)
 
+**Verify dependencies match reality (AUTOMATED VALIDATION):**
+```bash
+# For each component in dependency graph
+for component in component_order:
+  declared_deps = graph[component]['dependencies']
+
+  # Use Grep to find actual imports in component file
+  actual_imports=$(grep -E "^(from|import)" $component | \
+                  sed 's/from \([^ ]*\).*/\1/' | \
+                  sed 's/import \([^ ]*\).*/\1/' | \
+                  sort -u)
+
+  # Cross-reference with declared dependencies
+  missing_deps = []
+  for actual_dep in actual_imports:
+    if actual_dep in project_modules AND actual_dep not in declared_deps:
+      missing_deps.append(actual_dep)
+
+  # FAIL LOUD if mismatch
+  if len(missing_deps) > 0:
+    ESCALATE: "Component {component} declares {declared_deps} but actually imports {missing_deps}. Fix SPEC.md dependencies before proceeding."
+```
+
 **Initialize tracking:**
 - Create PROGRESS.md (see `~/.claude/templates/operational.md`)
-- Create DISCOVERIES.md (empty, will populate during implementation)
+- Create DISCOVERIES.md (merge with impact analysis from Phase 3)
 - TodoWrite: Component-level tracking
 
-**Commit changes**
+**Commit changes** (with pre-commit validation):
+```bash
+# Git pre-commit hook will run automatically:
+# - Auto-format (ruff/prettier/gofmt)
+# - Linting (ruff check/eslint/golangci-lint)
+# - Type checking (pyright/tsc)
+~/.claude/hooks/pre-commit-validation.sh
+
+# If hooks fail:
+#   - Review output
+#   - Fix issues
+#   - Re-stage files: git add .
+#   - Commit again
+```
 
 ---
 
-### Phase 0: Validate Component Phase Specs Exist
+### Phase 5: Validate Component Phase Specs Exist
 
 **Check for component phase specs:**
 ```bash
@@ -122,7 +210,7 @@ ls $WORK_DIR/.spec/SPEC_*.md | grep -v "^SPEC.md$"
 **If component phase specs exist (created by /spec):**
 - ✅ Use them as-is
 - Verify they match component_order from dependency graph
-- Skip to Phase 1
+- Skip to Phase 6
 
 **If component phase specs DON'T exist (fallback):**
 - Generate them now from SPEC.md
@@ -181,7 +269,7 @@ Tasks per phase:
 
 ---
 
-### Phase 1-N: Component Phases (for each component in dependency order)
+### Phase 6-N: Component Phases (for each component in dependency order)
 
 **For each component:**
 
@@ -229,7 +317,7 @@ Read spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
 
 **Update PROGRESS.md with skeleton completion**
 
-**Commit changes**
+**Commit changes** (pre-commit validation runs automatically)
 
 ---
 
@@ -251,9 +339,50 @@ Tasks:
 
 **For EACH task in EACH phase:**
 
-**Determine if tasks can run in parallel:**
-- If tasks are independent (no dependencies between them) → spawn implementation-executors in PARALLEL
-- If tasks have dependencies → run sequentially
+**Determine if tasks can run in parallel (BATCHING ALGORITHM):**
+
+```
+# Analyze task dependencies within phase
+task_deps = extract_task_dependencies(phase_tasks)
+
+# Group into waves (topological sort within phase)
+waves = topological_sort(phase_tasks, task_deps)
+
+For each wave in waves:
+  independent_tasks = tasks_in_wave
+
+  # Parallel execution criteria:
+  IF len(independent_tasks) >= 3 AND estimated_duration_per_task > 30s:
+    # Batch parallel execution
+    Execute ALL tasks in wave simultaneously:
+    - Spawn N implementation-executors in PARALLEL (single message)
+    - Wait for all to complete
+    - Run 2 reviewers per task in PARALLEL
+  ELSE:
+    # Sequential execution (coordination overhead not worth it)
+    For each task:
+      Execute task sequentially
+```
+
+**Example batching:**
+```
+Wave 1 (parallel - 3 independent tasks):
+  - "Implement data models" (40s)
+  - "Implement validation logic" (35s)
+  - "Implement utility functions" (30s)
+  → Spawn 3 implementation-executors in PARALLEL
+
+Wave 2 (sequential - depends on Wave 1):
+  - "Implement API endpoint (depends on models)" (50s)
+  → Execute after Wave 1 completes
+
+Wave 3 (parallel - 2 independent tasks):
+  - "Add error handling" (25s)
+  - "Add logging" (20s)
+  → Duration too short, execute sequentially (overhead > benefit)
+```
+
+**For EACH task:**
 
 ```
 1. Implement task:
@@ -307,8 +436,11 @@ Tasks:
    Return JSON: {"status": "COMPLETE", "critical": [...], "important": [...], "minor": [...]}
    """)
 
-3. Fix issues (if found):
+3. Fix issues (if found) - WITH INTELLIGENT FAILURE PATTERN DETECTION:
    IF critical or important issues:
+     # Track failure patterns across attempts
+     failure_history = []
+
      LOOP (max 2 attempts):
        Task(fix-executor, """
        Fix task validation issues.
@@ -330,17 +462,52 @@ Tasks:
 
        Re-run 2 code-reviewers in parallel (verify fixes)
 
+       failure_history.append(current_issues)
+
        IF clean: Break
-       IF attempt >= 2: ESCALATE
+       IF attempt >= 2:
+         # INTELLIGENT PATTERN ANALYSIS
+         IF same_issue_repeated(failure_history):
+           # Same issue after 2 attempts = architectural problem
+           issue_type = classify_issue(failure_history)
+
+           ESCALATE: """
+           🚨 BLOCKED: {Component} - Repeated Issue Pattern
+
+           Issue Type: {issue_type} (detected across {len(failure_history)} attempts)
+
+           Pattern: {describe_pattern(failure_history)}
+
+           Examples:
+           - Attempt 1: {failure_history[0]}
+           - Attempt 2: {failure_history[1]}
+
+           Root Cause Analysis:
+           {suggest_root_cause(issue_type, failure_history)}
+
+           Recommended Fixes:
+           {suggest_architectural_fix(issue_type)}
+
+           This requires architectural decision or different approach.
+           """
+         ELSE:
+           # Different issues = making progress
+           ESCALATE: "Multiple different issues after 2 attempts. Need human review."
 
 4. Update tracking:
    - PROGRESS.md: Mark task complete
    - DISCOVERIES.md: Note any gotchas/learnings from this task
 
-5. Commit changes for this task
+5. Commit changes for this task (pre-commit validation runs)
 
 NEXT task...
 ```
+
+**Common failure patterns to detect:**
+- **Circular dependency**: Same circular import error → suggest dependency inversion or interface extraction
+- **Tight coupling**: Same coupling violation → suggest facade pattern or dependency injection
+- **Complexity**: Same complexity warning → suggest function extraction or class decomposition
+- **Type errors**: Same type mismatch → suggest protocol/abstract base class
 
 **After ALL tasks in component complete:**
 
@@ -430,8 +597,10 @@ Focus: docstring coverage, comment quality, variable naming, function naming.
 - Consolidate critical + important + minor
 - Deduplicate issues
 
-**Fix ALL issues (max 3 attempts):**
+**Fix ALL issues (max 3 attempts with pattern detection):**
 ```
+failure_history = []
+
 LOOP until validation clean:
   1. Spawn fix-executor:
      Task(fix-executor, """
@@ -458,9 +627,17 @@ LOOP until validation clean:
 
   2. Re-run linting + 6 reviewers in PARALLEL (single message - verify fixes)
 
+  failure_history.append(current_issues)
+
   3. IF clean: Break
      IF new issues AND attempt < 3: Continue loop
-     IF attempt >= 3: ESCALATE
+     IF attempt >= 3:
+       # INTELLIGENT PATTERN ANALYSIS
+       IF same_issues_repeated(failure_history):
+         pattern = analyze_failure_pattern(failure_history)
+         ESCALATE with pattern analysis and architectural recommendations
+       ELSE:
+         ESCALATE: "Different issues across 3 attempts, need review"
 
   4. Update PROGRESS.md with validation status
 ```
@@ -471,7 +648,7 @@ LOOP until validation clean:
 - ✅ All important issues fixed
 - ✅ All minor issues fixed (or documented why skipped)
 
-**Commit changes**
+**Commit changes** (pre-commit validation runs)
 
 ---
 
@@ -620,7 +797,7 @@ IF validation_result contains CRITICAL or IMPORTANT issues:
 - ✅ Code examples work
 - ✅ CLAUDE.md line counts within targets
 
-**Commit changes**
+**Commit changes** (pre-commit validation runs)
 
 ---
 
@@ -702,7 +879,7 @@ LOOP until tests pass with coverage:
   4. IF attempt > 3: ESCALATE with failure details
 ```
 
-**Commit changes**
+**Commit changes** (pre-commit validation runs)
 
 ---
 
@@ -777,7 +954,7 @@ LOOP until integration tests pass:
   4. IF attempt > 3: ESCALATE with failure details
 ```
 
-**Commit changes**
+**Commit changes** (pre-commit validation runs)
 
 ---
 
@@ -806,7 +983,7 @@ mv $WORK_DIR/.spec/SPEC_*.md $WORK_DIR/.spec/archive/ 2>/dev/null || true
 echo ".spec/archive/" >> $WORK_DIR/.gitignore
 ```
 
-**Commit changes**
+**Commit changes** (pre-commit validation runs)
 
 ---
 
@@ -828,7 +1005,7 @@ Quality: All validation passed
 System ready for use.
 ```
 
-**Final commit**
+**Final commit** (pre-commit validation runs)
 
 ---
 
@@ -877,7 +1054,7 @@ Workflow: conduct
 **DISCOVERIES.md:** Learnings captured during implementation (archived after)
 **PROGRESS.md:** Detailed task tracking (archived after)
 **TodoWrite:** High-level component completion tracking
-**Git commits:** After each major step
+**Git commits:** After each major step (with pre-commit validation)
 
 **Templates:** `~/.claude/templates/operational.md`
 
@@ -886,7 +1063,7 @@ Workflow: conduct
 ## Escalation
 
 **When:**
-- 3 failed fix attempts
+- 3 failed fix attempts (with repeated failure pattern)
 - Architectural decisions needed
 - Critical security unfixable
 - External deps missing
@@ -897,6 +1074,7 @@ Workflow: conduct
 
 Issue: [description]
 Attempts: [what tried]
+Pattern Detected: [if applicable - repeated failure analysis]
 Need: [specific question]
 Options: [A, B, C with implications]
 Recommendation: [your suggestion]
@@ -908,6 +1086,10 @@ Recommendation: [your suggestion]
 
 **DO:**
 - Require .spec/SPEC.md
+- Run change impact analysis (Phase 3)
+- Verify dependencies match reality (Phase 4)
+- Batch independent tasks for parallel execution
+- Detect intelligent failure patterns in fix loops
 - Generate SPEC_N_component.md files if not exist
 - Execute per-component: Skeleton (sequential) → Task-by-Task Impl (2 reviewers per task) → Full Validation (6 reviewers)
 - Update PROGRESS.md + DISCOVERIES.md throughout
@@ -916,17 +1098,19 @@ Recommendation: [your suggestion]
 - Documentation phase BEFORE testing
 - Testing ONLY if user requested
 - Archive .spec/ files after completion
-- Commit after major steps
+- Commit after major steps (with pre-commit validation)
 
 **DON'T:**
 - Proceed without SPEC.md
+- Skip dependency verification (Phase 4)
 - Skip per-task validation (2 reviewers required)
 - Move to next component with failing validation
 - Run tests unless user requested
 - Let sub-agents spawn sub-agents
 - Skip documentation validation before cleanup
 - Delete .spec/ files before merging learnings to permanent docs
+- Retry blindly without analyzing failure patterns
 
 ---
 
-**You are the conductor. Parse dependencies, execute tasks incrementally with validation at each step, parallelize where possible, deliver working system.**
+**You are the conductor. Analyze impact, verify dependencies, batch parallel work, detect patterns, execute incrementally with validation at each step, deliver working system.**

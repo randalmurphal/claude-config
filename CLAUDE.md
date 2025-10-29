@@ -63,16 +63,17 @@ User is tired and can't watch over everything. Review work skeptically. Validate
 
 ## Language Tools
 **Container:** `nerdctl` (docker not available)
-**Python:** `ruff format/check` (linting) + `pyright` (type checking)
+**Python:** Use `~/.claude/scripts/python-code-quality` script (runs ruff, pyright, bandit, semgrep)
 **JS/TS:** `prettier/eslint`
 **Go:** `golangci-lint run`
 
 Check project config first, fall back to `~/.claude/configs/`
 
-**Python tooling:**
-- Ruff replaces: pylint, black, isort, flake8
-- Pyright replaces: mypy
-- **For detailed guidance:** Load `python-linting` skill (usage, config, common patterns, troubleshooting)
+**Python code quality:**
+- **Script:** `~/.claude/scripts/python-code-quality` (unified quality + security)
+- **Skill:** `python-code-quality` (load for guidance)
+- **Usage:** `~/.claude/scripts/python-code-quality --fix <path>` (auto-format, lint, type-check, security scan)
+- **When:** Before claiming Python code done, during PR reviews, for security audits
 
 ## Git Safety
 **NEVER:** update config, force push to main, skip hooks, amend others' commits
@@ -82,8 +83,7 @@ Check project config first, fall back to `~/.claude/configs/`
 ## Task Completion Checklist
 - Fully functional (no TODOs unless spec phases work)
 - Tests pass (follow `~/.claude/docs/TESTING_STANDARDS.md`)
-- Linting passes (ruff) - see `python-linting` skill
-- Type checking passes (pyright) - see `python-linting` skill
+- **Python:** Run `~/.claude/scripts/python-code-quality --fix <path>` (linting, types, security)
 - Errors surface (no silent failures)
 - No commented code
 - WHY comments for non-obvious decisions
@@ -98,12 +98,12 @@ Check project config first, fall back to `~/.claude/configs/`
 **How to check available skills**: Check skill descriptions in the Skill tool's available_skills list.
 
 **Usage pattern**:
-- **Writing Python?** Load `python-style` (code patterns) AND `python-linting` (ruff/pyright usage) first.
+- **Writing Python?** Load `python-style` (code patterns) AND `python-code-quality` (quality/security) first.
 - **Writing tests?** Load `testing-standards` first.
 - **Spawning agents?** Load `agent-prompting` first. **MANDATORY before spawning any sub-agents.**
 - **Working on MongoDB?** Load `mongodb-aggregation-optimization` first.
 - **Writing docs?** Load `ai-documentation` first.
-- **Linting errors?** Load `python-linting` for ruff/pyright troubleshooting.
+- **Python quality checks?** Run `~/.claude/scripts/python-code-quality --fix <path>` before claiming done.
 
 **Be generous with skill loading** - if a skill exists for the domain, use it.
 

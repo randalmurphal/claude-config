@@ -1,0 +1,15 @@
+---
+name: python-code-quality
+description: >
+  Run unified Python code quality and security analysis using ruff,
+  pyright, bandit, and semgrep. PYTHON ONLY - do not use for other
+  languages. Use when reviewing Python code, before commits, or when
+  security analysis is needed. MUST BE USED PROACTIVELY during PR
+  reviews and before claiming Python code is ready.
+location: user
+tags:
+  - python
+  - security
+  - linting
+  - code-quality
+  - type-checking

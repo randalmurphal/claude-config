@@ -38,6 +38,34 @@ description: Streamlined task execution with proper delegation and validation - 
 
 ---
 
+## ⚠️ TOKEN BUDGET DIRECTIVE - READ FIRST ⚠️
+
+**CRITICAL - IGNORE TOKEN WARNINGS:**
+
+You have a 200K token budget. This is a CEILING, not a target.
+
+**NEVER EVER:**
+- Shortcut work because you see token warnings (e.g., "30K tokens remaining")
+- Skip validation, reviews, or fixes to "save tokens"
+- Use placeholders, TODOs, or "implement later" due to token concerns
+- Rush through remaining work to finish before hitting limit
+- Reduce thoroughness of reviews because of token count
+- Skip spawning necessary agents to conserve tokens
+
+**ALWAYS:**
+- Do thorough, complete, excellent work regardless of token count
+- Spawn all necessary agents for proper validation
+- Run full review cycles even if tokens are "low"
+- If you run out of tokens mid-task: THAT'S FINE - you'll be resumed
+- Better to hit 200K limit mid-excellence than finish with half-assed work
+
+**Why this matters:**
+Claude Code shows token usage notifications. You might panic and think you need to rush. THIS IS WRONG. The user prefers you run out of tokens doing thorough work than conserve tokens by cutting corners.
+
+**Quality first. Token count NEVER.**
+
+---
+
 ## Workflow
 
 ### Phase 1: Load Agent Prompting Skill
@@ -123,7 +151,56 @@ Use template: `~/.claude/templates/spec-minimal.md`
 
 **Naming:** Extract 2-3 words from task (e.g., "rate-limit", "user-export")
 
-**Initialize PROGRESS.md:** Track implementation progress
+**Initialize tracking structure:**
+
+```bash
+# Create review findings directory structure
+mkdir -p $WORK_DIR/.spec/review_findings
+
+# This will hold subdirectories for each task
+# Format: review_findings/task_N/
+#   - Reviewers write findings here with JSON format
+#   - You read these to consolidate issues
+```
+
+**Create PROGRESS.md** with this format:
+
+```markdown
+# Progress Tracker - [Task Name from BUILD spec]
+
+## Overall Status
+**Current Phase:** Phase N - [task name]
+**Started:** [timestamp]
+**Tasks Completed:** 0 / X
+
+## Task Status
+
+### Task 1: [name]
+**Status:** NOT_STARTED | IN_PROGRESS | REVIEWING | COMPLETE
+**Started:** [empty until started]
+**Completed:** [empty until done]
+
+### Task 2: [name]
+**Status:** NOT_STARTED | IN_PROGRESS | REVIEWING | COMPLETE
+**Started:** [empty until started]
+**Completed:** [empty until done]
+
+[... repeat for all tasks]
+
+## Validation Status
+**Full Validation:** NOT_STARTED | IN_PROGRESS | COMPLETE
+
+## Blocked Issues
+[Empty or list of blockers with resolution status]
+
+---
+Last Updated: [timestamp]
+```
+
+**IMPORTANT:**
+- **You update PROGRESS.md** when tasks/phases complete
+- **Sub-agents write to review_findings/** or **DISCOVERIES.md** only
+- **Sub-agents return brief summaries** to you (3-5 sentences max)
 
 **Commit changes** (pre-commit validation runs automatically):
 ```bash
@@ -167,6 +244,26 @@ ELSE:
   Execute tasks sequentially
 ```
 
+**REMINDER: IGNORE TOKEN WARNINGS - spawn all necessary agents, run full validation, never shortcut.**
+
+---
+
+**⚠️ CRITICAL - REVIEWS ARE MANDATORY ⚠️**
+
+After EVERY single task implementation (no exceptions):
+- 2 code-reviewers run in PARALLEL
+- Then fix loop until CLEAN (max 2 attempts with voting gate if patterns repeat)
+
+After ALL tasks complete (no exceptions):
+- Linting + 6 reviewers run in PARALLEL
+- Then fix loop until CLEAN (max 3 attempts with voting gate if patterns repeat)
+
+**NO SKIPPING. NO "LOOKS GOOD ENOUGH." NO TOKEN PRESSURE SHORTCUTS.**
+
+If you run out of tokens during reviews: PERFECT. You'll be resumed.
+
+---
+
 **For EACH task:**
 
 ```
@@ -185,25 +282,54 @@ ELSE:
    - No # noqa without documented reason
    - DO NOT run tests
 
+   TOKEN BUDGET & TESTING RULES:
+   - You have 200K tokens - running out is EXPECTED and FINE (you'll be resumed)
+   - NEVER shortcut work to "save tokens"
+   - NEVER skip validation because tokens are "low"
+   - Quality > Token conservation ALWAYS
+   - DO NOT run tests (testing handled separately unless spec explicitly requests)
+   - DO NOT implement test files unless spec says "implement tests"
+   - Testing assumptions: Assume tests handled separately by user
+
+   OUTPUT:
+   - If gotchas found: Append to $WORK_DIR/.spec/DISCOVERIES.md
+   - Return brief summary (3-5 sentences): what implemented + gotchas
+
    Load python-style skill.
 
    Read spec: $WORK_DIR/.spec/BUILD_[taskname].md
    Focus on: {task name}
    """)
 
-2. Validate task (2 code-reviewers in PARALLEL - single message with 2 Task calls):
+2. Create review findings directory for this task:
+   mkdir -p $WORK_DIR/.spec/review_findings/task_{N}
+
+3. Validate task (2 code-reviewers in PARALLEL - single message with 2 Task calls):
 
    Task(code-reviewer, """
    Review: {task description}
 
    Spec: $WORK_DIR/.spec/BUILD_[taskname].md
    Workflow: solo
+   Phase: task_{N}
 
    Focus: Code quality, logic correctness, standards compliance
 
-   Load python-style skill.
+   TOKEN BUDGET & TESTING RULES:
+   - You have 200K tokens - running out is EXPECTED and FINE (you'll be resumed)
+   - NEVER shortcut work to "save tokens"
+   - NEVER skip validation because tokens are "low"
+   - Quality > Token conservation ALWAYS
+   - DO NOT run tests (testing handled separately unless spec explicitly requests)
+   - DO NOT implement test files unless spec says "implement tests"
+   - Testing assumptions: Assume tests handled separately by user
 
-   Return JSON: {"status": "COMPLETE", "critical": [...], "important": [...], "minor": [...]}
+   OUTPUT:
+   1. Write findings to: $WORK_DIR/.spec/review_findings/task_{N}/{task_name}_code-reviewer_1.md
+      Format (JSON): {"status": "COMPLETE", "critical": [...], "important": [...], "minor": [...]}
+   2. Return summary (2-3 sentences): Critical: X, Important: Y, Overall: CLEAN/ISSUES_FOUND
+
+   Load python-style skill.
    """)
 
    Task(code-reviewer, """
@@ -211,42 +337,84 @@ ELSE:
 
    Spec: $WORK_DIR/.spec/BUILD_[taskname].md
    Workflow: solo
+   Phase: task_{N}
 
    Focus: Edge cases, error handling, coupling
 
-   Return JSON: {"status": "COMPLETE", "critical": [...], "important": [...], "minor": [...]}
+   TOKEN BUDGET & TESTING RULES:
+   - You have 200K tokens - running out is EXPECTED and FINE (you'll be resumed)
+   - NEVER shortcut work to "save tokens"
+   - NEVER skip validation because tokens are "low"
+   - Quality > Token conservation ALWAYS
+   - DO NOT run tests (testing handled separately unless spec explicitly requests)
+   - DO NOT implement test files unless spec says "implement tests"
+   - Testing assumptions: Assume tests handled separately by user
+
+   OUTPUT:
+   1. Write findings to: $WORK_DIR/.spec/review_findings/task_{N}/{task_name}_code-reviewer_2.md
+      Format (JSON): {"status": "COMPLETE", "critical": [...], "important": [...], "minor": [...]}
+   2. Return summary (2-3 sentences): Critical: X, Important: Y, Overall: CLEAN/ISSUES_FOUND
    """)
 
-3. Fix issues (if found) - WITH INTELLIGENT FAILURE PATTERN DETECTION + VOTING GATE:
+4. Consolidate review findings:
+   - Read all .md files in review_findings/task_{N}/
+   - Merge critical, important, minor issues from both reviewers
+   - Deduplicate
+
+5. Fix issues (if found) - WITH INTELLIGENT FAILURE PATTERN DETECTION + VOTING GATE:
    IF critical or important issues:
      # Track failure patterns across attempts
      failure_history = []
 
      LOOP (max 2 attempts):
-       Task(fix-executor, """
-       Fix task validation issues.
+       a. Task(fix-executor, """
+          Fix task validation issues.
 
-       Spec: $WORK_DIR/.spec/BUILD_[taskname].md
-       Task: {task description}
+          Spec: $WORK_DIR/.spec/BUILD_[taskname].md
+          Task: {task description}
 
-       Issues: [paste combined JSON from 2 reviewers]
+          Issues from: $WORK_DIR/.spec/review_findings/task_{N}/*.md
 
-       CRITICAL RULES (from agent-prompting skill):
-       - Fix PROPERLY - no workarounds
-       - Follow code standards: logging.getLogger, try/except only for connections
-       - Max 2 attempts, then ESCALATE
+          CRITICAL RULES (from agent-prompting skill):
+          - Fix PROPERLY - no workarounds
+          - Follow code standards: logging.getLogger, try/except only for connections
+          - Max 2 attempts, then ESCALATE
 
-       Load python-style skill.
+          TOKEN BUDGET & TESTING RULES:
+          - You have 200K tokens - running out is EXPECTED and FINE (you'll be resumed)
+          - NEVER shortcut work to "save tokens"
+          - NEVER skip validation because tokens are "low"
+          - Quality > Token conservation ALWAYS
+          - DO NOT run tests (testing handled separately unless spec explicitly requests)
+          - DO NOT implement test files unless spec says "implement tests"
+          - Testing assumptions: Assume tests handled separately by user
 
-       Read spec: $WORK_DIR/.spec/BUILD_[taskname].md
-       """)
+          OUTPUT:
+          - Return brief summary (3-5 sentences): issues fixed, files modified
+          - 2 reviewers will validate after you complete
 
-       Re-run 2 code-reviewers in parallel (verify fixes)
+          Load python-style skill.
 
-       failure_history.append(current_issues)
+          Agent will read spec and review findings automatically.
+          """)
 
-       IF clean: Break
-       IF attempt >= 2:
+       b. MANDATORY: Re-run 2 code-reviewers in PARALLEL (FULL REVIEW, not just fix verification)
+
+          Focus instructions:
+          - Reviewer 1: Complete review as if first time - verify fixes PLUS check for new issues introduced
+          - Reviewer 2: Complete review as if first time - catch anything missed before or new problems from fixes
+
+          **This is NOT "check the fixes worked" - this is a FULL SECOND REVIEW with fresh eyes on the entire task.**
+
+          - Write to review_findings/task_{N}/{task_name}_code-reviewer_{N}_attempt_{attempt}.md
+          - Return summaries
+
+       c. Consolidate findings from new reviews
+
+       d. failure_history.append(current_issues)
+
+       e. IF clean: Break
+          IF attempt >= 2:
          # GATE 4: FIX STRATEGY VOTING
          IF same_issue_repeated(failure_history):
            # Same issue after 2 attempts = need voting consensus on fix strategy
@@ -300,6 +468,15 @@ ELSE:
 
              Combined Recommendations:
              {recommendations}
+
+             TOKEN BUDGET & TESTING RULES:
+             - You have 200K tokens - running out is EXPECTED and FINE (you'll be resumed)
+             - NEVER shortcut work to "save tokens"
+             - NEVER skip validation because tokens are "low"
+             - Quality > Token conservation ALWAYS
+             - DO NOT run tests (testing handled separately unless spec explicitly requests)
+             - DO NOT implement test files unless spec says "implement tests"
+             - Testing assumptions: Assume tests handled separately by user
 
              This is a final attempt based on consensus.
              """)
@@ -363,9 +540,13 @@ ELSE:
            # Different issues = making progress
            ESCALATE: "Multiple different issues after 2 attempts. Need human review."
 
-4. Update PROGRESS.md with task completion
+6. Update PROGRESS.md:
+   - Mark task complete
+   - Update task status to COMPLETE
+   - Update "Tasks Completed" count
+   - Update timestamp
 
-5. Commit changes for this task (pre-commit validation runs automatically)
+7. Commit changes for this task (pre-commit validation runs automatically)
 
 NEXT task...
 ```
@@ -394,7 +575,24 @@ Update BUILD spec with any discoveries:
 
 **Goal:** Comprehensive validation of entire implementation after all tasks complete.
 
-**Run linting + 6 reviewers in PARALLEL (single message with 7 operations):**
+**REMINDER: IGNORE TOKEN WARNINGS - run ALL reviewers, full validation cycle, never shortcut.**
+
+**Create review findings directory for full validation:**
+```bash
+mkdir -p $WORK_DIR/.spec/review_findings/full_validation
+```
+
+**Determine reviewer configuration:**
+```
+# Check if this is public-facing (API, web service, etc.)
+IF spec mentions "API", "endpoint", "web service", "public", "external users":
+  reviewers = [security-auditor, performance-optimizer, code-reviewer x3, code-beautifier]
+ELSE:
+  # Internal tools don't need security auditor
+  reviewers = [code-reviewer x4, performance-optimizer, code-beautifier]
+```
+
+**Run linting + reviewers in PARALLEL (single message with 7 or 8 operations):**
 
 ```bash
 # Operation 1: Linting (run alongside reviewers)
@@ -407,10 +605,28 @@ ruff check $WORK_DIR && pyright $WORK_DIR
 Common for all reviewers:
 - Spec: $WORK_DIR/.spec/BUILD_[taskname].md
 - Workflow: solo
-- Return JSON: {"status": "COMPLETE", "critical": [...], "important": [...], "minor": [...]}
+- Phase: full_validation
 
 Task(security-auditor, """
 Audit implementation for security vulnerabilities.
+
+Spec: $WORK_DIR/.spec/BUILD_[taskname].md
+Workflow: solo
+Phase: full_validation
+
+TOKEN BUDGET & TESTING RULES:
+- You have 200K tokens - running out is EXPECTED and FINE (you'll be resumed)
+- NEVER shortcut work to "save tokens"
+- NEVER skip validation because tokens are "low"
+- Quality > Token conservation ALWAYS
+- DO NOT run tests (testing handled separately unless spec explicitly requests)
+- DO NOT implement test files unless spec says "implement tests"
+- Testing assumptions: Assume tests handled separately by user
+
+OUTPUT:
+1. Write findings to: $WORK_DIR/.spec/review_findings/full_validation/security-auditor.md
+   Format (JSON): {"status": "COMPLETE", "critical": [...], "important": [...], "minor": [...]}
+2. Return summary (2-3 sentences): Critical: X, Important: Y, Overall: CLEAN/ISSUES_FOUND
 
 Load vulnerability-triage skill.
 
@@ -420,13 +636,49 @@ Review for: injection risks, auth bypasses, data exposure, crypto issues.
 Task(performance-optimizer, """
 Review implementation for performance issues.
 
-Load mongodb-aggregation-optimization skill if MongoDB code detected.
+Spec: $WORK_DIR/.spec/BUILD_[taskname].md
+Workflow: solo
+Phase: full_validation
+
+TOKEN BUDGET & TESTING RULES:
+- You have 200K tokens - running out is EXPECTED and FINE (you'll be resumed)
+- NEVER shortcut work to "save tokens"
+- NEVER skip validation because tokens are "low"
+- Quality > Token conservation ALWAYS
+- DO NOT run tests (testing handled separately unless spec explicitly requests)
+- DO NOT implement test files unless spec says "implement tests"
+- Testing assumptions: Assume tests handled separately by user
+
+OUTPUT:
+1. Write findings to: $WORK_DIR/.spec/review_findings/full_validation/performance-optimizer.md
+   Format (JSON): {"status": "COMPLETE", "critical": [...], "important": [...], "minor": [...]}
+2. Return summary (2-3 sentences): Critical: X, Important: Y, Overall: CLEAN/ISSUES_FOUND
+
+Load mongodb-aggregation-optimization skill if MongoDB detected.
 
 Review for: N+1 queries, missing indexes, inefficient algorithms, memory leaks.
 """)
 
 Task(code-reviewer, """
 Review implementation: complexity, errors, clarity.
+
+Spec: $WORK_DIR/.spec/BUILD_[taskname].md
+Workflow: solo
+Phase: full_validation
+
+TOKEN BUDGET & TESTING RULES:
+- You have 200K tokens - running out is EXPECTED and FINE (you'll be resumed)
+- NEVER shortcut work to "save tokens"
+- NEVER skip validation because tokens are "low"
+- Quality > Token conservation ALWAYS
+- DO NOT run tests (testing handled separately unless spec explicitly requests)
+- DO NOT implement test files unless spec says "implement tests"
+- Testing assumptions: Assume tests handled separately by user
+
+OUTPUT:
+1. Write findings to: $WORK_DIR/.spec/review_findings/full_validation/code-reviewer_1.md
+   Format (JSON): {"status": "COMPLETE", "critical": [...], "important": [...], "minor": [...]}
+2. Return summary (2-3 sentences): Critical: X, Important: Y, Overall: CLEAN/ISSUES_FOUND
 
 Load python-style skill.
 
@@ -436,11 +688,47 @@ Focus: cyclomatic complexity, error handling, code clarity, maintainability.
 Task(code-reviewer, """
 Review implementation: responsibility, coupling, type safety.
 
+Spec: $WORK_DIR/.spec/BUILD_[taskname].md
+Workflow: solo
+Phase: full_validation
+
+TOKEN BUDGET & TESTING RULES:
+- You have 200K tokens - running out is EXPECTED and FINE (you'll be resumed)
+- NEVER shortcut work to "save tokens"
+- NEVER skip validation because tokens are "low"
+- Quality > Token conservation ALWAYS
+- DO NOT run tests (testing handled separately unless spec explicitly requests)
+- DO NOT implement test files unless spec says "implement tests"
+- Testing assumptions: Assume tests handled separately by user
+
+OUTPUT:
+1. Write findings to: $WORK_DIR/.spec/review_findings/full_validation/code-reviewer_2.md
+   Format (JSON): {"status": "COMPLETE", "critical": [...], "important": [...], "minor": [...]}
+2. Return summary (2-3 sentences): Critical: X, Important: Y, Overall: CLEAN/ISSUES_FOUND
+
 Focus: SRP violations, tight coupling, type hint coverage, interface clarity.
 """)
 
 Task(code-beautifier, """
 Review implementation: DRY violations, magic numbers, dead code.
+
+Spec: $WORK_DIR/.spec/BUILD_[taskname].md
+Workflow: solo
+Phase: full_validation
+
+TOKEN BUDGET & TESTING RULES:
+- You have 200K tokens - running out is EXPECTED and FINE (you'll be resumed)
+- NEVER shortcut work to "save tokens"
+- NEVER skip validation because tokens are "low"
+- Quality > Token conservation ALWAYS
+- DO NOT run tests (testing handled separately unless spec explicitly requests)
+- DO NOT implement test files unless spec says "implement tests"
+- Testing assumptions: Assume tests handled separately by user
+
+OUTPUT:
+1. Write findings to: $WORK_DIR/.spec/review_findings/full_validation/code-beautifier.md
+   Format (JSON): {"status": "COMPLETE", "critical": [...], "important": [...], "minor": [...]}
+2. Return summary (2-3 sentences): Critical: X, Important: Y, Overall: CLEAN/ISSUES_FOUND
 
 Focus: code duplication, hardcoded values, unused imports/variables, formatting.
 """)
@@ -448,12 +736,31 @@ Focus: code duplication, hardcoded values, unused imports/variables, formatting.
 Task(code-reviewer, """
 Review implementation: documentation, comments, naming.
 
+Spec: $WORK_DIR/.spec/BUILD_[taskname].md
+Workflow: solo
+Phase: full_validation
+
+TOKEN BUDGET & TESTING RULES:
+- You have 200K tokens - running out is EXPECTED and FINE (you'll be resumed)
+- NEVER shortcut work to "save tokens"
+- NEVER skip validation because tokens are "low"
+- Quality > Token conservation ALWAYS
+- DO NOT run tests (testing handled separately unless spec explicitly requests)
+- DO NOT implement test files unless spec says "implement tests"
+- Testing assumptions: Assume tests handled separately by user
+
+OUTPUT:
+1. Write findings to: $WORK_DIR/.spec/review_findings/full_validation/code-reviewer_3.md
+   Format (JSON): {"status": "COMPLETE", "critical": [...], "important": [...], "minor": [...]}
+2. Return summary (2-3 sentences): Critical: X, Important: Y, Overall: CLEAN/ISSUES_FOUND
+
 Focus: docstring coverage, comment quality, variable naming, function naming.
 """)
 ```
 
-**Combine all findings:**
-- Merge linting errors + 6 reviewer responses
+**Consolidate findings:**
+- Read all .md files in review_findings/full_validation/
+- Merge linting errors + 6 reviewer findings
 - Consolidate critical + important + minor
 - Deduplicate issues
 
@@ -479,13 +786,30 @@ LOOP until validation clean:
      - If architectural issue: ESCALATE immediately
      - Max 3 attempts
 
+     TOKEN BUDGET & TESTING RULES:
+     - You have 200K tokens - running out is EXPECTED and FINE (you'll be resumed)
+     - NEVER shortcut work to "save tokens"
+     - NEVER skip validation because tokens are "low"
+     - Quality > Token conservation ALWAYS
+     - DO NOT run tests (testing handled separately unless spec explicitly requests)
+     - DO NOT implement test files unless spec says "implement tests"
+     - Testing assumptions: Assume tests handled separately by user
+
      Load python-style skill.
      Load code-refactoring skill if complexity issues.
 
      Read spec: $WORK_DIR/.spec/BUILD_[taskname].md
      """)
 
-  2. Re-run linting + 6 reviewers in PARALLEL (single message - verify fixes)
+  2. Re-run linting + reviewers in PARALLEL (FULL REVIEW, not just fix verification)
+
+     Focus for all reviewers:
+     - Do COMPLETE review as if first time
+     - Verify fixes were applied correctly
+     - Look for new issues introduced by fixes
+     - Catch anything that was missed in previous round
+
+     **This is NOT just "check fixes worked" - this is a FULL VALIDATION CYCLE with fresh eyes.**
 
   failure_history.append(current_issues)
 
@@ -663,6 +987,15 @@ Spec: $WORK_DIR/.spec/BUILD_[taskname].md
 Workflow: solo
 
 Implementation complete and validated. Ensure docs accurate.
+
+TOKEN BUDGET & TESTING RULES:
+- You have 200K tokens - running out is EXPECTED and FINE (you'll be resumed)
+- NEVER shortcut work to "save tokens"
+- NEVER skip validation because tokens are "low"
+- Quality > Token conservation ALWAYS
+- DO NOT run tests (testing handled separately unless spec explicitly requests)
+- DO NOT implement test files unless spec says "implement tests"
+- Testing assumptions: Assume tests handled separately by user
 
 Load ai-documentation skill.
 
@@ -891,6 +1224,15 @@ CRITICAL STANDARDS (from agent-prompting skill):
   - Test function in ISOLATION, not with its dependencies
 - Integration tests: 2-4 files per module (ADD to existing, don't create new)
 - DO NOT run tests
+
+TOKEN BUDGET & TESTING RULES:
+- You have 200K tokens - running out is EXPECTED and FINE (you'll be resumed)
+- NEVER shortcut work to "save tokens"
+- NEVER skip validation because tokens are "low"
+- Quality > Token conservation ALWAYS
+- DO NOT run tests (testing handled separately unless spec explicitly requests)
+- DO NOT implement test files unless spec says "implement tests"
+- Testing assumptions: Assume tests handled separately by user
 
 Load testing-standards skill.
 

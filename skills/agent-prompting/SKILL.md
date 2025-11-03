@@ -20,8 +20,29 @@ allowed-tools:
 3. **Examples over explanations** - Show what you want (multishot prompting).
 4. **Iteration over perfection** - Test prompts, analyze outputs, refine approach.
 5. **Context engineering > prompt engineering** - Right context matters more than perfect wording.
+6. **QUALITY OVER TOKENS** - Never shortcut work due to token concerns. See below.
 
 **Golden rule:** If a human would be confused by your prompt, an AI definitely will be.
+
+---
+
+## TOKEN BUDGET DIRECTIVE (CRITICAL - INCLUDE IN ALL PROMPTS)
+
+**MANDATORY for all agent prompts during orchestrations:**
+
+```
+TOKEN BUDGET DIRECTIVE:
+- You have a 200K token budget - this is a CEILING, not a target
+- NEVER shortcut work because you see token warnings
+- NEVER skip validation, reviews, or fixes to "save tokens"
+- NEVER use placeholders, TODOs, or "implement later" due to token concerns
+- Better to hit 200K limit doing excellent work than finish early with half-assed work
+- If you run out of tokens mid-task: THAT'S FINE - you'll be resumed
+- Quality first, token count never
+```
+
+**Why this matters:**
+Claude Code shows token usage notifications ("30K tokens remaining"). Agents see these and panic, thinking they need to rush and cut corners. THIS IS WRONG. The human prefers you run out of tokens doing thorough work than conserve tokens by skipping steps.
 
 ---
 
@@ -342,6 +363,12 @@ Start looking in: [Files hint if you know]
 ### Implementation Agents (implementation-executor, general-builder, skeleton-builder)
 
 ```
+TOKEN BUDGET DIRECTIVE:
+- NEVER shortcut work due to token warnings
+- NEVER skip implementation to "save tokens"
+- NEVER use placeholders/TODOs due to token concerns
+- Better to run out of tokens mid-excellence than finish with half-assed work
+
 CRITICAL STANDARDS (inline in prompt):
 - Logging: import logging; LOG = logging.getLogger(__name__)
 - try/except ONLY for connection errors (network, database, cache, external APIs)
@@ -356,6 +383,16 @@ CRITICAL STANDARDS (inline in prompt):
 - No commented code (delete it)
 - DO NOT run tests unless explicitly instructed
 
+OUTPUT REQUIREMENTS:
+
+IF during orchestration (/conduct or /solo):
+  If you discover gotchas or deviations from spec:
+  1. Append to $WORK_DIR/.spec/DISCOVERIES.md with discovery
+  2. Return brief summary (3-5 sentences): what implemented + gotchas found
+
+OTHERWISE (ad-hoc work):
+  Return normal detailed output
+
 OPTIONAL SKILL LOAD:
 - python-style (detailed patterns if needed)
 ```
@@ -363,6 +400,12 @@ OPTIONAL SKILL LOAD:
 ### Test Agents (test-implementer, test-skeleton-builder)
 
 ```
+TOKEN BUDGET DIRECTIVE:
+- NEVER shortcut tests due to token warnings
+- NEVER skip test cases to "save tokens"
+- NEVER use incomplete mocks or assertions due to token concerns
+- Better to run out of tokens mid-excellence than finish with half-assed tests
+
 CRITICAL STANDARDS (inline in prompt):
 - 1:1 file mapping: tests/unit/test_<module>.py for src/<module>.py
 - 95% coverage minimum for unit tests
@@ -399,15 +442,39 @@ SKILL TO LOAD:
 
 ### Review Agents (security-auditor, performance-optimizer, code-reviewer, code-beautifier)
 
+**IMPORTANT:** Review agents have Write tool access to save findings to files.
+
 ```
+TOKEN BUDGET DIRECTIVE:
+- NEVER shortcut reviews due to token warnings
+- NEVER skip checking files to "save tokens"
+- NEVER reduce thoroughness due to token concerns
+- Better to run out of tokens mid-review than deliver incomplete findings
+
 CRITICAL STANDARDS (inline in prompt):
 - Check for improper try/except usage (wrapping safe operations)
 - Check logging (should use logging.getLogger(__name__))
 - Check type hints (required for new code)
 - Check 80 char line limit, no # noqa without reason
-- ONLY valid JSON response - NO prose, NO markdown
 
-Response format:
+OUTPUT REQUIREMENTS:
+
+IF during orchestration (/conduct or /solo):
+  1. Write detailed findings to: $WORK_DIR/.spec/review_findings/[phase]/[context]_[role]_[N].md
+  2. Return ONLY 2-3 sentence summary
+
+OTHERWISE (ad-hoc reviews):
+  1. Write detailed findings to: /tmp/review_findings/[timestamp]_[context]_[role].md
+  2. Return ONLY 2-3 sentence summary
+
+Summary format:
+- Critical issue count (if any)
+- Important issue count (if any)
+- Overall status (CLEAN / ISSUES_FOUND)
+
+DO NOT return full JSON in response - it's in the file.
+
+File format (JSON):
 {
   "status": "COMPLETE",
   "critical": [{"file": "path/to/file.py", "line": 123, "issue": "...", "fix": "..."}],
@@ -424,6 +491,12 @@ OPTIONAL SKILL LOADS:
 ### Fix Agents (fix-executor)
 
 ```
+TOKEN BUDGET DIRECTIVE:
+- NEVER shortcut fixes due to token warnings
+- NEVER skip fixing issues to "save tokens"
+- NEVER use workarounds instead of proper fixes due to token concerns
+- Better to run out of tokens mid-fix than deliver partial fixes
+
 CRITICAL STANDARDS (inline in prompt):
 - Fix issues PROPERLY - no workarounds, no shortcuts, no half-measures
 - Follow all code quality standards:
@@ -438,6 +511,20 @@ CRITICAL STANDARDS (inline in prompt):
   - Options available
   - Your recommendation
 - Max 3 attempts, then ESCALATE with clear explanation
+
+OUTPUT REQUIREMENTS:
+
+IF during orchestration (/conduct or /solo):
+  1. Return brief summary (3-5 sentences):
+     - How many issues fixed
+     - What files modified
+     - Any remaining concerns
+  DO NOT return full list of changes - reviewers will validate
+
+OTHERWISE (ad-hoc fixes):
+  Return detailed list of changes made
+
+IMPORTANT: After fix-executor completes, 2 reviewers MUST review again to validate fixes.
 
 OPTIONAL SKILL LOADS:
 - python-style (if fixing naming/logging)
@@ -484,12 +571,22 @@ Implement rate limiting for authentication endpoints.
 Spec: $WORK_DIR/.spec/BUILD_rate_limit.md
 Workflow: solo
 
+TOKEN BUDGET DIRECTIVE:
+- NEVER shortcut work due to token warnings
+- NEVER skip implementation to "save tokens"
+- NEVER use placeholders/TODOs due to token concerns
+- Better to run out of tokens mid-excellence than finish with half-assed work
+
 CRITICAL STANDARDS:
 - Logging: import logging; LOG = logging.getLogger(__name__)
 - try/except ONLY for connection errors (network, DB, cache)
 - Type hints required, 80 char limit
 - No # noqa without documented reason
 - DO NOT run tests
+
+OUTPUT:
+- If gotchas found: Append to $WORK_DIR/.spec/DISCOVERIES.md
+- Return brief summary (3-5 sentences): what implemented + gotchas
 
 Load python-style skill if needed.
 
@@ -536,12 +633,13 @@ Fix all validation issues.
 Spec: $WORK_DIR/.spec/BUILD_rate_limit.md
 Workflow: solo
 
-Critical issues:
-- src/auth/rate_limiter.py:45 - Wrapping dict.get in try/except
-- src/auth/rate_limiter.py:67 - Using # noqa to silence type error
+Issues from: $WORK_DIR/.spec/review_findings/task_2/rate_limit_code-reviewer_*.md
 
-Important issues:
-- src/auth/rate_limiter.py:23 - Magic number 300 without explanation
+TOKEN BUDGET DIRECTIVE:
+- NEVER shortcut fixes due to token warnings
+- NEVER skip fixing issues to "save tokens"
+- NEVER use workarounds instead of proper fixes due to token concerns
+- Better to run out of tokens mid-fix than deliver partial fixes
 
 CRITICAL RULES:
 - Fix PROPERLY - no workarounds
@@ -549,7 +647,55 @@ CRITICAL RULES:
 - DO NOT wrap safe operations in try/except
 - If architectural issue, ESCALATE with options
 
+OUTPUT:
+- Return brief summary (3-5 sentences): issues fixed, files modified
+- 2 reviewers will validate after you complete
+
 Load python-style skill if needed.
+
+Agent will read spec and review findings automatically.
+""")
+```
+
+**Example code-reviewer prompt:**
+
+```
+Task(code-reviewer, """
+Review rate limiting implementation.
+
+Spec: $WORK_DIR/.spec/BUILD_rate_limit.md
+Workflow: solo
+Phase: task_2
+
+Focus: Code quality, logic correctness, standards compliance
+
+TOKEN BUDGET DIRECTIVE:
+- NEVER shortcut reviews due to token warnings
+- NEVER skip checking files to "save tokens"
+- NEVER reduce thoroughness due to token concerns
+- Better to run out of tokens mid-review than deliver incomplete findings
+
+CRITICAL STANDARDS:
+- Check for improper try/except usage (wrapping safe operations)
+- Check logging (should use logging.getLogger(__name__))
+- Check type hints (required for new code)
+- Check 80 char line limit, no # noqa without reason
+
+OUTPUT:
+1. Write findings to: $WORK_DIR/.spec/review_findings/task_2/rate_limit_code-reviewer_1.md
+   Format (JSON):
+   {
+     "status": "COMPLETE",
+     "critical": [{"file": "...", "line": 123, "issue": "...", "fix": "..."}],
+     "important": [...],
+     "minor": [...]
+   }
+
+2. Return summary (2-3 sentences):
+   - Critical: X, Important: Y, Minor: Z
+   - Overall: CLEAN or ISSUES_FOUND
+
+Load python-style skill.
 
 Agent will read spec automatically.
 """)

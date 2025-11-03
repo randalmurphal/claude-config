@@ -38,6 +38,34 @@ STOP - do not proceed.
 
 ---
 
+## ⚠️ TOKEN BUDGET DIRECTIVE - READ FIRST ⚠️
+
+**CRITICAL - IGNORE TOKEN WARNINGS:**
+
+You have a 200K token budget. This is a CEILING, not a target.
+
+**NEVER EVER:**
+- Shortcut work because you see token warnings (e.g., "30K tokens remaining")
+- Skip validation, reviews, or fixes to "save tokens"
+- Use placeholders, TODOs, or "implement later" due to token concerns
+- Rush through remaining work to finish before hitting limit
+- Reduce thoroughness of reviews because of token count
+- Skip spawning necessary agents to conserve tokens
+
+**ALWAYS:**
+- Do thorough, complete, excellent work regardless of token count
+- Spawn all necessary agents for proper validation
+- Run full review cycles even if tokens are "low"
+- If you run out of tokens mid-task: THAT'S FINE - you'll be resumed
+- Better to hit 200K limit mid-excellence than finish with half-assed work
+
+**Why this matters:**
+Claude Code shows token usage notifications. You might panic and think you need to rush. THIS IS WRONG. The user prefers you run out of tokens doing thorough work than conserve tokens by cutting corners.
+
+**Quality first. Token count NEVER.**
+
+---
+
 ## Workflow
 
 ### Phase 1: Load Agent Prompting Skill
@@ -297,10 +325,60 @@ for component in component_order:
     ESCALATE: "Component {component} declares {declared_deps} but actually imports {missing_deps}. Fix SPEC.md dependencies before proceeding."
 ```
 
-**Initialize tracking:**
-- Create PROGRESS.md (see `~/.claude/templates/operational.md`)
-- Create DISCOVERIES.md (merge with impact analysis from Phase 3)
-- TodoWrite: Component-level tracking
+**Initialize tracking structure:**
+
+```bash
+# Create review findings directory structure
+mkdir -p $WORK_DIR/.spec/review_findings
+
+# This will hold subdirectories for each phase/component
+# Format: review_findings/component_N_task_M/
+#   - Reviewers write findings here with JSON format
+#   - You read these to consolidate issues
+```
+
+**Create PROGRESS.md** with this format:
+
+```markdown
+# Progress Tracker - [Project Name from SPEC.md]
+
+## Overall Status
+**Current Phase:** Phase N - [component name]
+**Started:** [timestamp]
+**Components Completed:** 0 / X
+
+## Component Status
+
+### Component 1: [name] (Phase 1)
+**Status:** NOT_STARTED | SKELETON_DONE | IMPLEMENTING | VALIDATING | PRODUCTION_READY
+**Started:** [empty until started]
+**Completed:** [empty until done]
+**Tasks Completed:** 0 / Y
+
+#### Tasks
+- [ ] Task 1: [name] - NOT_STARTED
+- [ ] Task 2: [name] - NOT_STARTED
+
+**Validation Status:** NOT_STARTED
+
+### Component 2: [name] (Phase 2)
+[... repeat for all components]
+
+## Blocked Issues
+[Empty or list of blockers with resolution status]
+
+---
+Last Updated: [timestamp]
+```
+
+**Create/Update DISCOVERIES.md** (merge with impact analysis from Phase 3 if exists)
+
+**TodoWrite:** Component-level tracking for high-level visibility
+
+**IMPORTANT:**
+- **You update PROGRESS.md** when phases/components complete
+- **Sub-agents write to review_findings/** or **DISCOVERIES.md** only
+- **Sub-agents return brief summaries** to you (3-5 sentences max)
 
 **Commit changes** (with pre-commit validation):
 ```bash
@@ -407,6 +485,15 @@ CRITICAL STANDARDS (from agent-prompting skill):
 - Type hints required, 80 char limit
 - Logging: import logging; LOG = logging.getLogger(__name__)
 
+TOKEN BUDGET & TESTING RULES:
+- You have 200K tokens - running out is EXPECTED and FINE (you'll be resumed)
+- NEVER shortcut work to "save tokens"
+- NEVER skip validation because tokens are "low"
+- Quality > Token conservation ALWAYS
+- DO NOT run tests (testing handled separately unless spec explicitly requests)
+- DO NOT implement test files unless spec says "implement tests"
+- Testing assumptions: Assume tests handled separately by user
+
 Read spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
 """)
 ```
@@ -430,6 +517,15 @@ Production skeleton: {component_file}
 CRITICAL STANDARDS (from agent-prompting skill):
 - 1:1 file mapping: tests/unit/test_<module>.py
 - AAA pattern structure
+
+TOKEN BUDGET & TESTING RULES:
+- You have 200K tokens - running out is EXPECTED and FINE (you'll be resumed)
+- NEVER shortcut work to "save tokens"
+- NEVER skip validation because tokens are "low"
+- Quality > Token conservation ALWAYS
+- DO NOT run tests (testing handled separately unless spec explicitly requests)
+- DO NOT implement test files unless spec says "implement tests"
+- Testing assumptions: Assume tests handled separately by user
 
 Read spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
 """)
@@ -502,6 +598,27 @@ Wave 3 (parallel - 2 independent tasks):
   → Duration too short, execute sequentially (overhead > benefit)
 ```
 
+**REMINDER: IGNORE TOKEN WARNINGS - spawn all necessary agents, run full validation, never shortcut.**
+
+---
+
+**⚠️ CRITICAL - REVIEWS ARE MANDATORY ⚠️**
+
+After EVERY single task implementation (no exceptions):
+- 6 reviewers run in PARALLEL (security-auditor OR code-reviewer_4, performance-optimizer, code-reviewer x3, code-beautifier)
+- Then fix loop until CLEAN (max 2 attempts with GATE 4 voting if patterns repeat)
+
+After component tasks complete (no exceptions):
+- Linting + 6 reviewers run in PARALLEL
+- Then fix loop until CLEAN (max 3 attempts with GATE 4 voting if patterns repeat)
+- Then GATE 5: Production-Readiness Voting (3 reviewers vote on readiness)
+
+**NO SKIPPING. NO "LOOKS GOOD ENOUGH." NO TOKEN PRESSURE SHORTCUTS.**
+
+If you run out of tokens during reviews: PERFECT. You'll be resumed.
+
+---
+
 **For EACH task:**
 
 ```
@@ -521,6 +638,19 @@ Wave 3 (parallel - 2 independent tasks):
    - No # noqa without documented reason
    - DO NOT run tests
 
+   TOKEN BUDGET & TESTING RULES:
+   - You have 200K tokens - running out is EXPECTED and FINE (you'll be resumed)
+   - NEVER shortcut work to "save tokens"
+   - NEVER skip validation because tokens are "low"
+   - Quality > Token conservation ALWAYS
+   - DO NOT run tests (testing handled separately unless spec explicitly requests)
+   - DO NOT implement test files unless spec says "implement tests"
+   - Testing assumptions: Assume tests handled separately by user
+
+   OUTPUT:
+   - If gotchas found: Append to $WORK_DIR/.spec/DISCOVERIES.md
+   - Return brief summary (3-5 sentences): what implemented + gotchas
+
    Load python-style skill.
 
    Available from previous components:
@@ -530,75 +660,246 @@ Wave 3 (parallel - 2 independent tasks):
    Focus on: {phase name} → {task name}
    """)
 
-2. Validate task (2 code-reviewers in PARALLEL - single message with 2 Task calls):
+2. Create review findings directory for this task:
+   mkdir -p $WORK_DIR/.spec/review_findings/component_{N}_task_{M}
 
-   Task(code-reviewer, """
-   Review: {task description}
+**Determine reviewer configuration for this task:**
+```
+# Check if component is public-facing
+IF spec mentions "API", "endpoint", "web service", "public", "external users", "authentication", "authorization":
+  task_reviewers = [security-auditor, performance-optimizer, code-reviewer x3, code-beautifier]
+ELSE:
+  # Internal components don't need security auditor
+  task_reviewers = [code-reviewer x4, performance-optimizer, code-beautifier]
+```
+
+3. Validate task (6 reviewers in PARALLEL - single message with 6 Task calls):
+
+   Task(security-auditor, """
+   Audit {task} for security vulnerabilities.
 
    Spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
    Workflow: conduct
+   Phase: component_{N}_task_{M}
 
-   Focus: Code quality, logic correctness, standards compliance
+   TOKEN BUDGET & TESTING RULES:
+   - You have 200K tokens - running out is EXPECTED and FINE (you'll be resumed)
+   - NEVER shortcut work to "save tokens"
+   - NEVER skip validation because tokens are "low"
+   - Quality > Token conservation ALWAYS
+   - DO NOT run tests (testing handled separately unless spec explicitly requests)
+   - DO NOT implement test files unless spec says "implement tests"
+   - Testing assumptions: Assume tests handled separately by user
+
+   OUTPUT:
+   1. Write findings to: $WORK_DIR/.spec/review_findings/component_{N}_task_{M}/{task_name}_security-auditor.md
+      Format (JSON): {"status": "COMPLETE", "critical": [...], "important": [...], "minor": [...]}
+   2. Return summary (2-3 sentences): Critical: X, Important: Y, Overall: CLEAN/ISSUES_FOUND
+
+   Load vulnerability-triage skill.
+
+   Review for: injection risks, auth bypasses, data exposure, crypto issues.
+   """)
+
+   Task(performance-optimizer, """
+   Review {task} for performance issues.
+
+   Spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
+   Workflow: conduct
+   Phase: component_{N}_task_{M}
+
+   TOKEN BUDGET & TESTING RULES:
+   - You have 200K tokens - running out is EXPECTED and FINE (you'll be resumed)
+   - NEVER shortcut work to "save tokens"
+   - NEVER skip validation because tokens are "low"
+   - Quality > Token conservation ALWAYS
+   - DO NOT run tests (testing handled separately unless spec explicitly requests)
+   - DO NOT implement test files unless spec says "implement tests"
+   - Testing assumptions: Assume tests handled separately by user
+
+   OUTPUT:
+   1. Write findings to: $WORK_DIR/.spec/review_findings/component_{N}_task_{M}/{task_name}_performance-optimizer.md
+      Format (JSON): {"status": "COMPLETE", "critical": [...], "important": [...], "minor": [...]}
+   2. Return summary (2-3 sentences): Critical: X, Important: Y, Overall: CLEAN/ISSUES_FOUND
+
+   Load mongodb-aggregation-optimization skill if MongoDB detected.
+
+   Review for: N+1 queries, missing indexes, inefficient algorithms.
+   """)
+
+   Task(code-reviewer, """
+   Review {task}: Code quality, logic correctness, standards compliance.
+
+   Spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
+   Workflow: conduct
+   Phase: component_{N}_task_{M}
+
+   TOKEN BUDGET & TESTING RULES:
+   - You have 200K tokens - running out is EXPECTED and FINE (you'll be resumed)
+   - NEVER shortcut work to "save tokens"
+   - NEVER skip validation because tokens are "low"
+   - Quality > Token conservation ALWAYS
+   - DO NOT run tests (testing handled separately unless spec explicitly requests)
+   - DO NOT implement test files unless spec says "implement tests"
+   - Testing assumptions: Assume tests handled separately by user
+
+   OUTPUT:
+   1. Write findings to: $WORK_DIR/.spec/review_findings/component_{N}_task_{M}/{task_name}_code-reviewer_1.md
+      Format (JSON): {"status": "COMPLETE", "critical": [...], "important": [...], "minor": [...]}
+   2. Return summary (2-3 sentences): Critical: X, Important: Y, Overall: CLEAN/ISSUES_FOUND
 
    Load python-style skill.
 
-   Return JSON: {"status": "COMPLETE", "critical": [...], "important": [...], "minor": [...]}
+   Focus: cyclomatic complexity, error handling, code clarity, maintainability.
    """)
 
    Task(code-reviewer, """
-   Review: {task description}
+   Review {task}: Edge cases, error handling, coupling.
 
    Spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
    Workflow: conduct
+   Phase: component_{N}_task_{M}
 
-   Focus: Edge cases, error handling, coupling
+   TOKEN BUDGET & TESTING RULES:
+   - You have 200K tokens - running out is EXPECTED and FINE (you'll be resumed)
+   - NEVER shortcut work to "save tokens"
+   - NEVER skip validation because tokens are "low"
+   - Quality > Token conservation ALWAYS
+   - DO NOT run tests (testing handled separately unless spec explicitly requests)
+   - DO NOT implement test files unless spec says "implement tests"
+   - Testing assumptions: Assume tests handled separately by user
 
-   Return JSON: {"status": "COMPLETE", "critical": [...], "important": [...], "minor": [...]}
+   OUTPUT:
+   1. Write findings to: $WORK_DIR/.spec/review_findings/component_{N}_task_{M}/{task_name}_code-reviewer_2.md
+      Format (JSON): {"status": "COMPLETE", "critical": [...], "important": [...], "minor": [...]}
+   2. Return summary (2-3 sentences): Critical: X, Important: Y, Overall: CLEAN/ISSUES_FOUND
+
+   Focus: SRP violations, tight coupling, type hint coverage, error scenarios.
    """)
 
-3. Fix issues (if found) - WITH INTELLIGENT FAILURE PATTERN DETECTION AND VOTING:
+   Task(code-beautifier, """
+   Review {task}: DRY violations, magic numbers, dead code.
+
+   Spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
+   Workflow: conduct
+   Phase: component_{N}_task_{M}
+
+   TOKEN BUDGET & TESTING RULES:
+   - You have 200K tokens - running out is EXPECTED and FINE (you'll be resumed)
+   - NEVER shortcut work to "save tokens"
+   - NEVER skip validation because tokens are "low"
+   - Quality > Token conservation ALWAYS
+   - DO NOT run tests (testing handled separately unless spec explicitly requests)
+   - DO NOT implement test files unless spec says "implement tests"
+   - Testing assumptions: Assume tests handled separately by user
+
+   OUTPUT:
+   1. Write findings to: $WORK_DIR/.spec/review_findings/component_{N}_task_{M}/{task_name}_code-beautifier.md
+      Format (JSON): {"status": "COMPLETE", "critical": [...], "important": [...], "minor": [...]}
+   2. Return summary (2-3 sentences): Critical: X, Important: Y, Overall: CLEAN/ISSUES_FOUND
+
+   Focus: code duplication, hardcoded values, unused imports/variables.
+   """)
+
+   Task(code-reviewer, """
+   Review {task}: Documentation, comments, naming.
+
+   Spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
+   Workflow: conduct
+   Phase: component_{N}_task_{M}
+
+   TOKEN BUDGET & TESTING RULES:
+   - You have 200K tokens - running out is EXPECTED and FINE (you'll be resumed)
+   - NEVER shortcut work to "save tokens"
+   - NEVER skip validation because tokens are "low"
+   - Quality > Token conservation ALWAYS
+   - DO NOT run tests (testing handled separately unless spec explicitly requests)
+   - DO NOT implement test files unless spec says "implement tests"
+   - Testing assumptions: Assume tests handled separately by user
+
+   OUTPUT:
+   1. Write findings to: $WORK_DIR/.spec/review_findings/component_{N}_task_{M}/{task_name}_code-reviewer_3.md
+      Format (JSON): {"status": "COMPLETE", "critical": [...], "important": [...], "minor": [...]}
+   2. Return summary (2-3 sentences): Critical: X, Important: Y, Overall: CLEAN/ISSUES_FOUND
+
+   Focus: docstring coverage, comment quality, variable naming, function naming.
+   """)
+
+4. Consolidate review findings:
+   - Read all .md files in review_findings/component_{N}_task_{M}/
+   - Merge critical, important, minor issues from all 6 reviewers
+   - Deduplicate across reviewers
+
+5. Fix issues (if found) - WITH INTELLIGENT FAILURE PATTERN DETECTION AND VOTING:
    IF critical or important issues:
      # Track failure patterns across attempts
      failure_history = []
 
      LOOP (max 2 attempts):
-       Task(fix-executor, """
-       Fix task validation issues.
+       a. Task(fix-executor, """
+          Fix task validation issues.
 
-       Spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
-       Task: {task description}
+          Spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
+          Task: {task description}
 
-       Issues: [paste combined JSON from 2 reviewers]
+          Issues from: $WORK_DIR/.spec/review_findings/component_{N}_task_{M}/*.md
 
-       CRITICAL RULES (from agent-prompting skill):
-       - Fix PROPERLY - no workarounds
-       - Follow code standards: logging.getLogger, try/except only for connections
-       - Max 2 attempts, then ESCALATE
+          CRITICAL RULES (from agent-prompting skill):
+          - Fix PROPERLY - no workarounds
+          - Follow code standards: logging.getLogger, try/except only for connections
+          - Max 2 attempts, then ESCALATE
 
-       Load python-style skill.
+          TOKEN BUDGET & TESTING RULES:
+          - You have 200K tokens - running out is EXPECTED and FINE (you'll be resumed)
+          - NEVER shortcut work to "save tokens"
+          - NEVER skip validation because tokens are "low"
+          - Quality > Token conservation ALWAYS
+          - DO NOT run tests (testing handled separately unless spec explicitly requests)
+          - DO NOT implement test files unless spec says "implement tests"
+          - Testing assumptions: Assume tests handled separately by user
 
-       Read spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
-       """)
+          OUTPUT:
+          - Return brief summary (3-5 sentences): issues fixed, files modified
+          - 2 reviewers will validate after you complete
 
-       Re-run 2 code-reviewers in parallel (verify fixes)
+          Load python-style skill.
 
-       failure_history.append(current_issues)
+          Agent will read spec and review findings automatically.
+          """)
 
-       IF clean: Break
-       IF attempt >= 2:
-         # CHECK FOR REPEATED ISSUE PATTERN
-         IF same_issue_repeated(failure_history):
-           # GATE 4: Fix Strategy Voting
-           Trigger_Fix_Strategy_Voting()
-         ELSE:
-           # Different issues = making progress
-           ESCALATE: "Multiple different issues after 2 attempts. Need human review."
+       b. MANDATORY: Re-run 2 code-reviewers in PARALLEL (FULL REVIEW, not just fix verification)
 
-4. Update tracking:
-   - PROGRESS.md: Mark task complete
-   - DISCOVERIES.md: Note any gotchas/learnings from this task
+          Focus instructions:
+          - Reviewer 1: Complete review as if first time - verify fixes PLUS check for new issues introduced
+          - Reviewer 2: Complete review as if first time - catch anything missed before or new problems from fixes
 
-5. Commit changes for this task (pre-commit validation runs)
+          **This is NOT "check the fixes worked" - this is a FULL SECOND REVIEW with fresh eyes on the entire task.**
+
+          - Same pattern as step 3 above
+          - Write new findings to review_findings/component_{N}_task_{M}/{task_name}_code-reviewer_{N}_attempt_{attempt}.md
+          - Return summaries
+
+       c. Consolidate findings from new reviews
+
+       d. failure_history.append(current_issues)
+
+       e. IF clean: Break
+          IF attempt >= 2:
+            # CHECK FOR REPEATED ISSUE PATTERN
+            IF same_issue_repeated(failure_history):
+              # GATE 4: Fix Strategy Voting
+              Trigger_Fix_Strategy_Voting()
+            ELSE:
+              # Different issues = making progress
+              ESCALATE: "Multiple different issues after 2 attempts. Need human review."
+
+6. Update PROGRESS.md:
+   - Mark task complete
+   - Update task status to COMPLETE
+   - Update component's "Tasks Completed" count
+   - Update timestamp
+
+7. Commit changes for this task (pre-commit validation runs)
 
 NEXT task...
 ```
@@ -688,6 +989,15 @@ NEXT task...
        Strategy from voting: {consolidated recommended_action}
        Root cause: {root_cause from votes}
 
+       TOKEN BUDGET & TESTING RULES:
+       - You have 200K tokens - running out is EXPECTED and FINE (you'll be resumed)
+       - NEVER shortcut work to "save tokens"
+       - NEVER skip validation because tokens are "low"
+       - Quality > Token conservation ALWAYS
+       - DO NOT run tests (testing handled separately unless spec explicitly requests)
+       - DO NOT implement test files unless spec says "implement tests"
+       - Testing assumptions: Assume tests handled separately by user
+
        [include all fix-executor standards]
        """)
 
@@ -700,6 +1010,15 @@ NEXT task...
 
        Refactoring approach: {consolidated recommended_action}
        Root cause: {root_cause from votes}
+
+       TOKEN BUDGET & TESTING RULES:
+       - You have 200K tokens - running out is EXPECTED and FINE (you'll be resumed)
+       - NEVER shortcut work to "save tokens"
+       - NEVER skip validation because tokens are "low"
+       - Quality > Token conservation ALWAYS
+       - DO NOT run tests (testing handled separately unless spec explicitly requests)
+       - DO NOT implement test files unless spec says "implement tests"
+       - Testing assumptions: Assume tests handled separately by user
 
        Load code-refactoring skill if needed.
        [include all fix-executor standards]
@@ -792,6 +1111,23 @@ Update DISCOVERIES.md with component summary:
 
 **Goal:** Comprehensive validation of entire component after all tasks complete.
 
+**REMINDER: IGNORE TOKEN WARNINGS - run ALL 6 reviewers, full validation cycle, never shortcut.**
+
+**Create review findings directory for full validation:**
+```bash
+mkdir -p $WORK_DIR/.spec/review_findings/component_{N}_full_validation
+```
+
+**Determine reviewer configuration for full validation:**
+```
+# Check if component is public-facing
+IF spec mentions "API", "endpoint", "web service", "public", "external users", "authentication", "authorization":
+  validation_reviewers = [security-auditor, performance-optimizer, code-reviewer x3, code-beautifier]
+ELSE:
+  # Internal components don't need security auditor
+  validation_reviewers = [code-reviewer x4, performance-optimizer, code-beautifier]
+```
+
 **Run linting + 6 reviewers in PARALLEL (single message with 7 operations):**
 
 ```bash
@@ -805,26 +1141,80 @@ ruff check $WORK_DIR/{component} && pyright $WORK_DIR/{component}
 Common for all reviewers:
 - Spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
 - Workflow: conduct
-- Return JSON: {"status": "COMPLETE", "critical": [...], "important": [...], "minor": [...]}
+- Phase: component_{N}_full_validation
 
 Task(security-auditor, """
 Audit {component} for security vulnerabilities.
 
+Spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
+Workflow: conduct
+Phase: component_{N}_full_validation
+
+TOKEN BUDGET & TESTING RULES:
+- You have 200K tokens - running out is EXPECTED and FINE (you'll be resumed)
+- NEVER shortcut work to "save tokens"
+- NEVER skip validation because tokens are "low"
+- Quality > Token conservation ALWAYS
+- DO NOT run tests (testing handled separately unless spec explicitly requests)
+- DO NOT implement test files unless spec says "implement tests"
+- Testing assumptions: Assume tests handled separately by user
+
+OUTPUT:
+1. Write findings to: $WORK_DIR/.spec/review_findings/component_{N}_full_validation/{component}_security-auditor.md
+   Format (JSON): {"status": "COMPLETE", "critical": [...], "important": [...], "minor": [...]}
+2. Return summary (2-3 sentences): Critical: X, Important: Y, Overall: CLEAN/ISSUES_FOUND
+
 Load vulnerability-triage skill.
 
-Review entire component for: injection risks, auth bypasses, data exposure, crypto issues.
+Review for: injection risks, auth bypasses, data exposure, crypto issues.
 """)
 
 Task(performance-optimizer, """
 Review {component} for performance issues.
 
-Load mongodb-aggregation-optimization skill if MongoDB code detected.
+Spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
+Workflow: conduct
+Phase: component_{N}_full_validation
+
+TOKEN BUDGET & TESTING RULES:
+- You have 200K tokens - running out is EXPECTED and FINE (you'll be resumed)
+- NEVER shortcut work to "save tokens"
+- NEVER skip validation because tokens are "low"
+- Quality > Token conservation ALWAYS
+- DO NOT run tests (testing handled separately unless spec explicitly requests)
+- DO NOT implement test files unless spec says "implement tests"
+- Testing assumptions: Assume tests handled separately by user
+
+OUTPUT:
+1. Write findings to: $WORK_DIR/.spec/review_findings/component_{N}_full_validation/{component}_performance-optimizer.md
+   Format (JSON): {"status": "COMPLETE", "critical": [...], "important": [...], "minor": [...]}
+2. Return summary (2-3 sentences): Critical: X, Important: Y, Overall: CLEAN/ISSUES_FOUND
+
+Load mongodb-aggregation-optimization skill if MongoDB detected.
 
 Review for: N+1 queries, missing indexes, inefficient algorithms, memory leaks.
 """)
 
 Task(code-reviewer, """
 Review {component}: complexity, errors, clarity.
+
+Spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
+Workflow: conduct
+Phase: component_{N}_full_validation
+
+TOKEN BUDGET & TESTING RULES:
+- You have 200K tokens - running out is EXPECTED and FINE (you'll be resumed)
+- NEVER shortcut work to "save tokens"
+- NEVER skip validation because tokens are "low"
+- Quality > Token conservation ALWAYS
+- DO NOT run tests (testing handled separately unless spec explicitly requests)
+- DO NOT implement test files unless spec says "implement tests"
+- Testing assumptions: Assume tests handled separately by user
+
+OUTPUT:
+1. Write findings to: $WORK_DIR/.spec/review_findings/component_{N}_full_validation/{component}_code-reviewer_1.md
+   Format (JSON): {"status": "COMPLETE", "critical": [...], "important": [...], "minor": [...]}
+2. Return summary (2-3 sentences): Critical: X, Important: Y, Overall: CLEAN/ISSUES_FOUND
 
 Load python-style skill.
 
@@ -834,11 +1224,47 @@ Focus: cyclomatic complexity, error handling, code clarity, maintainability.
 Task(code-reviewer, """
 Review {component}: responsibility, coupling, type safety.
 
+Spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
+Workflow: conduct
+Phase: component_{N}_full_validation
+
+TOKEN BUDGET & TESTING RULES:
+- You have 200K tokens - running out is EXPECTED and FINE (you'll be resumed)
+- NEVER shortcut work to "save tokens"
+- NEVER skip validation because tokens are "low"
+- Quality > Token conservation ALWAYS
+- DO NOT run tests (testing handled separately unless spec explicitly requests)
+- DO NOT implement test files unless spec says "implement tests"
+- Testing assumptions: Assume tests handled separately by user
+
+OUTPUT:
+1. Write findings to: $WORK_DIR/.spec/review_findings/component_{N}_full_validation/{component}_code-reviewer_2.md
+   Format (JSON): {"status": "COMPLETE", "critical": [...], "important": [...], "minor": [...]}
+2. Return summary (2-3 sentences): Critical: X, Important: Y, Overall: CLEAN/ISSUES_FOUND
+
 Focus: SRP violations, tight coupling, type hint coverage, interface clarity.
 """)
 
 Task(code-beautifier, """
 Review {component}: DRY violations, magic numbers, dead code.
+
+Spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
+Workflow: conduct
+Phase: component_{N}_full_validation
+
+TOKEN BUDGET & TESTING RULES:
+- You have 200K tokens - running out is EXPECTED and FINE (you'll be resumed)
+- NEVER shortcut work to "save tokens"
+- NEVER skip validation because tokens are "low"
+- Quality > Token conservation ALWAYS
+- DO NOT run tests (testing handled separately unless spec explicitly requests)
+- DO NOT implement test files unless spec says "implement tests"
+- Testing assumptions: Assume tests handled separately by user
+
+OUTPUT:
+1. Write findings to: $WORK_DIR/.spec/review_findings/component_{N}_full_validation/{component}_code-beautifier.md
+   Format (JSON): {"status": "COMPLETE", "critical": [...], "important": [...], "minor": [...]}
+2. Return summary (2-3 sentences): Critical: X, Important: Y, Overall: CLEAN/ISSUES_FOUND
 
 Focus: code duplication, hardcoded values, unused imports/variables, formatting.
 """)
@@ -846,12 +1272,31 @@ Focus: code duplication, hardcoded values, unused imports/variables, formatting.
 Task(code-reviewer, """
 Review {component}: documentation, comments, naming.
 
+Spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
+Workflow: conduct
+Phase: component_{N}_full_validation
+
+TOKEN BUDGET & TESTING RULES:
+- You have 200K tokens - running out is EXPECTED and FINE (you'll be resumed)
+- NEVER shortcut work to "save tokens"
+- NEVER skip validation because tokens are "low"
+- Quality > Token conservation ALWAYS
+- DO NOT run tests (testing handled separately unless spec explicitly requests)
+- DO NOT implement test files unless spec says "implement tests"
+- Testing assumptions: Assume tests handled separately by user
+
+OUTPUT:
+1. Write findings to: $WORK_DIR/.spec/review_findings/component_{N}_full_validation/{component}_code-reviewer_3.md
+   Format (JSON): {"status": "COMPLETE", "critical": [...], "important": [...], "minor": [...]}
+2. Return summary (2-3 sentences): Critical: X, Important: Y, Overall: CLEAN/ISSUES_FOUND
+
 Focus: docstring coverage, comment quality, variable naming, function naming.
 """)
 ```
 
-**Combine all findings:**
-- Merge linting errors + 6 reviewer responses
+**Consolidate findings:**
+- Read all .md files in review_findings/component_{N}_full_validation/
+- Merge linting errors + 6 reviewer findings
 - Consolidate critical + important + minor
 - Deduplicate issues
 
@@ -867,9 +1312,7 @@ LOOP until validation clean:
      Spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
      Workflow: conduct
 
-     Critical: [list]
-     Important: [list]
-     Minor: [list]
+     Issues from: $WORK_DIR/.spec/review_findings/component_{N}_full_validation/*.md
 
      CRITICAL RULES (from agent-prompting skill):
      - Fix PROPERLY - no workarounds
@@ -877,17 +1320,75 @@ LOOP until validation clean:
      - If architectural issue: ESCALATE immediately
      - Max 3 attempts
 
+     TOKEN BUDGET & TESTING RULES:
+     - You have 200K tokens - running out is EXPECTED and FINE (you'll be resumed)
+     - NEVER shortcut work to "save tokens"
+     - NEVER skip validation because tokens are "low"
+     - Quality > Token conservation ALWAYS
+     - DO NOT run tests (testing handled separately unless spec explicitly requests)
+     - DO NOT implement test files unless spec says "implement tests"
+     - Testing assumptions: Assume tests handled separately by user
+
+     OUTPUT:
+     - Return brief summary (3-5 sentences): issues fixed, files modified
+     - 2 reviewers will validate after you complete
+
      Load python-style skill.
      Load code-refactoring skill if complexity issues.
 
-     Read spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
+     Agent will read spec and review findings automatically.
      """)
 
-  2. Re-run linting + 6 reviewers in PARALLEL (single message - verify fixes)
+  2. MANDATORY: Re-run 2 code-reviewers in PARALLEL (FULL REVIEW - NOT full 6, but NOT just fix verification either!)
 
-  failure_history.append(current_issues)
+     Create review findings directory for this attempt:
+     mkdir -p $WORK_DIR/.spec/review_findings/component_{N}_full_validation_attempt_{attempt}
 
-  3. IF clean: Break
+     Focus for both reviewers:
+     - Do COMPLETE review as if first time
+     - Verify all previous issues were fixed correctly
+     - Look for new issues introduced by fixes
+     - Catch anything that was missed in previous validation round
+
+     **This is NOT just "check fixes worked" - this is a FULL REVIEW CYCLE with fresh eyes on the component.**
+
+     Task(code-reviewer, """
+     Review fixes for {component}.
+
+     Spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
+     Workflow: conduct
+     Phase: component_{N}_full_validation_attempt_{attempt}
+
+     Focus: COMPLETE review as if first time - verify previous fixes AND check for new issues introduced
+
+     OUTPUT:
+     1. Write findings to: $WORK_DIR/.spec/review_findings/component_{N}_full_validation_attempt_{attempt}/{component}_code-reviewer_1.md
+        Format (JSON): {"status": "COMPLETE", "critical": [...], "important": [...], "minor": [...]}
+     2. Return summary (2-3 sentences): Critical: X, Important: Y, Overall: CLEAN/ISSUES_FOUND
+
+     Load python-style skill.
+     """)
+
+     Task(code-reviewer, """
+     Review fixes for {component}.
+
+     Spec: $WORK_DIR/.spec/SPEC_{N}_{component}.md
+     Workflow: conduct
+     Phase: component_{N}_full_validation_attempt_{attempt}
+
+     Focus: COMPLETE review as if first time - catch anything missed in previous round AND new problems from fixes
+
+     OUTPUT:
+     1. Write findings to: $WORK_DIR/.spec/review_findings/component_{N}_full_validation_attempt_{attempt}/{component}_code-reviewer_2.md
+        Format (JSON): {"status": "COMPLETE", "critical": [...], "important": [...], "minor": [...]}
+     2. Return summary (2-3 sentences): Critical: X, Important: Y, Overall: CLEAN/ISSUES_FOUND
+     """)
+
+  3. Consolidate findings from 2 reviewers
+
+  4. failure_history.append(current_issues)
+
+  5. IF clean: Break
      IF new issues AND attempt < 3: Continue loop
      IF attempt >= 3:
        # CHECK FOR REPEATED ISSUE PATTERN
@@ -897,7 +1398,10 @@ LOOP until validation clean:
        ELSE:
          ESCALATE: "Different issues across 3 attempts, need review"
 
-  4. Update PROGRESS.md with validation status
+6. Update PROGRESS.md:
+   - Update component validation status to COMPLETE (if clean)
+   - Update component status to VALIDATING → READY_FOR_GATE5
+   - Update timestamp
 ```
 
 ---
@@ -1029,6 +1533,15 @@ LOOP until validation clean:
        {blocking_issues}
 
        These must be fixed before production deployment.
+
+       TOKEN BUDGET & TESTING RULES:
+       - You have 200K tokens - running out is EXPECTED and FINE (you'll be resumed)
+       - NEVER shortcut work to "save tokens"
+       - NEVER skip validation because tokens are "low"
+       - Quality > Token conservation ALWAYS
+       - DO NOT run tests (testing handled separately unless spec explicitly requests)
+       - DO NOT implement test files unless spec says "implement tests"
+       - Testing assumptions: Assume tests handled separately by user
 
        Load python-style skill.
        Load code-refactoring skill if needed.
@@ -1416,6 +1929,15 @@ FOR each component in component_order:
     - Test function in ISOLATION, not with its dependencies
   - DO NOT run tests
 
+  TOKEN BUDGET & TESTING RULES:
+  - You have 200K tokens - running out is EXPECTED and FINE (you'll be resumed)
+  - NEVER shortcut work to "save tokens"
+  - NEVER skip validation because tokens are "low"
+  - Quality > Token conservation ALWAYS
+  - DO NOT run tests (testing handled separately unless spec explicitly requests)
+  - DO NOT implement test files unless spec says "implement tests"
+  - Testing assumptions: Assume tests handled separately by user
+
   Load testing-standards skill.
 
   Component is validated and working - tests document behavior.
@@ -1449,6 +1971,15 @@ LOOP until tests pass with coverage:
        - Fix PROPERLY - no workarounds
        - Maintain business logic
        - Follow code standards: logging.getLogger, try/except only for connections
+
+       TOKEN BUDGET & TESTING RULES:
+       - You have 200K tokens - running out is EXPECTED and FINE (you'll be resumed)
+       - NEVER shortcut work to "save tokens"
+       - NEVER skip validation because tokens are "low"
+       - Quality > Token conservation ALWAYS
+       - DO NOT run tests (testing handled separately unless spec explicitly requests)
+       - DO NOT implement test files unless spec says "implement tests"
+       - Testing assumptions: Assume tests handled separately by user
 
        Load python-style skill.
 
@@ -1556,6 +2087,15 @@ LOOP until tests pass with coverage:
 
        Add tests for these scenarios, maintain 95%+ coverage.
 
+       TOKEN BUDGET & TESTING RULES:
+       - You have 200K tokens - running out is EXPECTED and FINE (you'll be resumed)
+       - NEVER shortcut work to "save tokens"
+       - NEVER skip validation because tokens are "low"
+       - Quality > Token conservation ALWAYS
+       - DO NOT run tests (testing handled separately unless spec explicitly requests)
+       - DO NOT implement test files unless spec says "implement tests"
+       - Testing assumptions: Assume tests handled separately by user
+
        Load testing-standards skill.
 
        [include all test-implementer standards]
@@ -1579,6 +2119,15 @@ LOOP until tests pass with coverage:
        {weak_tests}
 
        Improve assertions, mocking, behavior verification.
+
+       TOKEN BUDGET & TESTING RULES:
+       - You have 200K tokens - running out is EXPECTED and FINE (you'll be resumed)
+       - NEVER shortcut work to "save tokens"
+       - NEVER skip validation because tokens are "low"
+       - Quality > Token conservation ALWAYS
+       - DO NOT run tests (testing handled separately unless spec explicitly requests)
+       - DO NOT implement test files unless spec says "implement tests"
+       - Testing assumptions: Assume tests handled separately by user
 
        Load testing-standards skill.
 
@@ -1656,6 +2205,15 @@ CRITICAL STANDARDS (from agent-prompting skill):
 - Test components working together
 - DO NOT run tests
 
+TOKEN BUDGET & TESTING RULES:
+- You have 200K tokens - running out is EXPECTED and FINE (you'll be resumed)
+- NEVER shortcut work to "save tokens"
+- NEVER skip validation because tokens are "low"
+- Quality > Token conservation ALWAYS
+- DO NOT run tests (testing handled separately unless spec explicitly requests)
+- DO NOT implement test files unless spec says "implement tests"
+- Testing assumptions: Assume tests handled separately by user
+
 Load testing-standards skill.
 
 Coverage target: End-to-end scenarios from SPEC.md
@@ -1686,6 +2244,15 @@ LOOP until integration tests pass:
        - Fix PROPERLY - no workarounds
        - Components are individually tested, issue is integration
        - Follow code standards: logging.getLogger, try/except only for connections
+
+       TOKEN BUDGET & TESTING RULES:
+       - You have 200K tokens - running out is EXPECTED and FINE (you'll be resumed)
+       - NEVER shortcut work to "save tokens"
+       - NEVER skip validation because tokens are "low"
+       - Quality > Token conservation ALWAYS
+       - DO NOT run tests (testing handled separately unless spec explicitly requests)
+       - DO NOT implement test files unless spec says "implement tests"
+       - Testing assumptions: Assume tests handled separately by user
 
        Load python-style skill.
 

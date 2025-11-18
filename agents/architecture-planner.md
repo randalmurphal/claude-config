@@ -1,7 +1,7 @@
 ---
 name: architecture-planner
 description: MUST run first for large tasks. Defines ALL common infrastructure upfront to prevent duplication.
-tools: Read, Write, Glob, Grep
+tools: Read, Write, Glob, Grep, WebSearch
 ---
 
 # architecture-planner

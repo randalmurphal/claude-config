@@ -131,10 +131,10 @@ Return structured summary with all files created.
 
 ### Step 2: Parallel Validation
 
-**Invoke documentation-validator to identify issues:**
+**Invoke documentation-reviewer to identify issues:**
 
 ```python
-validation_result = Task(documentation-validator, """
+validation_result = Task(documentation-reviewer, """
 Validate ALL documentation in working directory for accuracy.
 
 Working directory: $WORK_DIR
@@ -275,7 +275,7 @@ Return structured summary.
 
 ```python
 # Re-validate CLAUDE.md specifically
-Task(documentation-validator, """
+Task(documentation-reviewer, """
 Validate CLAUDE.md optimization (focus on line count and structure).
 
 Working directory: $WORK_DIR
@@ -325,10 +325,10 @@ Maintain all critical information - reorganize for AI readability.
 
 ### Step 5: Final Validation
 
-**Re-run documentation-validator on ALL updated docs:**
+**Re-run documentation-reviewer on ALL updated docs:**
 
 ```python
-final_validation = Task(documentation-validator, """
+final_validation = Task(documentation-reviewer, """
 Final validation after updates.
 
 Working directory: $WORK_DIR
@@ -679,7 +679,7 @@ Return structured summary.
 **After skill updates complete:**
 
 ```python
-Task(documentation-validator, """
+Task(documentation-reviewer, """
 Validate skill hierarchy consistency.
 
 Skills updated:

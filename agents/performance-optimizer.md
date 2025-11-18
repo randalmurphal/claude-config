@@ -1,7 +1,7 @@
 ---
 name: performance-optimizer
 description: Profile code and find bottlenecks. Use when performance issues identified or optimizing for production.
-tools: Read, Grep, Glob, Bash, Write
+tools: Read, Grep, Glob, Bash, Write, WebSearch
 ---
 
 # performance-optimizer

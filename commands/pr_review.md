@@ -105,6 +105,21 @@ Skill(command="agent-prompting")
 
 ## Phase 2: Parse Input & Setup
 
+**⚠️ CRITICAL: NEVER WORK IN MAIN REPO**
+
+**Rules for main repo usage:**
+- ✅ **ALLOWED:** Read files from current branch (if on develop, can read develop code for reference)
+- ✅ **ALLOWED:** Run `git fetch origin -q` to update remote refs
+- ✅ **ALLOWED:** Run `git branch -r` to list remote branches
+- ✅ **ALLOWED:** Run git-worktree script to create worktrees
+- ❌ **FORBIDDEN:** Create any branches in main repo
+- ❌ **FORBIDDEN:** Checkout any branches in main repo
+- ❌ **FORBIDDEN:** Make any commits in main repo
+- ❌ **FORBIDDEN:** Modify any files in main repo
+- ❌ **FORBIDDEN:** Run any git commands that change state (checkout, commit, merge, rebase, etc.)
+
+**ALL review work happens in worktrees at `/tmp/pr-review-{ticket}/wt-pr`**
+
 ### 2.1 Parse Input & Normalize Branch
 
 ```python
@@ -127,27 +142,71 @@ branch_mappings = {
 target_branch = branch_mappings.get(target_branch, target_branch)
 ```
 
-### 2.2 Setup Worktrees
+### 2.2 Find Source Branch
 
 ```bash
 # Fetch latest
 git fetch origin -q
 
-# Find source branch
-source_branch=$(git branch -r | grep "origin/$ticket" | grep -v "pre-styling" | head -1 | sed 's|origin/||')
+# Find all branches matching ticket
+all_branches=$(git branch -r | grep "origin/$ticket" | grep -v "pre-styling")
 
-# Validate branch exists
-if [ -z "$source_branch" ]; then
+if [ -z "$all_branches" ]; then
     echo "❌ No branch found for $ticket"
     git branch -r | grep "$ticket" || echo "No similar branches"
     exit 1
 fi
 
+# Count branches
+branch_count=$(echo "$all_branches" | wc -l)
+
+if [ $branch_count -eq 1 ]; then
+    # Single branch - use it
+    source_branch=$(echo "$all_branches" | head -1 | sed 's|.*origin/||')
+else
+    # Multiple branches - agent decides which to use
+    # Get metadata for each branch
+    echo "⚠️  Multiple branches found for $ticket:"
+    echo ""
+
+    for branch in $all_branches; do
+        branch_name=$(echo "$branch" | sed 's|.*origin/||')
+        last_commit=$(git log -1 --format="%ci | %s" "$branch")
+        echo "  $branch_name"
+        echo "    Last commit: $last_commit"
+        echo ""
+    done
+
+    # AGENT DECISION POINT
+    # YOU (the agent) need to decide which branch to use based on:
+    # - Branch names (avoid ones with "test", "experimental", "spike" unless that's the only option)
+    # - Most recent commit date (more recent = likely the active branch)
+    # - Commit messages (production-ready work vs experimental)
+    #
+    # Pick the branch that seems like the main/production branch for this ticket.
+    # If unclear, pick the most recently updated one.
+    #
+    # Set source_branch variable to your choice (without origin/ prefix)
+
+    # Default behavior if agent doesn't override: most recent
+    source_branch=$(echo "$all_branches" | \
+        xargs -I {} bash -c 'echo "$(git log -1 --format=%ct {}) {}"' | \
+        sort -rn | \
+        head -1 | \
+        cut -d' ' -f2 | \
+        sed 's|origin/||')
+fi
+```
+
+### 2.3 Setup Worktrees
+
+```bash
 # Create worktrees in /tmp/pr-review-$ticket
 ~/.claude/scripts/git-worktree --base /tmp/pr-review-$ticket --main $target_branch base pr
 
-# Checkout PR branch in pr worktree
-cd /tmp/pr-review-$ticket/wt-pr && git checkout origin/$source_branch -b review-$ticket
+# Checkout PR branch in pr worktree (detached HEAD - no branch creation)
+# DO NOT create a review branch - detached HEAD is perfect for read-only review
+cd /tmp/pr-review-$ticket/wt-pr && git checkout origin/$source_branch
 ```
 
 ---
@@ -342,6 +401,14 @@ BUDGET DIRECTIVE: Use full token budget if needed. Don't skip analysis.
 **CRITICAL: All agent prompts MUST include these directives:**
 
 ```
+WORKTREE PATH: /tmp/pr-review-{ticket}/wt-pr
+
+⚠️ CRITICAL: ALL file operations MUST use the worktree path above.
+- NEVER read files from /home/rmurphy/repos/m32rimm (main repo)
+- ALWAYS use /tmp/pr-review-{ticket}/wt-pr for ALL file reads
+- ALL Grep/Glob operations MUST specify path parameter with worktree path
+- Sub-agents: You are in a git worktree - never touch the main repo
+
 SCOPING RULES (MANDATORY):
 
 You are reviewing PR changes for ticket: {ticket}
@@ -1656,6 +1723,11 @@ needs_verification = [f for f in deduped_findings if f.verdict == "UNCERTAIN"]
 # Worktrees removed:
 # - /tmp/pr-review-{ticket}/wt-base
 # - /tmp/pr-review-{ticket}/wt-pr
+
+# IMPORTANT: Verify no branches were created in main repo
+# After cleanup, run: git branch | grep review-
+# Should return nothing - if it shows branches, you created branches incorrectly
+# The correct approach: detached HEAD in worktree (no branch creation)
 ```
 
 ---
@@ -1676,16 +1748,24 @@ fi
 
 ### Multiple Branches
 
-```bash
-# Use most recent, prefer non-pre-styling branches
-branches=$(git branch -r | grep "origin/$ticket" | grep -v "pre-styling")
-if [ $(echo "$branches" | wc -l) -gt 1 ]; then
-    echo "⚠️  Multiple branches found for $ticket:"
-    echo "$branches"
-    echo ""
-    echo "Using most recent: $source_branch"
-fi
-```
+When multiple branches exist for a ticket, the agent makes an intelligent decision based on:
+
+**Decision criteria (in priority order):**
+
+1. **Branch name patterns** - Avoid branches with:
+   - "test" (unless it's like "latest-feature")
+   - "experimental"
+   - "spike"
+   - Other obvious non-production indicators
+   - But use context - don't filter blindly
+
+2. **Most recent commit** - More recent = likely the active branch
+
+3. **Commit messages** - Look for production-ready work vs WIP/experimental
+
+**Default behavior:** If agent can't decide or all branches seem equal, pick the most recently updated one.
+
+**Implementation:** See section 2.2 - the bash script displays all branches with metadata, then agent decides which `source_branch` to use before proceeding to worktree setup.
 
 ### No Commits Between Branches
 

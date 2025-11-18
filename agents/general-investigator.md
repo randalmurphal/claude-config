@@ -1,7 +1,7 @@
 ---
 name: general-investigator
 description: Casual code understanding outside orchestrations. Saves main context for >3 file investigations.
-tools: Read, Grep, Glob, Bash, Write
+tools: Read, Grep, Glob, Bash, Write, WebSearch
 ---
 
 # general-investigator

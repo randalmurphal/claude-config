@@ -1,7 +1,7 @@
 ---
 name: code-reviewer
 description: Review code for maintainability and quality issues. Use during validation phase.
-tools: Read, Grep, Glob, Write, Bash
+tools: Read, Grep, Glob, Write, Bash, WebSearch
 ---
 
 # code-reviewer

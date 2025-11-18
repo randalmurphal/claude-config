@@ -1,12 +1,26 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# jira-update-ticket - Update fields on a Jira ticket
+# jira-update-ticket - Update fields on a Jira ticket or add comments
 #
-# Usage: jira-update-ticket <ticket-id> [--description <desc>] [--assignee <email>] [--status <status>] [--priority <priority>] [--labels <label1,label2>]
-# Example: jira-update-ticket INT-3877 --description "Updated description" --priority High
-# Example: jira-update-ticket INT-3877 --status "In Progress" --assignee "user@example.com"
-# Example: jira-update-ticket INT-3877 --labels "backend,api"
+# Usage: jira-update-ticket <ticket-id> [options]
+#
+# Options:
+#   --description <text>         Update description
+#   --assignee <email>           Assign to user
+#   --status <status>            Change status
+#   --priority <priority>        Set priority
+#   --labels <label1,label2>     Set labels (comma-separated)
+#   --comment <text>             Add a comment
+#   --write-test-plan <text>     Write to Test Plan field (customfield_11003)
+#   --custom <field_id> <value>  Set custom field (e.g., customfield_10042)
+#
+# Examples:
+#   jira-update-ticket INT-3877 --description "Updated description" --priority High
+#   jira-update-ticket INT-3877 --status "In Progress" --assignee "user@example.com"
+#   jira-update-ticket INT-3877 --comment "Work completed and tested"
+#   jira-update-ticket INT-3877 --write-test-plan "$(cat test_plan.md)"
+#   jira-update-ticket INT-3877 --custom customfield_10042 "Custom field text"
 #
 # Returns: Updated ticket details
 # Exit codes: 0 = success, 1 = usage error, 2 = ticket not found, 3 = API error, 4 = credentials missing
@@ -73,8 +87,25 @@ fi
 # Get ticket ID
 ticket="${1:-}"
 if [ -z "$ticket" ]; then
-    echo "Usage: jira-update-ticket <ticket-id> [--description <desc>] [--assignee <email>] [--status <status>] [--priority <priority>] [--labels <label1,label2>]" >&2
-    echo "Example: jira-update-ticket INT-3877 --description \"Updated description\" --priority High" >&2
+    cat >&2 <<'EOF'
+Usage: jira-update-ticket <ticket-id> [options]
+
+Options:
+  --description <text>         Update description
+  --assignee <email>           Assign to user
+  --status <status>            Change status
+  --priority <priority>        Set priority
+  --labels <label1,label2>     Set labels (comma-separated)
+  --comment <text>             Add a comment
+  --write-test-plan <text>     Write to Test Plan field
+  --custom <field_id> <value>  Set custom field
+
+Examples:
+  jira-update-ticket INT-3877 --description "Updated description"
+  jira-update-ticket INT-3877 --comment "Work completed"
+  jira-update-ticket INT-3877 --write-test-plan "$(cat test_plan.md)"
+  jira-update-ticket INT-3877 --custom customfield_10042 "Custom text"
+EOF
     exit 1
 fi
 
@@ -85,6 +116,11 @@ update_assignee=""
 update_status=""
 update_priority=""
 update_labels=""
+update_comment=""
+declare -A custom_fields
+
+# Test Plan field ID mapping
+TEST_PLAN_FIELD_ID="customfield_11003"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -108,9 +144,25 @@ while [[ $# -gt 0 ]]; do
             update_labels="$2"
             shift 2
             ;;
+        --comment)
+            update_comment="$2"
+            shift 2
+            ;;
+        --write-test-plan)
+            custom_fields["$TEST_PLAN_FIELD_ID"]="$2"
+            shift 2
+            ;;
+        --custom)
+            if [ -z "${2:-}" ] || [ -z "${3:-}" ]; then
+                echo "❌ --custom requires two arguments: <field_id> <value>" >&2
+                exit 1
+            fi
+            custom_fields["$2"]="$3"
+            shift 3
+            ;;
         *)
             echo "❌ Unknown option: $1" >&2
-            echo "Valid options: --description, --assignee, --status, --priority, --labels" >&2
+            echo "Valid options: --description, --assignee, --status, --priority, --labels, --comment, --write-test-plan, --custom" >&2
             exit 1
             ;;
     esac
@@ -119,7 +171,7 @@ done
 # Remove trailing slash from instance URL if present
 JIRA_INSTANCE_URL="${JIRA_INSTANCE_URL%/}"
 
-# Build JSON payload for field updates (excluding status)
+# Build JSON payload for field updates (excluding status and comment)
 payload_parts=()
 
 if [ -n "$update_description" ]; then
@@ -160,7 +212,56 @@ if [ -n "$update_labels" ]; then
     payload_parts+=("\"labels\": $labels_json")
 fi
 
-# Only proceed with field updates if there are any non-status fields to update
+# Add custom fields
+for field_id in "${!custom_fields[@]}"; do
+    field_value="${custom_fields[$field_id]}"
+
+    # Check if this is the Test Plan field - format as markdown code block
+    if [ "$field_id" = "$TEST_PLAN_FIELD_ID" ]; then
+        custom_json=$(jq -n \
+            --arg value "$field_value" \
+            '{
+                type: "doc",
+                version: 1,
+                content: [
+                    {
+                        type: "codeBlock",
+                        attrs: {
+                            language: "markdown"
+                        },
+                        content: [
+                            {
+                                type: "text",
+                                text: $value
+                            }
+                        ]
+                    }
+                ]
+            }')
+    else
+        # Other custom fields: use ADF paragraph format
+        custom_json=$(jq -n \
+            --arg value "$field_value" \
+            '{
+                type: "doc",
+                version: 1,
+                content: [
+                    {
+                        type: "paragraph",
+                        content: [
+                            {
+                                type: "text",
+                                text: $value
+                            }
+                        ]
+                    }
+                ]
+            }')
+    fi
+    payload_parts+=("\"$field_id\": $custom_json")
+done
+
+# Only proceed with field updates if there are any non-status/comment fields to update
 if [ ${#payload_parts[@]} -gt 0 ]; then
     # Join payload parts with commas
     fields_json=$(IFS=','; echo "${payload_parts[*]}")
@@ -202,6 +303,55 @@ if [ ${#payload_parts[@]} -gt 0 ]; then
     fi
 
     echo "✓ Updated ticket fields: ${ticket}"
+fi
+
+# Handle comment separately if provided
+if [ -n "$update_comment" ]; then
+    # Build JSON payload with ADF format
+    comment_payload=$(jq -n \
+        --arg comment "$update_comment" \
+        '{
+            body: {
+                type: "doc",
+                version: 1,
+                content: [
+                    {
+                        type: "paragraph",
+                        content: [
+                            {
+                                type: "text",
+                                text: $comment
+                            }
+                        ]
+                    }
+                ]
+            }
+        }')
+
+    # Add comment via Jira API
+    comment_response=$(curl -s -w "\n%{http_code}" \
+        -u "${ATLASSIAN_USER_EMAIL}:${ATLASSIAN_API_TOKEN}" \
+        -H "Accept: application/json" \
+        -H "Content-Type: application/json" \
+        -X POST \
+        -d "$comment_payload" \
+        "${JIRA_INSTANCE_URL}/rest/api/3/issue/${ticket}/comment")
+
+    comment_http_code=$(echo "$comment_response" | tail -1)
+    comment_body=$(echo "$comment_response" | sed '$d')
+
+    if [ "$comment_http_code" = "404" ]; then
+        echo "❌ Ticket not found: $ticket" >&2
+        exit 2
+    elif [[ ! "$comment_http_code" =~ ^2[0-9][0-9]$ ]]; then
+        echo "❌ Failed to add comment (HTTP $comment_http_code)" >&2
+        error_msg=$(echo "$comment_body" | jq -r '.errorMessages[]? // .message? // "Unknown error"' 2>/dev/null || echo "Unknown error")
+        echo "Error: $error_msg" >&2
+        exit 3
+    fi
+
+    comment_id=$(echo "$comment_body" | jq -r '.id')
+    echo "✓ Added comment (ID: ${comment_id})"
 fi
 
 # Handle status transition separately if provided

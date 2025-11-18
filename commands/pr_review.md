@@ -202,7 +202,7 @@ fi
 
 ```bash
 # Create worktrees in /tmp/pr-review-$ticket
-~/.claude/scripts/git-worktree --base /tmp/pr-review-$ticket --main $target_branch base pr
+git-worktree --base /tmp/pr-review-$ticket --main $target_branch base pr
 
 # Checkout PR branch in pr worktree (detached HEAD - no branch creation)
 # DO NOT create a review branch - detached HEAD is perfect for read-only review
@@ -217,14 +217,14 @@ cd /tmp/pr-review-$ticket/wt-pr && git checkout origin/$source_branch
 
 ```python
 # 1. Jira ticket (requirements) - using jira-get-issue script
-result = Bash(command=f"~/.claude/scripts/jira-get-issue {ticket}")
+result = Bash(command=f"jira-get-issue {ticket}")
 if result.returncode == 0:
     ticket_content = result.stdout
 else:
     ticket_content = None  # Not available or ticket not found
 
 # 2. GitLab MR comments (existing feedback) - using gitlab-mr-comments script
-result = Bash(command=f"~/.claude/scripts/gitlab-mr-comments {ticket}")
+result = Bash(command=f"gitlab-mr-comments {ticket}")
 if result.returncode == 0:
     mr_comments = result.stdout
 else:
@@ -1718,7 +1718,7 @@ needs_verification = [f for f in deduped_findings if f.verdict == "UNCERTAIN"]
 
 ```bash
 # Always cleanup worktrees when done
-~/.claude/scripts/git-worktree --cleanup
+git-worktree --cleanup
 
 # Worktrees removed:
 # - /tmp/pr-review-{ticket}/wt-base
@@ -1782,7 +1782,7 @@ fi
 
 ```python
 # Gracefully handle missing scripts or credentials
-jira_result = Bash(command=f"~/.claude/scripts/jira-get-issue {ticket}")
+jira_result = Bash(command=f"jira-get-issue {ticket}")
 if jira_result.returncode == 4:
     echo("⚠️  Jira credentials not configured - skipping ticket requirements check")
     ticket_content = None
@@ -1791,7 +1791,7 @@ elif jira_result.returncode == 0:
 else:
     ticket_content = None  # Ticket not found
 
-gitlab_result = Bash(command=f"~/.claude/scripts/gitlab-mr-comments {ticket}")
+gitlab_result = Bash(command=f"gitlab-mr-comments {ticket}")
 if gitlab_result.returncode == 4:
     echo("⚠️  GitLab credentials not configured - skipping MR comment check")
     mr_comments = None

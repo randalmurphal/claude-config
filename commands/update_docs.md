@@ -1,21 +1,21 @@
 ---
 name: update_docs
-description: Update documentation AND skills to match current implementation using parallel document-writer agents with cascading skill hierarchy updates
+description: Update documentation AND skills to match current implementation using parallel agents with session knowledge capture
 ---
 
 # /update_docs - Parallel Documentation & Skills Update
 
 ## 🎯 Purpose
 
-Update all documentation (CLAUDE.md + docs/) AND skills hierarchy to match current implementation by spawning parallel document-writer agents for each component.
+Update all documentation (CLAUDE.md/AGENTS.md + docs/) AND skills hierarchy to match current implementation. Captures session knowledge and spawns parallel agents for each component.
 
 **When to use:**
-- After implementation changes (code evolved, docs stale)
+- After implementation changes
 - After /conduct or /solo completion
-- Periodic maintenance (keep docs accurate)
-- Post-refactor (architecture/patterns changed)
+- Periodic maintenance
+- Post-refactor
 
-**Prerequisites:** None (works with or without .spec/ files)
+**Prerequisites:** None
 
 ---
 
@@ -23,301 +23,442 @@ Update all documentation (CLAUDE.md + docs/) AND skills hierarchy to match curre
 
 ### Step 0: Determine Working Directory
 
-**Infer from current session context:**
-- Check if user mentioned specific component/directory
-- Look at recent file operations (what was just modified)
-- Check current working directory
+Infer from session context:
+- User-mentioned component/directory
+- Recent file operations
+- Current working directory
 
-**If unclear after context check, ask:**
+If unclear, ask:
 ```
 Which directory should I update documentation for?
 - Current directory (.)
-- Specific path (provide path relative to repo root)
+- Specific path
 ```
 
-**Once determined:**
-- `$WORK_DIR` = that directory
-- All documentation updates scoped to this directory
+`$WORK_DIR` = determined directory
 
 ---
 
-### Step 1: Discovery Phase
+### Step 0.5: Extract Session Knowledge
 
-**Find all components in working directory:**
+Analyze recent conversation (last 30-50 messages):
+
+```python
+session_knowledge = {
+    "gotchas": [
+        {
+            "pattern": str,
+            "why": str,
+            "fix": str,
+            "location": "file.py:line",
+            "scope": "project_local|parent_scope|repo_scope"
+        }
+    ],
+    "decisions": [
+        {
+            "decision": str,
+            "rationale": str,
+            "trade_offs": str,
+            "scope": "project_local|parent_scope|repo_scope"
+        }
+    ],
+    "performance": [
+        {
+            "insight": str,
+            "metrics": str,
+            "location": "file.py:line",
+            "scope": "project_local|parent_scope|repo_scope"
+        }
+    ],
+    "business_rules": [
+        {
+            "rule": str,
+            "condition": str,
+            "behavior": str,
+            "why": str,
+            "location": "file.py:line",
+            "scope": "project_local|parent_scope|repo_scope"
+        }
+    ],
+    "patterns": [
+        {
+            "pattern": str,
+            "description": str,
+            "benefits": str,
+            "example": str,
+            "scope": "project_local|parent_scope|repo_scope"
+        }
+    ]
+}
+```
+
+**Scope:**
+- `project_local`: $WORK_DIR only
+- `parent_scope`: Parent directory (framework/subsystem)
+- `repo_scope`: Entire repository
+
+Store for Steps 3 and 6.
+
+---
+
+### Step 1: Discovery
+
+Find components:
 
 ```bash
-# Find Python modules (directories with __init__.py)
+# Python modules
 find $WORK_DIR -name "__init__.py" -type f | xargs dirname | sort -u
 
-# Find standalone Python files (not in modules)
+# Standalone files
 find $WORK_DIR -name "*.py" -type f -not -path "*/tests/*" -not -name "__init__.py"
 
-# Find existing documentation
+# Documentation
 find $WORK_DIR -name "*.md" -type f
-find $WORK_DIR -name "CLAUDE.md" -type f
+find $WORK_DIR -name "CLAUDE.md" -o -name "AGENTS.md"
 ls $WORK_DIR/docs/ 2>/dev/null
 ```
 
-**Catalog components:**
-- **Modules**: Directories with `__init__.py` (e.g., `processors/`, `cache/`, `api_handler/`)
-- **Standalone files**: Top-level `.py` files (e.g., `tenable_sc_import.py`, `constants.py`)
-- **Existing docs**: All `.md` files for validation
+Catalog:
+- Modules: Directories with `__init__.py`
+- Standalone files: Top-level `.py` files
+- Existing docs: All `.md` files
+- Doc format: CLAUDE.md or AGENTS.md (detect which)
 
-**Check for context sources:**
+Check context sources:
 ```bash
-# Check for .spec/ files (implementation context)
 ls $WORK_DIR/.spec/SPEC*.md 2>/dev/null
-ls $WORK_DIR/.spec/BUILD*.md 2>/dev/null
-
-# Check git diff (recent changes)
 git diff --name-only HEAD~5..HEAD -- $WORK_DIR 2>/dev/null
 ```
 
-**Check if documentation library exists:**
-```bash
-# Critical files for documentation library
-ls $WORK_DIR/CLAUDE.md 2>/dev/null
-ls $WORK_DIR/docs/llms.txt 2>/dev/null
-```
-
-**If documentation library missing (CRITICAL - CREATE FIRST):**
+**If no documentation exists:**
 
 ```python
-# BEFORE proceeding with validation/updates, bootstrap documentation
-
 Task(documentation-writer, """
-Create documentation library from scratch for existing implementation.
+Create documentation library from scratch.
 
 Working directory: $WORK_DIR
 Workflow: update_docs (bootstrap mode)
 
-Code exists but NO documentation found. Create complete library:
+Tasks:
+1. Invoke ai-documentation skill
+2. Analyze codebase structure
+3. Detect parent doc format (CLAUDE.md or AGENTS.md - use same)
+4. Create main doc:
+   - Hierarchy level from parent
+   - Simple tool (~200 lines) or Complex (300-400 lines)
+   - Purpose, Architecture, Key Components, Gotchas
+   - file:line references
+5. Create docs/:
+   - llms.txt (navigation)
+   - OVERVIEW.md
+   - API_REFERENCE.md
+   - HOW_TO.md
+   - business_logic/ (if needed)
+6. Populate from code analysis
 
-1. Invoke ai-documentation skill FIRST to load templates
-2. Analyze codebase structure (find all modules, files, functions)
-3. Create CLAUDE.md using appropriate template:
-   - Determine hierarchy level (check parent CLAUDE.md)
-   - Simple tool (~200 lines) or Complex tool (300-400 lines)
-   - Include: Purpose, Architecture, Key Components, Gotchas
-   - Add file:line references for critical functions
-4. Create docs/ directory structure:
-   - docs/llms.txt (navigation index)
-   - docs/OVERVIEW.md (5-min mental model)
-   - docs/API_REFERENCE.md (all public functions)
-   - docs/HOW_TO.md (common workflows)
-   - docs/business_logic/ (if complex business rules exist)
-5. Populate each doc with content from code analysis
-
-This is CREATION not UPDATE - build from implementation.
-
-Return structured summary with all files created.
+Return structured summary.
 """)
-
-# Wait for library creation before proceeding
-# Then continue with normal validation/update workflow
 ```
 
-**WHY bootstrap first:**
-- Validation (Step 2) requires docs to exist
-- Update agents (Step 3) expect existing structure
-- Better to create complete library once than patch incrementally
+---
 
-**Component grouping strategy:**
-- **Simple project** (<5 components): 1 agent per component
-- **Medium project** (5-15 components): 1 agent per major module
-- **Large project** (>15 components): Group related components (e.g., all processors together)
+### Step 1.5: Determine Validation Strategy
+
+Calculate complexity:
+
+```python
+total_components = len(python_modules) + len(standalone_files)
+total_doc_lines = sum(count_lines(f) for f in glob("$WORK_DIR/**/*.md"))
+rule_count = count_rule_rows("BUSINESS_RULES.md") if exists else 0
+
+complexity_score = (total_components * 100) + (total_doc_lines / 10) + (rule_count * 50)
+
+# Determine reviewers
+if complexity_score < 1000:
+    reviewers = 1
+elif complexity_score < 3000:
+    reviewers = 2
+elif complexity_score < 6000:
+    reviewers = 4
+else:
+    reviewers = 6
+
+# Group docs
+review_groups = partition_docs(
+    components=all_components,
+    docs=all_md_files,
+    num_groups=reviewers,
+    strategy="balance_lines"  # ~2000 lines per reviewer
+)
+```
+
+Grouping:
+- Related components together
+- CLAUDE.md/AGENTS.md hierarchy in single reviewer
+- Balance lines (~2000 each)
+- Dedicated hierarchy reviewer if >3 levels
 
 ---
 
 ### Step 2: Parallel Validation
 
-**Invoke documentation-reviewer to identify issues:**
+Spawn documentation-reviewer agents (SINGLE message):
 
 ```python
-validation_result = Task(documentation-reviewer, """
-Validate ALL documentation in working directory for accuracy.
+# Example: 3 reviewers
+
+Task(documentation-reviewer, """
+Validate Group 1.
 
 Working directory: $WORK_DIR
-Workflow: update_docs
+Scope:
+- processors/ (7 files, 14 functions)
+- Main doc: processors sections
 
-Validation scope:
-- CLAUDE.md (all levels in $WORK_DIR)
-- README.md (if exists)
-- docs/ directory (all .md files)
-- .spec/ files (if exists)
+Tasks:
+1. Invoke ai-documentation skill
+2. Verify file:line references
+3. Verify function signatures
+4. Verify architecture claims
+5. Check constants/values
+6. Check line counts
 
-Steps:
-1. Invoke ai-documentation skill to load standards
-2. Find all .md files in $WORK_DIR
-3. Validate systematically:
-   - File:line references accurate
-   - Function signatures match code
-   - Architecture claims verified
-   - Constants/values correct
-   - CLAUDE.md line count within target
-   - No duplication from parent CLAUDE.md
+Return JSON with Group 1 issues.
+""")
 
-Return structured JSON with all issues categorized by severity.
+Task(documentation-reviewer, """
+Validate Group 2.
 
-See ~/.claude/docs/DOCUMENTATION_VALIDATOR_AGENT.md for full methodology.
+Working directory: $WORK_DIR
+Scope:
+- cache/ (3 files, 8 functions)
+- api_handler/ (3 files, 6 functions)
+- Main doc: cache + API sections
+
+Tasks:
+[Same as Group 1]
+
+Return JSON with Group 2 issues.
+""")
+
+Task(documentation-reviewer, """
+Validate Group 3.
+
+Working directory: $WORK_DIR
+Scope:
+- docs/OVERVIEW.md
+- docs/BUSINESS_RULES.md
+- docs/ARCHITECTURE.md
+- docs/TROUBLESHOOTING.md
+
+Tasks:
+[Same as Group 1]
+
+Return JSON with Group 3 issues.
+""")
+
+# If >3 hierarchy levels:
+Task(documentation-reviewer, """
+Validate hierarchy integrity.
+
+Working directory: $WORK_DIR
+Scope:
+- All CLAUDE.md/AGENTS.md in hierarchy
+- Parent/child relationships
+
+Tasks:
+1. Invoke ai-documentation skill
+2. Check no parent duplication
+3. Check line counts
+4. Check cross-references
+5. Check hierarchical inheritance
+
+Return JSON with hierarchy issues.
 """)
 ```
 
-**Parse validation results:**
-- Extract CRITICAL issues (incorrect refs, contradictions)
-- Extract IMPORTANT issues (missing docs, outdated info)
-- Extract MINOR issues (line count, optimization)
-- Group issues by file/component
+Aggregate:
+
+```python
+all_issues = merge([r1.issues, r2.issues, r3.issues])
+critical_issues = [i for i in all_issues if i.severity == "CRITICAL"]
+important_issues = [i for i in all_issues if i.severity == "IMPORTANT"]
+```
 
 ---
 
-### Step 3: Spawn Parallel document-writer Agents
+### Step 3: Parallel Documentation Updates
 
-**ONE agent per component** (maximize parallelism):
-
-**For each component, determine scope:**
-- Python files in component
-- Existing documentation for component
-- Issues from validation affecting this component
-- Context from .spec/ files (if available)
-
-**Launch ALL agents in SINGLE message (critical for parallelism):**
+Spawn documentation-writer agents (SINGLE message):
 
 ```python
-# Example: 3 components = 3 parallel agents
+# Example: 3 components
 
 Task(documentation-writer, """
-Update documentation for processors/ component.
+Update processors/ documentation.
 
 Working directory: $WORK_DIR/processors
-Component files:
+Files:
 - base_processor.py
 - asset_processor.py
 - known_vuln_processor.py
 - detected_vuln_processor.py
 
-Validation issues to fix:
-[paste JSON issues for this component]
+Validation issues:
+[JSON for this component]
 
-Context sources:
+Session knowledge:
+[gotchas/decisions/performance/rules for this component with scope=project_local|parent_scope]
+
+Context:
 - .spec/SPEC.md (if exists)
-- Git diff: [recent changes to this component]
+- Git diff: [recent changes]
 
 Tasks:
-1. Invoke ai-documentation skill FIRST
-2. Update docs/API_REFERENCE.md for this component's functions
-3. Add/update gotchas in CLAUDE.md for this component
-4. Fix all CRITICAL and IMPORTANT validation issues
-5. Update docs/llms.txt if new docs created
+1. Invoke ai-documentation skill
+2. Detect doc format (CLAUDE.md or AGENTS.md)
+3. Update docs/API_REFERENCE.md
+4. Add/update gotchas in main doc
+5. Integrate session knowledge:
+   - Gotchas → main doc "Common Gotchas"
+   - Decisions → ARCHITECTURE.md or QUICKREF.md
+   - Performance → QUICKREF.md or HOW_TO.md
+   - Business rules → BUSINESS_RULES.md
+   - Patterns → ARCHITECTURE.md or QUICKREF.md
+6. Fix CRITICAL and IMPORTANT issues
+7. Update docs/llms.txt if new docs
+8. Track changes (created/removed/moved)
 
-Return structured summary (see documentation-writer spec).
+Return summary with doc changes.
 """)
 
 Task(documentation-writer, """
-Update documentation for cache/ component.
+Update cache/ documentation.
 
 Working directory: $WORK_DIR/cache
-Component files:
+Files:
 - tenable_sc_cache.py
 - persistent_daa_staging_handler.py
 
-Validation issues to fix:
-[paste JSON issues for this component]
+Validation issues:
+[JSON for this component]
 
-Context sources:
+Session knowledge:
+[relevant session knowledge]
+
+Context:
 - .spec/SPEC.md (if exists)
-- Git diff: [recent changes to this component]
+- Git diff: [changes]
 
 Tasks:
-1. Invoke ai-documentation skill FIRST
-2. Update docs/API_REFERENCE.md for this component's functions
-3. Add/update gotchas in CLAUDE.md for this component
-4. Fix all CRITICAL and IMPORTANT validation issues
-5. Update docs/llms.txt if new docs created
+[Same as processors]
 
-Return structured summary.
+Return summary with doc changes.
 """)
 
 Task(documentation-writer, """
-Update documentation for api_handler/ component.
+Update api_handler/ documentation.
 
 Working directory: $WORK_DIR/api_handler
-Component files:
+Files:
 - download_manager.py
 - handler.py
 - tenable_client.py
 
-Validation issues to fix:
-[paste JSON issues for this component]
+Validation issues:
+[JSON for this component]
 
-Context sources:
+Session knowledge:
+[relevant session knowledge]
+
+Context:
 - .spec/SPEC.md (if exists)
-- Git diff: [recent changes to this component]
+- Git diff: [changes]
 
 Tasks:
-1. Invoke ai-documentation skill FIRST
-2. Update docs/API_REFERENCE.md for this component's functions
-3. Add/update gotchas in CLAUDE.md for this component
-4. Fix all CRITICAL and IMPORTANT validation issues
-5. Update docs/llms.txt if new docs created
+[Same as processors]
 
-Return structured summary.
+Return summary with doc changes.
 """)
 ```
-
-**Key pattern**: SINGLE message with MULTIPLE Task() calls for true parallelism.
 
 ---
 
-### Step 4: CLAUDE.md Optimization (After Agents Complete)
+### Step 3.5: Update Documentation References
 
-**After all document-writer agents complete:**
+Collect doc changes:
 
 ```python
-# Re-validate CLAUDE.md specifically
+doc_changes = {
+    "created": [],
+    "removed": [],
+    "moved": [],
+    "renamed": []
+}
+
+# For each change, update references:
+for change in doc_changes["created"] + doc_changes["moved"] + doc_changes["renamed"]:
+    # Find references
+    grep -r "old_path|old_name" $WORK_DIR/*.md
+    grep -r "old_path|old_name" $WORK_DIR/docs/*.md
+
+    # Update in:
+    # - Main doc (CLAUDE.md or AGENTS.md)
+    # - docs/llms.txt
+    # - Cross-referencing docs
+    # - Parent directory docs
+
+check_broken_links($WORK_DIR)
+```
+
+---
+
+### Step 4: Main Doc Optimization
+
+Re-validate main doc:
+
+```python
 Task(documentation-reviewer, """
-Validate CLAUDE.md optimization (focus on line count and structure).
+Validate main doc optimization.
 
 Working directory: $WORK_DIR
-CLAUDE.md files: [list all CLAUDE.md files in $WORK_DIR hierarchy]
+Files: [CLAUDE.md or AGENTS.md in hierarchy]
 
-Invoke ai-documentation skill to load best practices.
+Invoke ai-documentation skill.
 
 Check:
-1. Line count within target for hierarchy level
-2. No duplication from parent CLAUDE.md
-3. Business logic in table format (not prose)
+1. Line count within target
+2. No parent duplication
+3. Business logic in tables
 4. File structure condensed
-5. Deep-dive content extracted to QUICKREF.md if >400 lines
+5. Deep-dive extracted to QUICKREF.md if >400 lines
 
-Return structured JSON with optimization recommendations.
-
-See ~/.claude/docs/DOCUMENTATION_VALIDATOR_AGENT.md for methodology.
+Return JSON with optimization recommendations.
 """)
 ```
 
-**If CLAUDE.md issues found:**
+If issues found:
 
 ```python
 Task(documentation-writer, """
-Optimize CLAUDE.md following AI documentation best practices.
+Optimize main doc.
 
-Files with issues: [list CLAUDE.md files needing optimization]
+Files: [files needing optimization]
 Working directory: $WORK_DIR
 
-Invoke ai-documentation skill to load best practices.
+Invoke ai-documentation skill.
 
-Issues to fix:
-[paste JSON from validator]
+Issues:
+[JSON from reviewer]
 
-Optimization strategy:
-1. Remove duplicate content (reference parent CLAUDE.md files)
-2. Convert prose to tables/bullets (content optimization)
-3. Extract deep-dive content to QUICKREF.md if >400 lines
+Tasks:
+1. Remove duplicate content
+2. Convert prose to tables/bullets
+3. Extract deep-dive to QUICKREF.md if >400 lines
 4. Condense file structure trees
-5. Ensure line count within target for hierarchy level
+5. Ensure line count within target
 
-Maintain all critical information - reorganize for AI readability.
+Return summary.
 """)
 ```
 
@@ -325,11 +466,9 @@ Maintain all critical information - reorganize for AI readability.
 
 ### Step 5: Final Validation
 
-**Re-run documentation-reviewer on ALL updated docs:**
-
 ```python
-final_validation = Task(documentation-reviewer, """
-Final validation after updates.
+Task(documentation-reviewer, """
+Final validation.
 
 Working directory: $WORK_DIR
 Scope: ALL documentation
@@ -338,648 +477,254 @@ Check:
 1. All CRITICAL issues resolved
 2. All IMPORTANT issues resolved
 3. File:line references accurate
-4. CLAUDE.md line counts within targets
-5. No new issues introduced
+4. Line counts within targets
+5. No new issues
+6. All references updated (no broken links)
 
-Return structured JSON with final status.
+Return JSON with final status.
 """)
 ```
 
-**Completion criteria:**
+Completion criteria:
 - ✅ Zero CRITICAL issues
 - ✅ Zero IMPORTANT issues
-- ✅ All CLAUDE.md files within line count targets
+- ✅ Line counts within targets
 - ✅ All components documented
+- ✅ All references updated
 
-**If issues remain after 2 passes**: Report blockers and exit.
+If issues remain after 2 passes, report blockers.
 
 ---
 
-### Step 6: Cascading Skill Hierarchy Updates
+### Step 6: Skill Hierarchy Updates
 
-**After documentation updates complete, analyze changes for skill updates.**
-
-#### Skill Hierarchy Levels
-
-```
-~/.claude/skills/           # Global skills (all projects)
-  ├── python-style/
-  ├── testing-standards/
-  ├── code-refactoring/
-  ├── ai-documentation/
-  ├── mcp-integration/
-  └── orchestration-workflow/
-
-$REPO_ROOT/.claude/skills/  # Repo-level skills (this repo only)
-  └── (custom repo patterns)
-
-$WORK_DIR/.claude/skills/   # Project-level skills (this project/tool)
-  └── (project-specific patterns)
-```
-
-#### 6.1: Detect Changes That Affect Skills
-
-**Analyze documentation updates from Steps 3-5:**
+Analyze session knowledge for skill updates:
 
 ```python
-# Extract patterns from updated documentation
-patterns_analysis = analyze_documentation_changes(
-    updated_docs=all_updated_docs,
-    work_dir=WORK_DIR,
-    git_diff=recent_changes
-)
-
-# Questions to answer:
-# 1. Did coding standards change? (python-style skill)
-# 2. Did testing patterns change? (testing-standards skill)
-# 3. Did refactoring thresholds change? (code-refactoring skill)
-# 4. Did new project-specific patterns emerge?
-# 5. Are there gotchas worth promoting to skills?
+skill_updates = {
+    "project_skills": [
+        # scope=project_local from Step 0.5
+        # Update $WORK_DIR/.claude/skills/
+    ],
+    "repo_skills": [
+        # scope=repo_scope from Step 0.5
+        # Update $REPO_ROOT/.claude/skills/ (ASK)
+    ],
+    "global_skills": [
+        # Universal patterns (ASK)
+        # Update ~/.claude/skills/
+    ]
+}
 ```
 
-**Categories of changes:**
-
-1. **Project-level changes** (local to $WORK_DIR)
-   - New patterns specific to this tool/project
-   - Gotchas only relevant to this codebase
-   - Example: "Tenable SC compliance severity mapping"
-
-2. **Repo-level changes** (affects multiple projects in repo)
-   - Pattern used across multiple imports/tools
-   - Common utility pattern
-   - Example: "Redis deduplication cache pattern"
-
-3. **Global-level changes** (~/.claude/skills/)
-   - Universal pattern applicable to ALL projects
-   - New best practice discovered
-   - Example: "SQLite WAL checkpoint timing for multiprocessing"
-
-#### 6.2: Determine Skill Hierarchy to Update
-
-**Cascading logic (bottom-up analysis):**
+#### 6.1: Update Project Skills (Auto)
 
 ```python
-# Start at project level, cascade up to global
+for pattern in skill_updates["project_skills"]:
+    Task(documentation-writer, """
+    Update project skill: {pattern.category}
 
-# Level 1: Project-level skills ($WORK_DIR/.claude/skills/)
-project_skills_to_update = identify_project_skill_updates(
-    changes=patterns_analysis,
-    existing_project_skills=scan_project_skills(WORK_DIR)
-)
+    Skill location: $WORK_DIR/.claude/skills/{category}/
+    Type: Project-specific
 
-# Level 2: Repo-level skills ($REPO_ROOT/.claude/skills/)
-repo_skills_to_update = identify_repo_skill_updates(
-    changes=patterns_analysis,
-    project_changes=project_skills_to_update,
-    existing_repo_skills=scan_repo_skills(REPO_ROOT)
-)
+    Session changes:
+    [pattern details from Step 0.5]
 
-# Level 3: Global skills (~/.claude/skills/)
-global_skills_to_update = identify_global_skill_updates(
-    changes=patterns_analysis,
-    universal_patterns=extract_universal_patterns(changes)
-)
+    Tasks:
+    1. Invoke ai-documentation skill
+    2. Create/update SKILL.md
+    3. Add code examples
+    4. Document usage
+    5. Include gotchas
+
+    Validate against $WORK_DIR code.
+
+    Return summary.
+    """)
 ```
 
-**Validation rules:**
-
-- **Project → Repo**: Only cascade if pattern used in 2+ projects in repo
-- **Repo → Global**: Only cascade if pattern applicable across ALL repos
-- **Specificity**: More specific beats more general (project overrides global)
-
-#### 6.3: Update Project-Level Skills (Automatic)
-
-**Create or update project skills automatically (no user approval needed):**
-
-```python
-# Spawn parallel document-writer agents for project skills
-
-Task(documentation-writer, """
-Update project-level skill: tenable-sc-patterns
-
-Skill location: $WORK_DIR/.claude/skills/tenable-sc-patterns/
-Skill type: Project-specific patterns
-
-Changes detected:
-1. New compliance severity mapping pattern (Pass/Info handling)
-2. Updated SQLite work distribution pattern (hash-based grouping)
-3. New cascade matching pattern (10-level asset matching)
-
-Tasks:
-1. Invoke ai-documentation skill FIRST
-2. Create/update SKILL.md with new patterns
-3. Add code examples from implementation
-4. Document when to use each pattern
-5. Include gotchas from CLAUDE.md
-
-Validate against code in $WORK_DIR to ensure accuracy.
-
-Return structured summary.
-""")
-
-Task(documentation-writer, """
-Update project-level skill: tenable-cache-patterns
-
-Skill location: $WORK_DIR/.claude/skills/tenable-cache-patterns/
-Skill type: Project-specific caching patterns
-
-Changes detected:
-1. New persistent DAA staging pattern (cross-scan accumulation)
-2. Updated batch fetch optimization pattern (eliminate N+1 queries)
-3. New WAL checkpoint timing pattern (worker visibility)
-
-Tasks:
-1. Invoke ai-documentation skill FIRST
-2. Create/update SKILL.md with new patterns
-3. Add code examples from cache/ implementation
-4. Document performance characteristics
-5. Include timing gotchas
-
-Validate against code in $WORK_DIR/cache to ensure accuracy.
-
-Return structured summary.
-""")
-```
-
-**Project skills are AUTO-UPDATED** because:
-- Scoped to this project only
-- Low risk (doesn't affect other projects)
-- Directly derived from code changes
-
-#### 6.4: Propose Repo-Level Skill Updates (Ask User)
-
-**If patterns apply across multiple projects in repo:**
+#### 6.2: Propose Repo Skills (Ask User)
 
 ```markdown
-## 🔄 Repo-Level Skill Updates Recommended
+## 🔄 Repo-Level Skill Updates
 
-**Detected patterns that apply across multiple projects in this repo:**
+**Pattern**: {pattern_name}
+**Used in**: {components}
+**Scope**: Multiple projects in repo
 
-### 1. Redis Deduplication Cache Pattern
-**Used in:** tenable_sc_refactor, nvd_api, vulndb
-**Pattern:** SQLite-based caching with Redis fallback
-**Propose:** Create `$REPO_ROOT/.claude/skills/redis-cache-patterns/`
-
-**Rationale:**
-- Used in 3+ import tools
-- Consistent performance pattern (0.004ms lookups)
-- Common batch fetch optimization
-
-**Would update:**
-- Create new repo-level skill: `$REPO_ROOT/.claude/skills/redis-cache-patterns/`
-- Document pattern, performance characteristics, gotchas
-
-**Approve? (y/n)**
-
-### 2. MongoDB Batch Operations Pattern
-**Used in:** tenable_sc_refactor, disa, nvd_api
-**Pattern:** 5000-document batches with retry logic
-**Propose:** Update `python-style` skill with batch operation standards
-
-**Rationale:**
-- Consistent across all imports (DEFAULT_BATCH_SIZE = 5000)
-- Standard retry_run pattern
-- Common error handling
-
-**Would update:**
-- Add to existing repo-level skill (or create if needed)
-- Document batch size rationale, retry logic
+**Would update**: $REPO_ROOT/.claude/skills/{skill_name}/
 
 **Approve? (y/n)**
 ```
 
-**User approval required because:**
-- Affects multiple projects (higher impact)
-- May conflict with existing patterns in other projects
-- Establishes repo-wide conventions
-
-#### 6.5: Propose Global Skill Updates (Ask User)
-
-**If patterns are universally applicable:**
+#### 6.3: Propose Global Skills (Ask User)
 
 ```markdown
-## 🌍 Global Skill Updates Recommended
+## 🌍 Global Skill Updates
 
-**Detected patterns that apply to ALL Python projects:**
+**Pattern**: {pattern_name}
+**Scope**: ALL projects
 
-### 1. SQLite WAL Checkpoint Timing for Multiprocessing
-**Universal pattern:** Force WAL checkpoint before spawning workers
-**Propose:** Add to `~/.claude/skills/python-style/` under "Concurrency Patterns"
+**Example**:
+{code_snippet}
 
-**Rationale:**
-- Applies to ANY Python project using SQLite + multiprocessing
-- Prevents worker isolation bugs (workers can't see main thread writes)
-- Not project-specific (universal SQLite behavior)
-
-**Code example:**
-```python
-# CRITICAL: Checkpoint WAL before workers spawn
-conn.execute("PRAGMA wal_checkpoint(FULL)")
-# Now workers can see main thread writes
-```
-
-**Would update:**
-- ~/.claude/skills/python-style/SKILL.md
-- Add new section: "SQLite + Multiprocessing Patterns"
-- Document timing requirements, gotchas
-
-**Approve? (y/n)**
-
-### 2. Complexity Threshold for Parallel Work Distribution
-**Universal pattern:** Use SQL-based work groups for parallel processing
-**Propose:** Add to `~/.claude/skills/code-refactoring/` under "Parallelism Patterns"
-
-**Rationale:**
-- Applies to ANY project needing parallel processing
-- Eliminates race conditions (natural work boundaries)
-- Cleaner than queue-based approaches
-
-**Code example:**
-```python
-# Group work by natural boundary (CVE, hash, etc.)
-CREATE TABLE work_groups (group_id, group_key, record_count)
-# Workers process one group at a time (no races)
-```
-
-**Would update:**
-- ~/.claude/skills/code-refactoring/SKILL.md
-- Add section: "SQL-Based Work Distribution for Parallelism"
-- Document when to use vs queues
+**Would update**: ~/.claude/skills/{skill_name}/
 
 **Approve? (y/n)**
 ```
 
-**User approval REQUIRED because:**
-- Affects ALL future projects (highest impact)
-- Establishes global conventions
-- May conflict with existing global patterns
-
-#### 6.6: Execute Approved Skill Updates
-
-**For EACH approved skill update, spawn parallel document-writer agents:**
+#### 6.4: Execute Approved Skills
 
 ```python
-# Execute ALL approved updates in SINGLE message (parallel)
+# SINGLE message, parallel execution
+for approved in approved_repo + approved_global:
+    Task(documentation-writer, """
+    Update skill: {skill_name}
 
-Task(documentation-writer, """
-Update global skill: python-style
+    Location: {skill_path}
+    Section: {section}
 
-Skill location: ~/.claude/skills/python-style/
-Section: Concurrency Patterns (new section)
+    Pattern:
+    [from session knowledge]
 
-Pattern to add:
-- SQLite WAL checkpoint timing for multiprocessing
-- Code examples from tenable_sc_refactor
-- Gotchas: Must checkpoint BEFORE worker spawn
-- WHY: Worker processes see snapshot at fork time
+    Tasks:
+    1. Invoke ai-documentation skill
+    2. Read existing SKILL.md
+    3. Add/update section
+    4. Include examples (validated)
+    5. Document usage, benefits, gotchas
+    6. Update index
 
-Tasks:
-1. Invoke ai-documentation skill FIRST
-2. Read existing python-style/SKILL.md
-3. Add new "Concurrency Patterns" section
-4. Include code examples (validated against implementation)
-5. Document timing requirements and gotchas
-6. Update skill index if needed
+    Validate scope (project/repo/global).
 
-Validate pattern is truly universal (not project-specific).
-
-Return structured summary.
-""")
-
-Task(documentation-writer, """
-Update global skill: code-refactoring
-
-Skill location: ~/.claude/skills/code-refactoring/
-Section: Parallelism Patterns (new section)
-
-Pattern to add:
-- SQL-based work distribution for parallel processing
-- Code examples from tenable_sc_refactor work_groups tables
-- When to use: Natural work boundaries, avoid race conditions
-- Alternatives: Queue-based (when to use instead)
-
-Tasks:
-1. Invoke ai-documentation skill FIRST
-2. Read existing code-refactoring/SKILL.md
-3. Add new "Parallelism Patterns" section
-4. Include comparison with queue-based approaches
-5. Document trade-offs and when to use each
-6. Add code examples
-
-Validate pattern is universal.
-
-Return structured summary.
-""")
+    Return summary.
+    """)
 ```
 
-**Execute in parallel** (same pattern as documentation updates).
-
-#### 6.7: Validate Skill Hierarchy Consistency
-
-**After skill updates complete:**
+#### 6.5: Validate Skill Consistency
 
 ```python
 Task(documentation-reviewer, """
 Validate skill hierarchy consistency.
 
 Skills updated:
-- Project: $WORK_DIR/.claude/skills/ (X skills)
-- Repo: $REPO_ROOT/.claude/skills/ (Y skills)
-- Global: ~/.claude/skills/ (Z skills)
+- Project: $WORK_DIR/.claude/skills/
+- Repo: $REPO_ROOT/.claude/skills/
+- Global: ~/.claude/skills/
 
-Check for:
-1. No contradictions between hierarchy levels
-2. Project skills don't duplicate repo/global skills
-3. Patterns correctly scoped (project vs repo vs global)
-4. Code examples match actual implementation
-5. Cross-references working (project → repo → global)
+Check:
+1. No contradictions between levels
+2. No duplication (project/repo/global)
+3. Correct scoping
+4. Examples match implementation
+5. Cross-references working
 
-Return structured JSON with any issues.
+Return JSON with issues.
 """)
 ```
-
-**Consistency rules:**
-- Project skills can override repo/global (more specific)
-- Repo skills can override global (repo-specific conventions)
-- No duplicate content across levels (DRY principle)
-
-#### 6.8: Skill Update Decision Tree
-
-```
-Code changes detected
-    ↓
-Analyze patterns in updated docs
-    ↓
-    ├─→ Project-only pattern? → AUTO-UPDATE project skill
-    ├─→ Multi-project pattern? → ASK USER → Update repo skill
-    └─→ Universal pattern?     → ASK USER → Update global skill
-    ↓
-For each level:
-    ├─→ Create new skill? → ASK USER (repo/global only)
-    └─→ Update existing?  → AUTO (project), ASK (repo/global)
-    ↓
-Execute approved updates (parallel agents)
-    ↓
-Validate consistency across hierarchy
-    ↓
-Report what changed
-```
-
-**Key rules:**
-- **Project skills**: Auto-create, auto-update (low impact)
-- **Repo/Global skills**: Ask before create, ask before update (high impact)
-- **New skill recommendations**: Always present rationale and ask
 
 ---
 
 ### Step 7: Summary Report
 
-**Aggregate results from all agents:**
-
 ```markdown
 ## 📚 Documentation & Skills Updated
 
-### 📄 Documentation Updates
+### 📄 Documentation
 
-#### Components Processed:
-- processors/ (4 files, 12 functions documented)
-- cache/ (2 files, 8 functions documented)
-- api_handler/ (3 files, 6 functions documented)
+**Components**: processors/ (4 files), cache/ (2 files), api_handler/ (3 files)
 
-#### Files Modified:
-- CLAUDE.md: Updated 5 gotchas, optimized from 450→380 lines
-- docs/API_REFERENCE.md: Added 26 function signatures, updated 8 existing
-- docs/business_logic/BUSINESS_RULES.md: Added 3 new rules
-- docs/HOW_TO.md: Updated 2 workflows with new patterns
+**Modified**:
+- {Main doc}: 5 gotchas, 450→380 lines
+- docs/API_REFERENCE.md: +26 signatures, ~8 updated
+- docs/BUSINESS_RULES.md: +3 rules
 
-#### Files Created:
-- docs/QUICKREF.md: Extracted 70 lines from CLAUDE.md (deep-dive content)
-- docs/TROUBLESHOOTING.md: 5 common errors documented
+**Created**:
+- docs/QUICKREF.md: 70 lines extracted
+- docs/TROUBLESHOOTING.md: 5 errors
 
-#### Validation Results:
-✅ Zero CRITICAL issues (was: 8)
-✅ Zero IMPORTANT issues (was: 15)
-⚠️  2 MINOR issues (line count slightly over in OVERVIEW.md)
+**Validation**:
+✅ 0 CRITICAL (was 8)
+✅ 0 IMPORTANT (was 15)
+⚠️  2 MINOR
 
-#### Line Counts:
-- CLAUDE.md: 380/400 (target met ✅)
-- docs/OVERVIEW.md: 205/200 (5 lines over, acceptable)
-- docs/API_REFERENCE.md: 450 lines (comprehensive ✅)
+**Line Counts**:
+- {Main doc}: 380/400 ✅
+- docs/OVERVIEW.md: 205/200 (acceptable)
 
-### 🎓 Skill Hierarchy Updates
+### 🎓 Skills
 
-#### Project-Level Skills (Auto-Updated):
-✅ Created: $WORK_DIR/.claude/skills/tenable-sc-patterns/
-   - Compliance severity mapping (Pass/Info handling)
-   - Cascade matching (10-level asset matching)
-   - Patched view closure logic
+**Project** (Auto): ✅ Created $WORK_DIR/.claude/skills/{name}/
+**Repo** (Approved): ✅ Updated $REPO_ROOT/.claude/skills/{name}/
+**Global** (Approved): ✅ Updated ~/.claude/skills/{name}/
 
-✅ Created: $WORK_DIR/.claude/skills/tenable-cache-patterns/
-   - Persistent DAA staging (cross-scan accumulation)
-   - Batch fetch optimization (eliminate N+1 queries)
-   - WAL checkpoint timing (worker visibility)
+### 📊 Session Knowledge
 
-#### Repo-Level Skills (User-Approved):
-✅ Updated: $REPO_ROOT/.claude/skills/mongodb-patterns/
-   - Added batch operations section (DEFAULT_BATCH_SIZE = 5000)
-   - Documented retry_run pattern
-   - Used in: tenable_sc_refactor, disa, nvd_api
+- Gotchas: {N} → main doc
+- Decisions: {N} → ARCHITECTURE.md
+- Performance: {N} → QUICKREF.md
+- Business rules: {N} → BUSINESS_RULES.md
+- Patterns: {N} → skills
 
-#### Global Skills (User-Approved):
-✅ Updated: ~/.claude/skills/python-style/SKILL.md
-   - Added "Concurrency Patterns" section
-   - SQLite WAL checkpoint timing for multiprocessing
-   - Universal pattern applicable to ALL Python projects
+### ⚡ Efficiency
 
-✅ Updated: ~/.claude/skills/code-refactoring/SKILL.md
-   - Added "Parallelism Patterns" section
-   - SQL-based work distribution vs queue-based
-   - Trade-offs and when to use each approach
+- Documentation agents: {N}
+- Reviewer agents: {N}
+- Skill agents: {N}
+- Wall time: ~{X} min
 
-#### Skills Validation:
-✅ No contradictions across hierarchy
-✅ No duplicate content between levels
-✅ Patterns correctly scoped (project → repo → global)
-✅ Code examples validated against implementation
+### 📊 Impact
 
-### ⚡ Parallel Efficiency:
-- **Documentation**: 3 document-writer agents (2 min vs 6 min sequential)
-- **Skills**: 4 document-writer agents (parallel execution)
-- **Total wall time**: ~3 minutes (docs + skills)
-- **Context saved**: ~60k tokens (agents work independently)
-
-### 📊 Overall Impact:
-- **Documentation**: 8 files updated, 2 created
-- **Skills**: 2 project skills created, 3 skills updated (1 repo, 2 global)
-- **Validation**: All CRITICAL/IMPORTANT issues resolved
-- **Knowledge capture**: Project patterns promoted to skills for reuse
+- Docs: {N} updated, {N} created
+- Skills: {N} project, {N} updated
+- Validation: All resolved
+- Knowledge: Session preserved
 ```
 
 ---
 
-## Agent Coordination Pattern
+## Parallelism Strategy
 
-### Parallelism Strategy
+**Max parallelism**: 1 agent per component
 
-**Maximum parallelism = 1 agent per component:**
-- Small project (3 components): 3 agents in parallel
-- Medium project (8 components): 8 agents in parallel
-- Large project (20+ components): Group related, still 8-12 agents max
+- Small (3 components): 3 agents
+- Medium (8 components): 8 agents
+- Large (20+ components): Group, 8-12 agents max
 
-**Component grouping for large projects:**
+Component grouping:
 ```python
-# Example: tenable_sc_refactor with 20+ files
-# Group into logical components:
-
-processors_group = [
-    'base_processor.py',
-    'asset_processor.py',
-    'known_vuln_processor.py',
-    'solution_processor.py',
-    'detected_vuln_processor.py',
-    'application_processor.py',
-    'daa_processor.py',
-]  # 1 agent
-
-cache_group = [
-    'tenable_sc_cache.py',
-    'persistent_daa_staging_handler.py',
-    'preflight_config_handler.py',
-]  # 1 agent
-
-api_handler_group = [
-    'download_manager.py',
-    'handler.py',
-    'tenable_client.py',
-]  # 1 agent
-
-# Total: 3 agents instead of 15+ (efficient grouping)
+processors_group = [files]  # 1 agent
+cache_group = [files]       # 1 agent
+api_group = [files]         # 1 agent
 ```
-
-### Context Sources Priority
-
-**Agents receive context in this order:**
-
-1. **Validation issues** (CRITICAL/IMPORTANT from Step 2)
-2. **.spec/ files** (implementation context if available)
-3. **Git diff** (recent changes if available)
-4. **Existing documentation** (current state)
-5. **Code files** (ground truth)
-
-**Agents DO NOT receive:**
-- Full codebase context (too large)
-- Other agents' results (independent execution)
-- Parent agent context (clean slate per agent spec)
 
 ---
 
-## Special Cases
+## Context Sources Priority
 
-### Case 1: No .spec/ Files
-
-**If no .spec/ files exist:**
-- Agents still work (read code directly)
-- Focus on code-to-docs validation
-- May miss "why" context (only capture "what")
-
-**Mitigation:**
-- Document-writer reads implementation comments
-- Extracts WHY comments from code
-- Infers patterns from code structure
-
-### Case 2: Massive Project (>50 files)
-
-**If component count exceeds 15:**
-- Group by directory structure (natural boundaries)
-- Prioritize recently changed components (git diff)
-- Run in batches if needed (8-12 agents at a time)
-
-**Example batching:**
-```python
-# Batch 1: Core processors (8 agents)
-# Wait for completion
-# Batch 2: Utilities and helpers (6 agents)
-# Wait for completion
-# Batch 3: CLAUDE.md optimization (1 agent)
-```
-
-### Case 3: No Existing Documentation (Bootstrap Mode)
-
-**Handled automatically in Step 1:**
-- Detects missing CLAUDE.md or docs/llms.txt
-- Spawns single documentation-writer agent in bootstrap mode
-- Agent creates COMPLETE library from codebase analysis:
-  - CLAUDE.md (appropriate template for hierarchy level)
-  - docs/llms.txt (navigation index)
-  - docs/OVERVIEW.md (5-min overview)
-  - docs/API_REFERENCE.md (all public functions)
-  - docs/HOW_TO.md (common workflows)
-  - docs/business_logic/ (if needed)
-- Then proceeds with normal validation/update workflow
-
-**Bootstrap is ONE-SHOT:**
-- Single agent analyzes entire codebase
-- Creates all documentation at once
-- Ensures consistency across all docs
-- After creation, switches to normal update mode
+1. Session knowledge (Step 0.5)
+2. Validation issues (Step 2)
+3. .spec/ files
+4. Git diff
+5. Existing docs
+6. Code files
 
 ---
 
 ## Critical Rules
 
 **DO:**
-- Spawn ALL document-writer agents in SINGLE message (parallelism)
-- Group components logically (avoid over-parallelization)
-- Use validation results to guide updates (don't guess what's wrong)
-- Check parent CLAUDE.md for duplication (hierarchical inheritance)
-- Re-validate after updates (ensure fixes worked)
+- Spawn ALL agents in SINGLE message (parallel)
+- Extract session knowledge
+- Detect doc format (CLAUDE.md or AGENTS.md)
+- Update all references
+- Re-validate after updates
 
 **DON'T:**
-- Launch agents sequentially (defeats purpose of parallel updates)
-- Skip validation step (need to know what's wrong)
-- Update docs without reading code (must verify accuracy)
-- Ignore CLAUDE.md line count targets (enforced limits)
-- Proceed if final validation fails (report blockers)
+- Launch sequentially
+- Skip session extraction
+- Skip validation
+- Mix CLAUDE.md/AGENTS.md formats
+- Proceed if validation fails
 
----
-
-## Example Execution
-
-**User:** `/update_docs`
-
-**Agent determines working directory:**
-- Checks session context: User just finished work on `fisio/imports/tenable_sc_refactor/`
-- Working directory: `fisio/imports/tenable_sc_refactor/`
-
-**Discovery:**
-- Found 15 Python files in 5 directories
-- Found CLAUDE.md, docs/OVERVIEW.md, docs/API_REFERENCE.md
-- Found .spec/SPEC.md (implementation context available)
-- Git diff shows 8 files changed in last week
-
-**Validation:**
-- 12 CRITICAL issues (incorrect file:line refs, outdated signatures)
-- 18 IMPORTANT issues (missing functions, stale gotchas)
-- 5 MINOR issues (CLAUDE.md 450 lines, target 400)
-
-**Parallel execution:**
-- Spawns 5 document-writer agents (1 per directory)
-- All agents run simultaneously
-- Total completion: ~2 minutes
-
-**CLAUDE.md optimization:**
-- Extracts 70 lines to QUICKREF.md
-- Removes duplicate content from parent CLAUDE.md
-- Converts prose to tables (business logic section)
-- Final size: 380 lines ✅
-
-**Final validation:**
-- Zero CRITICAL issues
-- Zero IMPORTANT issues
-- All targets met
-
-**Report:** Shows what was updated, validation status, efficiency gains.
-
----
-
-**You are efficient. Parallel agents, accurate updates, validated results.**
+**Coordinator orchestrates all sub-agents. No nested spawning.**

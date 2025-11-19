@@ -55,7 +55,7 @@ You are part of a MANDATORY review cycle:
 
 **Agent Type**: `documentation-writer`
 
-**Purpose**: Create NEW documentation from implemented code and update existing documentation with implementation discoveries. Distinct from documentation-validator (which only validates existing docs).
+**Purpose**: Create NEW documentation from implemented code and update existing documentation with implementation discoveries. Distinct from documentation-reviewer (which only validates existing docs).
 
 **When to Use**:
 - After /conduct Phase N+2 to create detailed documentation
@@ -404,7 +404,7 @@ result = function_name(value1, value2)
 
 ### In /conduct (Phase N+2)
 
-After implementation complete and documentation-validator has validated existing docs:
+After implementation complete and documentation-reviewer has validated existing docs:
 
 ```python
 Task(documentation-writer, """
@@ -478,4 +478,4 @@ Agent will read spec automatically.
 
 ---
 
-**Remember**: This agent CREATES documentation. For VALIDATING existing documentation, use documentation-validator agent.
+**Remember**: This agent CREATES documentation. For VALIDATING existing documentation, use documentation-reviewer agent.

@@ -1,6 +1,6 @@
 ---
 name: AI Documentation Standards
-description: Write AI-readable documentation following concise-over-comprehensive principle, hierarchical CLAUDE.md inheritance (100-200 line rule), and structured formats (tables over prose). Use when writing CLAUDE.md files, creating project documentation, or optimizing existing docs.
+description: Write AI-readable documentation following concise-over-comprehensive principle, hierarchical CLAUDE.md/AGENTS.md inheritance (100-200 line rule), structured formats (tables over prose), parallel validation, and session knowledge capture. Use when writing documentation, updating docs, or optimizing existing docs.
 allowed-tools: Read, Write, Edit, Grep, Glob
 ---
 
@@ -145,6 +145,162 @@ allowed-tools: Read, Write, Edit, Grep, Glob
 **Structure**: Organized sections (Quick Start, Business Logic, Architecture, Implementation, Troubleshooting) with file paths + line counts, plus task-specific navigation guides
 
 **For full template:** See reference.md
+
+---
+
+## AGENTS.md Pattern
+
+**Purpose**: Specialized documentation for AI coding agents (alternative to CLAUDE.md)
+
+**When to Use**: Detect parent format - maintain consistency (CLAUDE.md or AGENTS.md)
+
+**Location**: Project root
+
+**Structure**:
+```markdown
+# AGENTS.md
+
+## Quick Context
+- Tech stack, architecture, entry point
+
+## Documentation Structure
+- Start: OVERVIEW.md, Rules: BUSINESS_RULES.md, API: API_REFERENCE.md
+
+## For Documentation Updates
+- Review strategy: 1 reviewer per N components
+- Validation priority, line counts, session knowledge extraction
+
+## For Code Changes
+- Testing, linting, standards references
+
+## For Reviews
+- Parallel execution, grouping, focus areas
+
+## Critical Gotchas
+[Project-specific]
+```
+
+**Key Difference from CLAUDE.md**: Focused on agent workflows vs general project context
+
+---
+
+## Session Knowledge Capture
+
+**Purpose**: Extract and preserve insights learned during work sessions
+
+**Categories**:
+1. **Gotchas**: Edge cases, non-obvious behavior, timing requirements
+2. **Decisions**: Design choices with rationale and trade-offs
+3. **Performance**: Metrics, optimal values, bottlenecks
+4. **Business Rules**: Logic discovered not previously documented
+5. **Patterns**: Reusable approaches discovered
+
+**Scoping**:
+- `project_local`: Specific project/tool only → $WORK_DIR/main doc
+- `parent_scope`: Parent directory (framework/subsystem) → parent doc
+- `repo_scope`: Entire repository → repo docs or skills
+
+**Integration**:
+- Gotchas → Main doc "Common Gotchas"
+- Decisions → ARCHITECTURE.md or QUICKREF.md
+- Performance → QUICKREF.md or HOW_TO.md
+- Business rules → BUSINESS_RULES.md
+- Patterns → ARCHITECTURE.md or skills (if reusable)
+
+**Smart Placement**:
+```python
+if scope == "project_local":
+    location = "$WORK_DIR/CLAUDE.md or AGENTS.md"
+elif scope == "parent_scope":
+    location = find_parent_doc($WORK_DIR)
+elif scope == "repo_scope":
+    location = "$REPO_ROOT/docs/PATTERNS.md or skills/"
+```
+
+---
+
+## Parallel Validation Strategy
+
+**Complexity Metrics**:
+```python
+components = modules + standalone_files
+doc_lines = sum(count_lines(md_files))
+rules = count_rule_rows("BUSINESS_RULES.md")
+score = (components * 100) + (doc_lines / 10) + (rules * 50)
+```
+
+**Reviewer Count**:
+- <1000: 1 reviewer
+- 1000-3000: 2 reviewers
+- 3000-6000: 4 reviewers
+- >6000: 6 reviewers
+
+**Grouping**:
+- Related components together
+- Main doc hierarchy in single reviewer
+- Balance lines (~2000 per reviewer)
+- Dedicated hierarchy reviewer if >3 levels
+
+**Example**:
+```python
+# 15 components, 4 reviewers
+Group 1: processors/ (7 files) + main doc sections
+Group 2: cache/ + api/ + main doc sections
+Group 3: docs/ (OVERVIEW, BUSINESS_RULES, ARCHITECTURE)
+Group 4: Hierarchy integrity (all main docs)
+```
+
+---
+
+## Smart Documentation Placement
+
+**Placement Algorithm**:
+1. Analyze scope (project_local, parent_scope, repo_scope)
+2. Walk hierarchy ($WORK_DIR → repo root)
+3. Detect format (CLAUDE.md or AGENTS.md - maintain consistency)
+4. Check organization (docs/<sub-component>/ structure exists?)
+
+**Decision Tree**:
+```python
+if scope == "project_local":
+    if not exists("$WORK_DIR/docs/"):
+        create_docs_structure($WORK_DIR)
+
+    if topic in ["gotchas", "overview"]:
+        location = "$WORK_DIR/main doc"
+    elif topic == "business_rules":
+        location = "$WORK_DIR/docs/BUSINESS_RULES.md"
+    elif topic == "architecture":
+        location = "$WORK_DIR/docs/ARCHITECTURE.md"
+    elif topic == "api":
+        location = "$WORK_DIR/docs/API_REFERENCE.md"
+
+elif scope == "parent_scope":
+    parent = find_parent_with_docs($WORK_DIR)
+    location = f"{parent}/docs/{topic}.md"
+
+elif scope == "repo_scope":
+    root = find_repo_root($WORK_DIR)
+    if exists(f"{root}/docs/"):
+        location = f"{root}/docs/PATTERNS.md"
+    else:
+        location = f"{root}/.claude/skills/{category}/"
+```
+
+**Proper Organization**:
+```
+$WORK_DIR/docs/
+├── llms.txt
+├── OVERVIEW.md
+├── API_REFERENCE.md
+├── ARCHITECTURE.md
+├── BUSINESS_RULES.md
+├── HOW_TO.md
+├── TROUBLESHOOTING.md
+└── <sub-component>/
+    ├── COMPONENT_OVERVIEW.md
+    └── COMPONENT_DETAILS.md
+```
 
 ---
 

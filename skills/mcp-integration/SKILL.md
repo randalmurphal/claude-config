@@ -51,51 +51,6 @@ Claude Code has three scope levels (use **local scope** for project-specific ser
 
 ---
 
-## Current MCP Setup
-
-### Custom MCPs (Active)
-**Location:** `~/.claude/mcp_config.json`
-
-1. **PRISM MCP** (33 tools, ~10k tokens)
-   - Semantic memory system with Neo4j + Qdrant backends
-   - Memory operations, ADR storage, pattern detection
-   - Duplication detection, preference learning, context warming
-   - **Use when:** Storing/retrieving past decisions, patterns, learnings
-
-2. **Orchestration MCP** (18 tools, ~6k tokens)
-   - Multi-agent coordination, checkpoints, worktrees
-   - Task decomposition, complexity analysis
-   - **Use when:** Managing complex multi-step workflows
-
-3. **Tech Scanner MCP** (1 tool, ~500 tokens)
-   - Security analysis for technology stacks
-   - **Use when:** Scanning dependencies for vulnerabilities
-
-**Total Custom:** 52 tools, ~16k tokens (8% of context)
-
-### External MCPs (Installed)
-**Location:** `~/.config/claude/mcp_config.json`
-
-1. **GitHub MCP** (51 tools, ~15k tokens)
-   - Repository operations, PR automation, CI/CD monitoring
-   - Issues, pull requests, workflows, security scanning
-   - **Use when:** Automating GitHub operations beyond `gh` CLI
-
-2. **Package Registry MCP** (5 tools, ~1.5k tokens)
-   - Search npm, PyPI, Cargo, NuGet packages
-   - Get package details, versions, vulnerabilities
-   - **Use when:** Researching packages before installation
-
-**Total External:** 56 tools, ~16.5k tokens (8% of context)
-
-### Built-in Tools (~32 tools, ~10k tokens)
-- Read, Write, Edit, MultiEdit, Grep, Glob, Bash, Task, WebSearch, etc.
-- Always available, no configuration needed
-
-**Grand Total:** 140 tools using ~42.5k tokens (21% of context budget)
-
----
-
 ## Available MCP Servers (Quick Reference)
 
 ### Productivity & Documentation
@@ -359,12 +314,6 @@ claude mcp add server-name command -e KEY=value  # Uses local by default
 
 ## Token Budget Management
 
-### Current Usage
-- **Custom MCPs:** 52 tools = ~16k tokens (8%)
-- **External MCPs:** 56 tools = ~16.5k tokens (8%)
-- **Built-in tools:** ~32 tools = ~10k tokens (5%)
-- **Total:** 140 tools = ~42.5k tokens (21% of 200k context)
-
 ### Planning New MCPs
 
 **Before adding an MCP, ask:**
@@ -382,7 +331,6 @@ claude mcp add server-name command -e KEY=value  # Uses local by default
 - Default budget: 200k tokens
 - ~50k for tools (25% overhead OK)
 - ~150k for actual work
-- Current: 42.5k used, ~107.5k headroom
 
 ### Optimizing Token Usage
 
@@ -476,13 +424,7 @@ tail -f ~/.config/claude/logs/claude-code-*.log
 2. **Use local scope for projects** - Works in all subdirectories
 3. **Use user scope for globals** - GitHub, Package Registry
 4. **Test manually first** - Verify tools work before configuring MCP
-5. **Monitor token budget** - Current: 42.5k/200k (21%), healthy headroom
-
-**Current Setup (Production-Ready):**
-- Custom MCPs: PRISM, Orchestration, Tech Scanner (52 tools)
-- External MCPs: GitHub, Package Registry (56 tools)
-- Built-in tools: Read, Write, Edit, Grep, Bash, etc. (32 tools)
-- **Total:** 140 tools, ~42.5k tokens (21% of context)
+5. **Monitor token budget** - Check `claude mcp list` to see tool counts
 
 **When to Use This Skill:**
 - Setting up new MCP servers

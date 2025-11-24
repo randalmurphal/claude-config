@@ -1,6 +1,6 @@
 ---
 name: mutation-testing
-description: Validate test suite quality using mutation testing with mutmut or cosmic-ray to detect weak tests, calculate mutation scores, and improve test coverage. Use when validating test effectiveness, achieving high test quality, or detecting tests that pass but don't validate behavior.
+description: Validate test suite quality using mutation testing with mutmut or cosmic-ray to detect weak tests, calculate mutation scores, and improve test coverage. Expensive process - run strategically on key modules. Use when validating test effectiveness, achieving high test quality, or detecting tests that pass but don't validate behavior.
 allowed-tools:
   - Read
   - Bash
@@ -73,7 +73,7 @@ Mutation testing applies these transformations:
 
 **Mutation Score**: `(Killed mutations / Total mutations) * 100%`
 
-**Target**: 80%+ mutation score indicates high-quality tests
+**Target**: 60-70% mutation score is industry standard for production code
 
 ---
 
@@ -238,12 +238,12 @@ open html/index.html
 | Score | Quality | Action |
 |-------|---------|--------|
 | **< 50%** | Weak test suite | Major gaps, prioritize test improvements |
-| **50-70%** | Moderate quality | Room for improvement, focus on critical paths |
-| **70-80%** | Good quality | Few gaps, polish edge cases |
-| **80-90%** | Excellent quality | High confidence, minimal improvements needed |
-| **> 90%** | Exceptional | Diminishing returns, focus elsewhere |
+| **50-60%** | Moderate quality | Room for improvement, focus on critical paths |
+| **60-70%** | Good quality | Industry standard, acceptable for most code |
+| **70-80%** | Excellent quality | High confidence, minimal improvements needed |
+| **> 80%** | Exceptional | Diminishing returns, focus elsewhere |
 
-**Target**: Aim for **80%+ mutation score** for production code.
+**Target**: Aim for **60-70% mutation score** for production code (industry standard).
 
 ### Reading Mutation Details
 
@@ -373,7 +373,7 @@ Mutating the log message doesn't affect behavior.
 
 ### Limitation 4: Doesn't Replace Code Coverage
 
-**Best Practice**: Require both 95% coverage AND 80% mutation score.
+**Best Practice**: Require both 95% coverage AND 60-70% mutation score.
 
 **Why**:
 - Coverage finds untested code
@@ -401,7 +401,7 @@ Mutating the log message doesn't affect behavior.
 - Track score over time (aim for gradual improvement)
 
 ### Combine with Coverage
-- Require **both** 95%+ coverage AND 80%+ mutation score
+- Require **both** 95%+ coverage AND 60-70% mutation score
 - Coverage finds untested code, mutation testing finds weak tests
 
 ### Run Strategically
@@ -409,11 +409,17 @@ Mutating the log message doesn't affect behavior.
 - Focus on critical code: security, business logic, data processing
 - Deprioritize: CLI parsing, logging, configuration, getters/setters
 
+### When to Skip Mutation Testing
+- **Trivial code**: Getters, setters, simple property access
+- **Generated code**: ORM models, proto files, auto-generated APIs
+- **Low-value code**: CLI argument parsing, config loading, simple utilities
+- **Reason**: ROI is negative - mutation testing is expensive, better spent on critical paths
+
 ### Review Intelligently
 - Review survived mutations manually (not all indicate weak tests)
 - Accept some mutations (logging, equivalent mutations)
 - Document exceptions in `.mutmut-exceptions.md`
-- Set realistic 80% target (90%+ has diminishing returns)
+- Set realistic 60-70% target (80%+ has diminishing returns)
 
 ### Automate
 - Integrate in CI pipeline (nightly builds)
@@ -434,11 +440,12 @@ Mutating the log message doesn't affect behavior.
 
 **Key Takeaways**:
 - **Mutation testing validates test quality**, not code quality
-- **Target 80%+ mutation score** for production code
+- **Target 60-70% mutation score** for production code (industry standard)
 - **Combine with 95%+ code coverage** for comprehensive quality
 - **Run in nightly builds** (too slow for every commit)
 - **Review survived mutations manually** (some are false positives)
 - **Start small, iterate** (critical modules first)
+- **Skip trivial code** (mutation testing is expensive, focus on critical paths)
 
 **Tools**:
 - **mutmut**: Recommended for most projects (simple, fast)

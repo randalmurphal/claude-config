@@ -1,6 +1,6 @@
 ---
 name: python-linting
-description: Python linting and type checking using ruff (formatting + linting) and pyright (type checking). Covers common errors, configuration, fixing violations, and when to use noqa. Use when fixing linting errors, configuring ruff/pyright, or understanding Python code quality tools.
+description: Python linting and type checking using python-code-quality script (unified ruff + pyright + bandit + semgrep). Covers common errors, configuration, fixing violations, and when to use noqa. Use when fixing linting errors, configuring tools, running security scans, or understanding Python code quality tools.
 allowed-tools:
   - Read
   - Bash
@@ -8,17 +8,45 @@ allowed-tools:
 
 # Python Linting & Type Checking
 
+## Primary Interface: python-code-quality Script
+
+**Use this for all Python quality checks:**
+```bash
+# Auto-fix + lint + type-check + security scan
+python-code-quality --fix <path>
+
+# Just check (no fixes)
+python-code-quality <path>
+```
+
+**What it runs:**
+1. **ruff** - Linting + formatting
+2. **pyright** - Type checking
+3. **bandit** - Security vulnerabilities
+4. **semgrep** - Security patterns
+
+**When to use:**
+- Before committing Python code
+- During PR reviews
+- When fixing linting/type errors
+- For security audits
+
+---
+
 ## The Modern Python Tooling Stack (2025)
 
-### Two Tools You Need
+### Four Tools in the Stack
 
 | Tool | Purpose | Speed | What It Catches |
 |------|---------|-------|-----------------|
 | **Ruff** | Linter + Formatter | ⚡ <100ms | Style, imports, simple bugs, patterns |
 | **Pyright** | Type Checker | 🏃 1-2s | Type safety, attribute errors, None-safety |
+| **Bandit** | Security Scanner | 🏃 1-2s | Common security vulnerabilities |
+| **Semgrep** | Pattern Matcher | 🏃 2-3s | Custom security patterns, anti-patterns |
 
 **Ruff replaces:** pylint, black, isort, flake8, pycodestyle, pydocstyle
 **Pyright replaces:** mypy (faster, better errors)
+**Bandit/Semgrep:** Security layer (new in 2025 standard)
 
 ---
 
@@ -74,12 +102,55 @@ allowed-tools:
 - Import sorting
 - Code formatting
 
+### Bandit (Security Scanner)
+
+**Security Vulnerabilities:**
+- Hardcoded passwords/secrets
+- SQL injection patterns
+- Shell injection (subprocess with shell=True)
+- Weak cryptography (MD5, DES)
+- Insecure deserialization (pickle)
+
+**Common Issues:**
+- `assert` used for security checks
+- `eval()` or `exec()` usage
+- Unvalidated file paths
+- Weak random number generation
+
+### Semgrep (Pattern Matcher)
+
+**Custom Patterns:**
+- Project-specific anti-patterns
+- Security policy violations
+- Framework-specific issues
+- Architecture violations
+
+**Example Rules:**
+- Enforce logging standards
+- Detect dangerous API usage
+- Find missing input validation
+- Check authentication patterns
+
 ---
 
 ## Usage
 
 ### Development Workflow
 
+**Recommended: Use python-code-quality script**
+```bash
+# All checks at once (preferred)
+python-code-quality --fix <path>
+
+# What it runs:
+# 1. ruff format (auto-fix formatting)
+# 2. ruff check --fix (auto-fix linting)
+# 3. pyright (type checking)
+# 4. bandit (security vulnerabilities)
+# 5. semgrep (security patterns)
+```
+
+**Manual workflow (when you need individual control)**
 ```bash
 # 1. Fast feedback (run constantly)
 ruff check --fix .    # Lint + auto-fix (instant)
@@ -87,6 +158,8 @@ ruff format .         # Format code (instant)
 
 # 2. Before commit (thorough check)
 pyright .            # Type check (1-2s)
+bandit -r .          # Security scan (1-2s)
+semgrep --config=auto .  # Pattern check (2-3s)
 pytest               # Run tests
 ```
 

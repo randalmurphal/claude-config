@@ -1,6 +1,6 @@
 ---
 name: Code Refactoring Patterns
-description: When and how to refactor complex functions including complexity thresholds (50+ statements, 12+ branches), extraction patterns, guard clauses, and testing strategies. Use when ruff/pylint complexity warnings appear or code becomes hard to maintain.
+description: When and how to refactor complex functions including complexity thresholds (cyclomatic >10, 50+ statements, 12+ branches, 100+ lines), extraction patterns, guard clauses, and testing strategies. Use when ruff/pylint complexity warnings appear or code becomes hard to maintain.
 allowed-tools: Read, Grep, Bash
 ---
 

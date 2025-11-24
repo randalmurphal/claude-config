@@ -1,6 +1,6 @@
 ---
 name: code-review-patterns
-description: Code review best practices including review checklists (functionality, tests, documentation, security, performance), providing constructive feedback, automated checks integration, and handling review comments. Use when reviewing pull requests, providing code feedback, responding to review comments, or setting up review processes.
+description: Code review workflow and collaboration patterns including review contexts (architecture, detailed, quick, mentor), feedback tone guidelines, handling reviewer-author disagreements, and GitLab/GitHub integration. Use for review PROCESS and collaboration - NOT for technical standards (use pr-review-standards instead).
 allowed-tools:
   - Read
   - Grep

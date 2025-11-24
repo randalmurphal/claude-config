@@ -28,6 +28,7 @@ NC='\033[0m' # No Color
 AUTO_FORMAT=true  # Always auto-format by default
 AUTO_FIX=false
 SECURITY_ONLY=false
+QUICK_MODE=false  # Skip semgrep for fast iteration
 TARGET_PATH=""
 VENV_PATH="/opt/envs/imports"
 
@@ -45,6 +46,7 @@ ${BOLD}Options:${NC}
     --no-format     Skip auto-formatting (format is ON by default)
     --fix           Auto-fix issues where possible (includes format)
     --security      Run security checks only (skip style/types/format)
+    --quick         Fast mode: skip semgrep (ruff + pyright + bandit only)
     --help          Show this help message
 
 ${BOLD}Examples:${NC}
@@ -88,6 +90,10 @@ while [[ $# -gt 0 ]]; do
         --security)
             SECURITY_ONLY=true
             AUTO_FORMAT=false  # Security-only skips formatting
+            shift
+            ;;
+        --quick)
+            QUICK_MODE=true  # Skip semgrep for fast iteration
             shift
             ;;
         --help|-h)
@@ -187,6 +193,8 @@ echo -e "Target: ${BOLD}$TARGET_PATH${NC}"
 echo -e "Mode: ${BOLD}$(
     if [[ "$SECURITY_ONLY" == true ]]; then
         echo "Security Only"
+    elif [[ "$QUICK_MODE" == true ]]; then
+        echo "Quick (no semgrep)"
     elif [[ "$AUTO_FIX" == true ]]; then
         echo "Auto-Fix"
     elif [[ "$AUTO_FORMAT" == true ]]; then
@@ -236,17 +244,31 @@ run_step "Bandit" "critical" \
     -f screen \
     --exclude '*/tests/*,*/test_*,*/.venv/*,*/venv/*' || true
 
-# Step 5: Semgrep security scan
-print_header "Step 5: Advanced Security (Semgrep)"
-echo -e "${YELLOW}Note: First run may be slow (downloading rules)${NC}"
-run_step "Semgrep" "critical" \
-    semgrep --config=auto "$TARGET_PATH" \
-    --exclude 'tests' \
-    --exclude 'test_*' \
-    --exclude '.venv' \
-    --exclude 'venv' \
-    --severity ERROR \
-    --severity WARNING || true
+# Step 5: Semgrep security scan (skip in quick mode)
+if [[ "$QUICK_MODE" == false ]]; then
+    # Optimizations:
+    # - Use p/python + p/security-audit instead of auto (faster, no update check)
+    # - --metrics=off disables telemetry (faster startup)
+    # - --disable-version-check skips version check (faster startup)
+    # - --quiet reduces output noise
+    print_header "Step 5: Advanced Security (Semgrep)"
+    run_step "Semgrep" "critical" \
+        semgrep \
+        --config p/python \
+        --config p/security-audit \
+        "$TARGET_PATH" \
+        --exclude 'tests' \
+        --exclude 'test_*' \
+        --exclude '.venv' \
+        --exclude 'venv' \
+        --severity ERROR \
+        --severity WARNING \
+        --metrics=off \
+        --disable-version-check \
+        --quiet || true
+else
+    echo -e "${YELLOW}Skipping Semgrep (--quick mode)${NC}"
+fi
 
 # Summary
 print_header "Summary"

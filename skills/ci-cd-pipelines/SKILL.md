@@ -9,7 +9,9 @@ allowed-tools:
 
 # GitLab CI/CD Pipeline Patterns
 
-**Purpose:** Build reliable, fast CI/CD pipelines for automated testing, Docker builds, and deployment.
+**Purpose:** Build reliable, fast GitLab CI/CD pipelines for automated testing, Docker builds, and deployment.
+
+**Note:** This skill is GitLab-specific. For GitHub Actions or other CI systems, patterns will differ.
 
 **When to use:** Creating pipeline configs, optimizing CI performance, setting up deployments, debugging pipeline failures.
 

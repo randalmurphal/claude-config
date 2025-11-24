@@ -1,6 +1,6 @@
 ---
 name: Python Style Standards
-description: Python coding standards including line length (80 chars), naming conventions (snake_case, PascalCase), type hints, docstrings, exception handling, and logging patterns. Use when writing new Python code or reviewing code quality.
+description: Python coding standards including line length (80 chars), naming conventions (snake_case, PascalCase), type hints, docstrings, exception handling, and logging patterns. Run python-code-quality script for automated checks (ruff + pyright + security). Use when writing new Python code or reviewing code quality.
 allowed-tools: [Read, Bash]
 ---
 
@@ -15,19 +15,12 @@ Practical Python coding standards focused on readability, maintainability, and q
 - Use `ruff format` for auto-formatting
 - Check with `ruff check` and `pylint`
 
-**Formatting Commands**:
+**Quality Checks**:
 ```bash
-# Auto-format first (ALWAYS run before committing)
-ruff format . --config=/path/to/ruff.toml
+# Primary tool: unified quality + security checks
+python-code-quality --fix <path>
 
-# Check linting
-ruff check . --config=/path/to/ruff.toml
-
-# Additional quality checks
-pylint --rcfile=/path/to/pylintrc.toml .
-
-# Type checking
-mypy --config-file=/path/to/mypy.ini .
+# See python-linting skill for tool-specific usage
 ```
 
 ## Naming Conventions
@@ -55,7 +48,7 @@ def get_a(u: str) -> dict | None:
 
 **Required for all new code**
 - Existing code can remain untyped unless refactoring
-- Use mypy for type checking
+- Use pyright for type checking (2025 standard)
 - Modern Python 3.10+ union syntax preferred
 
 **Examples**:
@@ -419,30 +412,19 @@ import pymongo
 from fisio.common import helpers
 ```
 
-## Tools and Commands
+## Quality Tools
 
-**Format before committing**:
+**Primary tool (use this)**:
 ```bash
-# Step 1: Auto-format (fixes most issues)
-ruff format .
-
-# Step 2: Check for remaining issues
-ruff check .
-
-# Step 3: Additional quality checks (if configured)
-pylint .
-mypy .
+# Unified quality + security checks
+python-code-quality --fix <path>
 ```
 
-**Project-specific configs** (check for these):
-- `ruff.toml` or `pyproject.toml`
-- `pylintrc.toml` or `.pylintrc`
-- `mypy.ini` or `pyproject.toml`
-
-**Fallback configs** (if project lacks them):
-- `~/.claude/configs/ruff.toml`
-- `~/.claude/configs/pylintrc.toml`
-- `~/.claude/configs/mypy.ini`
+**Individual tools** (see python-linting skill):
+- `ruff` - Linting and formatting
+- `pyright` - Type checking
+- `bandit` - Security scanning
+- `semgrep` - Security patterns
 
 ## Remember
 

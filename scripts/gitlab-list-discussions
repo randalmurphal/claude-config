@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# gitlab-list-discussions - List all discussion threads in a merge request
+#
+# Usage: gitlab-list-discussions <ticket-id>
+# Example: gitlab-list-discussions INT-4036
+#
+# Output: JSON array of discussions with id, author, file, line, and body preview
+# Exit codes: 0 = success, 1 = usage error, 2 = not found, 3 = API error, 4 = credentials missing
+
+# Get script directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CREDS_FILE="${SCRIPT_DIR}/.gitlab-credentials"
+
+# Source credentials
+if [ ! -f "$CREDS_FILE" ]; then
+    echo "❌ Credentials file not found: $CREDS_FILE" >&2
+    exit 4
+fi
+
+# shellcheck source=/dev/null
+source "$CREDS_FILE"
+
+# Validate credentials
+if [ -z "${GITLAB_PERSONAL_ACCESS_TOKEN:-}" ] || [ -z "${GITLAB_PROJECT_ID:-}" ]; then
+    echo "❌ GITLAB_PERSONAL_ACCESS_TOKEN or GITLAB_PROJECT_ID not set" >&2
+    exit 4
+fi
+
+GITLAB_API_URL="${GITLAB_API_URL:-https://gitlab.com/api/v4}"
+
+# Get ticket ID
+ticket="${1:-}"
+if [ -z "$ticket" ]; then
+    echo "Usage: gitlab-list-discussions <ticket-id>" >&2
+    echo "Example: gitlab-list-discussions INT-4036" >&2
+    exit 1
+fi
+
+# Find source branch for ticket
+source_branch=$(git branch -r 2>/dev/null | grep "origin/$ticket" | grep -v "pre-styling" | head -1 | sed 's|.*origin/||' | xargs)
+
+if [ -z "$source_branch" ]; then
+    echo "❌ No branch found for ticket: $ticket" >&2
+    exit 1
+fi
+
+# Get MR for branch
+mr_response=$(curl -s -H "PRIVATE-TOKEN: $GITLAB_PERSONAL_ACCESS_TOKEN" \
+    "${GITLAB_API_URL}/projects/${GITLAB_PROJECT_ID}/merge_requests?source_branch=${source_branch}&state=opened")
+
+mr_iid=$(echo "$mr_response" | jq -r '.[0].iid // empty')
+
+if [ -z "$mr_iid" ]; then
+    # Try all states
+    mr_response=$(curl -s -H "PRIVATE-TOKEN: $GITLAB_PERSONAL_ACCESS_TOKEN" \
+        "${GITLAB_API_URL}/projects/${GITLAB_PROJECT_ID}/merge_requests?source_branch=${source_branch}")
+    mr_iid=$(echo "$mr_response" | jq -r '.[0].iid // empty')
+
+    if [ -z "$mr_iid" ]; then
+        echo "❌ No MR found for branch: $source_branch" >&2
+        exit 2
+    fi
+fi
+
+# Fetch all discussions with pagination
+all_discussions="[]"
+page=1
+per_page=100
+
+while true; do
+    response=$(curl -s -D /tmp/gitlab-headers-$$.txt -H "PRIVATE-TOKEN: $GITLAB_PERSONAL_ACCESS_TOKEN" \
+        "${GITLAB_API_URL}/projects/${GITLAB_PROJECT_ID}/merge_requests/${mr_iid}/discussions?per_page=${per_page}&page=${page}")
+
+    # Check for API errors
+    if echo "$response" | jq -e '.message' >/dev/null 2>&1; then
+        error_msg=$(echo "$response" | jq -r '.message')
+        echo "❌ GitLab API error: $error_msg" >&2
+        rm -f /tmp/gitlab-headers-$$.txt
+        exit 3
+    fi
+
+    all_discussions=$(echo "$all_discussions" "$response" | jq -s '.[0] + .[1]')
+
+    if grep -q 'rel="next"' /tmp/gitlab-headers-$$.txt 2>/dev/null; then
+        page=$((page + 1))
+    else
+        break
+    fi
+done
+
+rm -f /tmp/gitlab-headers-$$.txt
+
+# Format discussions for output
+echo "$all_discussions" | jq -r '.[] |
+{
+  discussion_id: .id,
+  author: .notes[0].author.username,
+  created_at: .notes[0].created_at,
+  resolvable: .notes[0].resolvable,
+  resolved: (.notes[0].resolved // false),
+  file: (.notes[0].position.new_path // null),
+  line: (.notes[0].position.new_line // null),
+  type: (if .notes[0].position then "inline" else "general" end),
+  body_preview: .notes[0].body[:100],
+  note_count: (.notes | length)
+}'

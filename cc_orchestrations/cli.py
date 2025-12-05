@@ -359,6 +359,278 @@ def cmd_validate(args: argparse.Namespace) -> int:
     return 1
 
 
+def cmd_pr_review(args: argparse.Namespace) -> int:
+    """Run a PR review workflow.
+
+    Args:
+        args: Parsed arguments with ticket, target_branch, dry_run, branch
+
+    Returns:
+        0 on success, 1 on failure
+    """
+    import subprocess
+
+    from .core.worktree import WorktreeManager, WORKTREES_BASE
+    from .workflows.pr_review.phases import (
+        PRReviewContext,
+        phase_triage,
+        phase_investigation,
+        phase_validation,
+        phase_synthesis,
+        phase_report,
+    )
+    from .workflows.pr_review.config import create_default_config, RiskLevel
+
+    ticket = args.ticket
+    target_branch = args.target_branch or 'develop'
+    dry_run = getattr(args, 'dry_run', False)
+    source_branch = getattr(args, 'branch', None)
+
+    print('=' * 60)
+    print(f'PR REVIEW: {ticket}')
+    print('=' * 60)
+    print()
+
+    # Find git root
+    try:
+        from .core.paths import get_git_root, get_project_name
+        repo_root = get_git_root()
+        project_name = get_project_name()
+    except RuntimeError as e:
+        print(f'Error: {e}')
+        return 1
+
+    print(f'Project: {project_name}')
+    print(f'Repository: {repo_root}')
+    print(f'Target branch: {target_branch}')
+
+    # Find source branch if not specified
+    if not source_branch:
+        print(f'Finding branch for ticket: {ticket}')
+        result = subprocess.run(
+            ['git', 'fetch', 'origin', '--prune'],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            print(f'Warning: git fetch failed: {result.stderr}')
+
+        # Find branch matching ticket
+        result = subprocess.run(
+            ['git', 'branch', '-r'],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+        )
+        branches = result.stdout.strip().split('\n')
+        matching = [
+            b.strip().replace('origin/', '')
+            for b in branches
+            if ticket.lower() in b.lower() and 'pre-styling' not in b.lower()
+        ]
+
+        if not matching:
+            print(f'Error: No branch found for ticket {ticket}')
+            print('Use --branch to specify the source branch')
+            return 1
+
+        source_branch = matching[0]
+        if len(matching) > 1:
+            print(f'Multiple branches found: {matching}')
+            print(f'Using: {source_branch}')
+
+    print(f'Source branch: {source_branch}')
+    print()
+
+    if dry_run:
+        print('[DRY RUN MODE]')
+        print()
+
+    # Step 1: Set up worktrees
+    print('Setting up worktrees...')
+    manager = WorktreeManager(repo_root)
+    tool_dir = WORKTREES_BASE / project_name / 'pr-review'
+
+    try:
+        # Create base worktree (target branch)
+        base_wt = manager.create_worktree(
+            name='base',
+            base_dir=tool_dir,
+            checkout_branch=f'origin/{target_branch}',
+        )
+        print(f'  Base worktree: {base_wt}')
+
+        # Create PR worktree (source branch)
+        pr_wt = manager.create_worktree(
+            name='pr',
+            base_dir=tool_dir,
+            checkout_branch=f'origin/{source_branch}',
+        )
+        print(f'  PR worktree: {pr_wt}')
+        print()
+
+        # Get diff files
+        result = subprocess.run(
+            ['git', 'diff', '--name-only', f'{target_branch}...HEAD'],
+            cwd=pr_wt,
+            capture_output=True,
+            text=True,
+        )
+        diff_files = [f for f in result.stdout.strip().split('\n') if f]
+        print(f'Changed files: {len(diff_files)}')
+        for f in diff_files[:10]:
+            print(f'  - {f}')
+        if len(diff_files) > 10:
+            print(f'  ... and {len(diff_files) - 10} more')
+        print()
+
+        # Get Jira context if script exists
+        jira_script = repo_root / '.claude' / 'scripts' / 'jira-get-issue'
+        jira_context = None
+        if jira_script.exists():
+            print(f'Fetching Jira ticket: {ticket}')
+            result = subprocess.run(
+                [str(jira_script), ticket],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                jira_context = result.stdout
+                # Extract summary line
+                for line in jira_context.split('\n'):
+                    if line.startswith('# '):
+                        print(f'  {line}')
+                        break
+            else:
+                print(f'  Warning: Could not fetch Jira: {result.stderr[:100]}')
+            print()
+
+        # Get GitLab MR context if script exists
+        gitlab_script = repo_root / '.claude' / 'scripts' / 'gitlab-get-mr'
+        mr_context = None
+        if gitlab_script.exists():
+            print(f'Fetching GitLab MR for: {source_branch}')
+            result = subprocess.run(
+                [str(gitlab_script), '--branch', source_branch],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                mr_context = result.stdout
+                print('  MR found')
+            else:
+                print('  No MR found (or error)')
+            print()
+
+        if dry_run:
+            print('=' * 60)
+            print('DRY RUN COMPLETE')
+            print('=' * 60)
+            print()
+            print('Would run phases:')
+            print('  1. Triage - Assess risk level')
+            print('  2. Investigation - Run reviewers')
+            print('  3. Cross-Pollination - Second-round analysis (medium+ risk)')
+            print('  4. Validation - Validate findings, council votes')
+            print('  5. Synthesis - Consolidate results')
+            print('  6. Report - Generate report')
+            print()
+            print('To run for real:')
+            print(f'  python -m cc_orchestrations pr-review {ticket}')
+            return 0
+
+        # Create review context
+        import os
+        claude_path = os.path.expanduser('~/.claude/local/claude')
+
+        from .core.config import Config
+        from .core.runner import AgentRunner
+
+        config = Config(
+            name='pr-review',
+            dry_run=False,
+            claude_path=claude_path,
+        )
+
+        runner = AgentRunner(
+            config=config,
+            work_dir=pr_wt,
+            dry_run=False,
+        )
+
+        ctx = PRReviewContext(
+            ticket_id=ticket,
+            source_branch=source_branch,
+            target_branch=target_branch,
+            work_dir=repo_root,
+            worktree_path=pr_wt,
+            diff_files=diff_files,
+            config=create_default_config(),
+            runner=runner,
+        )
+
+        # Add Jira context
+        if jira_context:
+            ctx.jira_context = jira_context
+
+        # Phase 1: Triage
+        print('Phase 1: Triage')
+        result = phase_triage(ctx)
+        if not result.success:
+            print(f'  Triage failed: {result.error}')
+            return 1
+        print(f'  Risk level: {ctx.risk_level.value}')
+        print()
+
+        # Phase 2: Investigation
+        print('Phase 2: Investigation')
+        result = phase_investigation(ctx)
+        if not result.success:
+            print(f'  Investigation failed: {result.error}')
+            return 1
+        print(f'  Findings: {len(ctx.findings)}')
+        print()
+
+        # Phase 3: Validation
+        print('Phase 3: Validation')
+        result = phase_validation(ctx)
+        if not result.success:
+            print(f'  Validation failed: {result.error}')
+            return 1
+        print(f'  Validated findings: {len(ctx.validated_findings)}')
+        print()
+
+        # Phase 4: Synthesis
+        print('Phase 4: Synthesis')
+        result = phase_synthesis(ctx)
+        if not result.success:
+            print(f'  Synthesis failed: {result.error}')
+            return 1
+        print()
+
+        # Phase 5: Report
+        print('Phase 5: Report')
+        result = phase_report(ctx)
+        if not result.success:
+            print(f'  Report failed: {result.error}')
+            return 1
+        print(f'  Report: {result.data.get("report_path", "N/A")}')
+        print()
+
+        print('=' * 60)
+        print('PR REVIEW COMPLETE')
+        print('=' * 60)
+        return 0
+
+    finally:
+        # Cleanup worktrees
+        print()
+        print('Cleaning up worktrees...')
+        manager.cleanup_tool_worktrees(project_name, 'pr-review')
+        print('Done.')
+
+
 def cmd_new(args: argparse.Namespace) -> int:
     """Create a new spec directory structure.
 
@@ -525,6 +797,11 @@ Examples:
 
   # Run a spec
   python -m cc_orchestrations run --spec my-feature-abc123
+
+  # Run PR review
+  python -m cc_orchestrations pr-review INT-1234
+  python -m cc_orchestrations pr-review INT-1234 --target main
+  python -m cc_orchestrations pr-review INT-1234 --dry-run
 """,
     )
 
@@ -594,6 +871,33 @@ Examples:
         help='Spec name (hash will be appended)',
     )
 
+    # pr-review command
+    pr_review_parser = subparsers.add_parser(
+        'pr-review',
+        help='Run PR review workflow',
+        description='Run a comprehensive PR review against a Jira ticket',
+    )
+    pr_review_parser.add_argument(
+        'ticket',
+        help='Jira ticket ID (e.g., INT-1234)',
+    )
+    pr_review_parser.add_argument(
+        '--target',
+        dest='target_branch',
+        default='develop',
+        help='Target branch (default: develop)',
+    )
+    pr_review_parser.add_argument(
+        '--branch',
+        help='Source branch (auto-detected from ticket if not specified)',
+    )
+    pr_review_parser.add_argument(
+        '--dry-run',
+        action='store_true',
+        dest='dry_run',
+        help='Show what would be done without running reviewers',
+    )
+
     # Parse arguments
     args = parser.parse_args()
 
@@ -604,6 +908,7 @@ Examples:
         'status': cmd_status,
         'validate': cmd_validate,
         'new': cmd_new,
+        'pr-review': cmd_pr_review,
     }
 
     if args.command in commands:

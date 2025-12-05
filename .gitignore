@@ -85,3 +85,6 @@ scripts/.aws-credentials
 plans/
 plugins/
 .claude/
+
+# Worktrees for orchestrations (auto-cleaned after use)
+git_worktrees/

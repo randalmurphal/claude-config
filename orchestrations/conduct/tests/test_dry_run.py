@@ -8,14 +8,19 @@ This test validates that the dry-run mode:
 5. Goes through the full flow without errors
 """
 
+import contextlib
 import tempfile
 from pathlib import Path
 
 import pytest
 
-from ..core.config import Config, ExecutionMode, MODE_CONFIGS
-from ..core.state import State, StateManager
-from ..agents.runner import AgentRunner, DRY_RUN_WRAPPER
+from orchestrations.conduct.agents.runner import DRY_RUN_WRAPPER, AgentRunner
+from orchestrations.conduct.core.config import (
+    MODE_CONFIGS,
+    Config,
+    ExecutionMode,
+)
+from orchestrations.conduct.core.state import State, StateManager
 
 
 class TestModeConfig:
@@ -145,18 +150,17 @@ class TestStateManager:
 
 def test_cli_help_shows_options() -> None:
     """CLI should show --mode and --dry-run in help."""
-    from ..cli import main
     import sys
     from io import StringIO
+
+    from orchestrations.conduct.cli import main
 
     # Capture stdout
     old_stdout = sys.stdout
     sys.stdout = StringIO()
 
-    try:
+    with contextlib.suppress(SystemExit):
         main(['run', '--help'])
-    except SystemExit:
-        pass
 
     output = sys.stdout.getvalue()
     sys.stdout = old_stdout

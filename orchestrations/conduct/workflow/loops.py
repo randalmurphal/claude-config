@@ -5,12 +5,15 @@ until the validation passes or escalates.
 """
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 
-from ..agents.runner import AgentRunner, AgentResult
-from ..core.state import Issue
-from .gates import run_voting_gate, VotingOutcome
+from orchestrations.conduct.agents.runner import AgentResult, AgentRunner
+from orchestrations.conduct.core.state import Issue
+
+from .gates import VotingOutcome, run_voting_gate
+
 
 LOG = logging.getLogger(__name__)
 

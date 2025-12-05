@@ -19,8 +19,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from ..core.config import AgentConfig, Config
-from ..core.schemas import get_schema
+from orchestrations.conduct.core.config import AgentConfig, Config
+from orchestrations.conduct.core.schemas import get_schema
+
 
 LOG = logging.getLogger(__name__)
 
@@ -305,7 +306,7 @@ CRITICAL RULES:
         try:
             result = subprocess.run(
                 cmd,
-                cwd=self.work_dir,
+                check=False, cwd=self.work_dir,
                 capture_output=True,
                 text=True,
                 timeout=timeout or agent_config.timeout,

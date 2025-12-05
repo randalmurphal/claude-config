@@ -35,17 +35,17 @@ allowed-tools:
 
 ### Using git-worktree Script
 
-**Script location:** `~/.claude/scripts/git-worktree`
+**Script location:** `.claude/scripts/git-worktree` (in project directory)
 
 ```bash
 # Create worktrees for parallel work
-git-worktree auth api database
+.claude/scripts/git-worktree auth api database
 
 # List worktrees
-git-worktree --list
+.claude/scripts/git-worktree --list
 
 # Cleanup when done
-git-worktree --cleanup
+.claude/scripts/git-worktree --cleanup
 ```
 
 ### Manual Worktree Commands

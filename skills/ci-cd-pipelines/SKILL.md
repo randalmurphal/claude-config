@@ -470,7 +470,7 @@ debug:
 
 **docker-optimization:** Multi-stage Dockerfiles (70%+ reduction), BuildKit, Trivy scanning
 **testing-standards:** Unit/integration/e2e stages, 95%+ coverage, parallel execution
-**gitlab-scripts:** Trigger pipelines via `~/.claude/scripts/gitlab-trigger-pipeline`
+**gitlab-scripts:** Trigger pipelines via `.claude/scripts/gitlab-*` (in project directory)
 
 ---
 
@@ -489,7 +489,8 @@ debug:
 gitlab-runner exec docker test
 
 # Trigger pipeline via script (see gitlab-scripts skill)
-~/.claude/scripts/gitlab-trigger-pipeline main
+# Scripts are in project's .claude/scripts/ directory
+.claude/scripts/gitlab-trigger-pipeline main
 
 # Check pipeline status
 curl -H "PRIVATE-TOKEN: $TOKEN" \

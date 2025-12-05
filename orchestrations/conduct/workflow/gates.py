@@ -9,10 +9,11 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Any
 
-from ..agents.runner import AgentRunner
-from ..core.config import VotingGateConfig
-from ..core.state import VoteResult
-from ..core.schemas import get_schema
+from orchestrations.conduct.agents.runner import AgentRunner
+from orchestrations.conduct.core.config import VotingGateConfig
+from orchestrations.conduct.core.schemas import get_schema
+from orchestrations.conduct.core.state import VoteResult
+
 
 LOG = logging.getLogger(__name__)
 
@@ -114,14 +115,13 @@ class VotingGate:
             )
 
         # Tally votes
-        outcome = tally_votes(
+        return tally_votes(
             gate_name=self.config.name,
             votes=votes,
             options=self.config.options,
             threshold=self.config.consensus_threshold,
         )
 
-        return outcome
 
     def _build_prompt(self, context: dict[str, Any]) -> str:
         """Build the voting prompt from template and context."""
@@ -200,17 +200,16 @@ def tally_votes(
             vote_counts=dict(counts),
             votes=votes,
         )
-    else:
-        # No consensus - need user decision
-        vote_summary = '\n'.join(
-            f'- {opt}: {count} vote(s)' for opt, count in counts.most_common()
-        )
-        reasoning_summary = '\n\n'.join(
-            f'Voter {i + 1} ({v.get("vote", "N/A")}): {v.get("reasoning", "No reasoning provided")}'
-            for i, v in enumerate(votes)
-        )
+    # No consensus - need user decision
+    vote_summary = '\n'.join(
+        f'- {opt}: {count} vote(s)' for opt, count in counts.most_common()
+    )
+    reasoning_summary = '\n\n'.join(
+        f'Voter {i + 1} ({v.get("vote", "N/A")}): {v.get("reasoning", "No reasoning provided")}'
+        for i, v in enumerate(votes)
+    )
 
-        user_prompt = f"""
+    user_prompt = f"""
 No consensus reached on {gate_name} (needed {threshold_count}/{total} votes).
 
 Vote counts:
@@ -221,16 +220,16 @@ Voter reasoning:
 
 Please choose one of: {', '.join(options)}
 """
-        LOG.info(f'Voting gate {gate_name}: No consensus, escalating to user')
-        return VotingOutcome(
-            gate_name=gate_name,
-            consensus=False,
-            winner=None,
-            vote_counts=dict(counts),
-            votes=votes,
-            needs_user_decision=True,
-            user_prompt=user_prompt,
-        )
+    LOG.info(f'Voting gate {gate_name}: No consensus, escalating to user')
+    return VotingOutcome(
+        gate_name=gate_name,
+        consensus=False,
+        winner=None,
+        vote_counts=dict(counts),
+        votes=votes,
+        needs_user_decision=True,
+        user_prompt=user_prompt,
+    )
 
 
 def run_voting_gate(

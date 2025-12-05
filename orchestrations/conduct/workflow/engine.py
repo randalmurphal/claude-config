@@ -5,21 +5,24 @@ agent execution, and validation loops.
 """
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Protocol
+from typing import Any, Protocol
 
-from ..agents.runner import AgentRunner
-from ..core.config import Config, PhaseConfig
-from ..core.state import (
-    State,
-    StateManager,
+from orchestrations.conduct.agents.runner import AgentRunner
+from orchestrations.conduct.core.config import Config, PhaseConfig
+from orchestrations.conduct.core.state import (
     ComponentState,
     ComponentStatus,
-    PhaseStatus,
     Issue,
+    PhaseStatus,
+    State,
+    StateManager,
 )
-from .loops import ValidationLoop, LoopResult
+
+from .loops import LoopResult, ValidationLoop
+
 
 LOG = logging.getLogger(__name__)
 
@@ -299,8 +302,7 @@ class WorkflowEngine:
 
         if phase.parallel:
             return self._run_parallel_agents(ctx, phase)
-        else:
-            return self._run_sequential_agents(ctx, phase)
+        return self._run_sequential_agents(ctx, phase)
 
     def _run_parallel_agents(
         self,

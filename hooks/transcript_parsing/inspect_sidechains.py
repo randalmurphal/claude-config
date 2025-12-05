@@ -58,7 +58,7 @@ for i, root in enumerate(sidechain_roots[:5], 1):
             print(f"  Assistant text: {text}")
 
     # Trace this sidechain forward a bit
-    print(f"  Chain length: ", end='')
+    print("  Chain length: ", end='')
     current = root['uuid']
     chain_length = 1
     for _ in range(20):
@@ -78,6 +78,6 @@ for i, root in enumerate(sidechain_roots[:5], 1):
     if parent_uuid and parent_uuid in all_messages:
         parent = all_messages[parent_uuid]
         if not parent.get('isSidechain', False):
-            print(f"  Branched from main conversation:")
+            print("  Branched from main conversation:")
             print(f"    Parent type: {parent['type']}")
             print(f"    Parent time: {parent['timestamp']}")

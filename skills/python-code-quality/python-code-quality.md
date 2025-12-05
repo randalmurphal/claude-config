@@ -26,7 +26,8 @@ This skill provides comprehensive Python code quality and security analysis by r
 
 ## Tool Location
 
-The unified script is located at: `~/.claude/scripts/python-code-quality`
+The unified script is located in each project's `.claude/scripts/` directory:
+- m32rimm: `.claude/scripts/python-code-quality`
 
 ## Usage Patterns
 
@@ -34,16 +35,16 @@ The unified script is located at: `~/.claude/scripts/python-code-quality`
 
 ```bash
 # Check Python code without modifying
-~/.claude/scripts/python-code-quality fisio/imports/tenable_sc_refactor/
+.claude/scripts/python-code-quality fisio/imports/tenable_sc_refactor/
 
 # Auto-format Python code then check
-~/.claude/scripts/python-code-quality --format fisio/imports/
+.claude/scripts/python-code-quality --format fisio/imports/
 
 # Auto-fix Python issues where possible
-~/.claude/scripts/python-code-quality --fix fisio/common/
+.claude/scripts/python-code-quality --fix fisio/common/
 
 # Security scan only (skip style/types)
-~/.claude/scripts/python-code-quality --security fisio/
+.claude/scripts/python-code-quality --security fisio/
 ```
 
 ### Common Scenarios
@@ -51,19 +52,19 @@ The unified script is located at: `~/.claude/scripts/python-code-quality`
 **Scenario 1: Before Committing Python Code**
 ```bash
 # Format, fix, and check everything
-~/.claude/scripts/python-code-quality --fix fisio/imports/nvd_api/
+.claude/scripts/python-code-quality --fix fisio/imports/nvd_api/
 ```
 
 **Scenario 2: PR Review of Python Code**
 ```bash
 # Run full analysis on changed Python files
-~/.claude/scripts/python-code-quality fisio/imports/tenable_sc_refactor/
+.claude/scripts/python-code-quality fisio/imports/tenable_sc_refactor/
 ```
 
 **Scenario 3: Security Audit of Python Module**
 ```bash
 # Deep security scan only
-~/.claude/scripts/python-code-quality --security fisio/imports/
+.claude/scripts/python-code-quality --security fisio/imports/
 ```
 
 **Scenario 4: Quick Python Style Check**
@@ -162,7 +163,7 @@ When reviewing Python code, ALWAYS run python-code-quality before giving approva
 
 ```bash
 # Review Python PR changes
-~/.claude/scripts/python-code-quality fisio/imports/tenable_sc_refactor/
+.claude/scripts/python-code-quality fisio/imports/tenable_sc_refactor/
 ```
 
 If critical issues found:
@@ -176,7 +177,7 @@ Before saying "Python code is ready" or "implementation complete":
 
 ```bash
 # Validate Python code quality
-~/.claude/scripts/python-code-quality --fix fisio/imports/nvd_api/
+.claude/scripts/python-code-quality --fix fisio/imports/nvd_api/
 ```
 
 If issues remain:
@@ -345,7 +346,7 @@ Python tool configs are in M32RIMM repo:
 
 Start with Python security only:
 ```bash
-~/.claude/scripts/python-code-quality --security fisio/imports/
+.claude/scripts/python-code-quality --security fisio/imports/
 ```
 
 Fix critical Python issues first, then re-run full scan.

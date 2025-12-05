@@ -5,17 +5,9 @@ description: Transform vague intent into precise, executable specifications thro
 
 # /spec - Specification Discovery
 
-## Skills to Load
-
-```
-Load: orchestration-standards, spec-formats
-```
-
----
-
 ## Your Mission
 
-Turn vague intent into a precise, validated SPEC.md that `/conduct` can execute.
+Turn vague intent into a validated, executable spec stored in `~/.claude/orchestrations/specs/`.
 
 **Core principles:**
 1. **Investigate first** - Read code before asking questions
@@ -26,27 +18,51 @@ Turn vague intent into a precise, validated SPEC.md that `/conduct` can execute.
 
 ---
 
-## Workflow
+## Phase 1: Setup
 
-### 1. Initial Assessment
+### Determine Working Directory
+- Search for relevant files/directories mentioned in task
+- If task mentions specific component/service → that's the work_dir
+- If unclear: ask user
+
+### Create Spec Directory
+```bash
+python -m orchestrations new --project <project_name> --name <spec_name>
+```
+
+This creates:
+```
+~/.claude/orchestrations/specs/<project>/<name>-<hash>/
+├── brainstorm/
+├── components/
+└── SPEC.md
+```
+
+**Set `$SPEC_DIR`** = the created directory path
+
+---
+
+## Phase 2: Brainstorm (Interactive)
+
+### 2.1 Initial Assessment
 
 **Get orientation (3-5 questions):**
 - New project or existing code?
 - High-level goal? (one sentence)
 - Critical constraints?
 
-**Create** `.spec/MISSION.md` immediately.
+**Create** `$SPEC_DIR/brainstorm/MISSION.md` immediately.
 
-### 2. Auto-Investigation (Existing Projects)
+### 2.2 Auto-Investigation (Existing Projects)
 
 **Discover:**
 - Project structure, tech stack, dependencies
 - Existing patterns (auth, APIs, testing)
 - Deployment, database, caching setup
 
-**Document findings in** `.spec/DISCOVERIES.md`
+**Document in** `$SPEC_DIR/brainstorm/INVESTIGATION.md`
 
-### 3. Challenge Mode
+### 2.3 Challenge Mode
 
 **Find ≥3 concerns:**
 - Conflicts with existing code
@@ -65,7 +81,9 @@ Turn vague intent into a precise, validated SPEC.md that `/conduct` can execute.
 
 **For unknowns:** Spawn parallel investigators
 
-### 4. Spike Validation (When Needed)
+**Document in** `$SPEC_DIR/brainstorm/CONCERNS.md`
+
+### 2.4 Spike Validation (When Needed)
 
 **When to spike:**
 - Complexity > 6/10
@@ -78,9 +96,9 @@ Turn vague intent into a precise, validated SPEC.md that `/conduct` can execute.
 - Write REAL tests, not half-assed ones
 - Document findings with evidence
 
-**Save results to** `.spec/SPIKE_RESULTS/`
+**Save results to** `$SPEC_DIR/brainstorm/SPIKE_RESULTS/`
 
-### 5. Architecture Decision
+### 2.5 Architecture Decision
 
 **Single approach:** Document and proceed.
 
@@ -89,43 +107,130 @@ Turn vague intent into a precise, validated SPEC.md that `/conduct` can execute.
 - 2/3 consensus or present to user
 - Document decision with Context/Alternatives/Consequences
 
-**Update** `.spec/ARCHITECTURE.md`
-
-### 6. Readiness Validation
-
-**Spawn 3 reviewers to validate spec:**
-- Completeness (no TBD, unambiguous deps)
-- Implementability (no circular deps, approach validated)
-- No blockers (unresolved questions, missing decisions)
-
-**Score 1-10, vote READY/NOT_READY:**
-- 2/3 READY with no blockers → Proceed
-- Split or blockers → Fix issues, re-vote
-
-### 7. Generate Artifacts
-
-**Create SPEC.md** with required sections (see spec-formats skill)
-
-**Create component specs** (SPEC_N_component.md) in dependency order:
-- Extract from SPEC.md for each component
-- Include relevant gotchas, requirements
-- Note dependencies for execution ordering
+**Document in** `$SPEC_DIR/brainstorm/DECISIONS.md`
 
 ---
 
-## Artifact Structure
+## Phase 3: Readiness Validation
+
+**Spawn 3 reviewers to validate brainstorm artifacts:**
+- Completeness (no TBD, clear understanding)
+- Implementability (approach is sound)
+- No blockers (unresolved questions, missing decisions)
+
+**Score 1-10, vote READY/NOT_READY:**
+- 2/3 READY with no blockers → Proceed to formalization
+- Split or blockers → Fix issues, re-vote
+
+---
+
+## Phase 4: Formalization
+
+Once brainstorm is complete, tell user:
 
 ```
-.spec/
-├── MISSION.md              # Goal (50-100 lines, immutable)
-├── CONSTRAINTS.md          # Hard requirements
-├── DISCOVERIES.md          # Learnings (<50 lines, pruned)
-├── ARCHITECTURE.md         # Design (50-100 lines)
-├── ASSUMPTIONS.md          # Explicit assumptions
-├── SPEC.md                 # Final spec for /conduct
-├── SPEC_1_component.md     # Component phase specs
-├── SPEC_2_component.md
-└── SPIKE_RESULTS/          # Immutable spike results
+Brainstorm complete. Ready to formalize into executable spec.
+
+This will:
+1. Convert brainstorm artifacts to manifest.json
+2. Validate against schemas (dependencies, required fields)
+3. Create component context files
+
+Proceed? [Y/n]
+```
+
+If yes, the formalizer converts brainstorm to manifest:
+- Reads MISSION.md, INVESTIGATION.md, DECISIONS.md, CONCERNS.md
+- Generates manifest.json with components, dependencies, execution config
+- Validates with Python (cycles, required fields, consistency)
+- Creates component context files
+
+**If validation fails:** Show specific errors, fix, retry.
+
+---
+
+## Phase 5: Completion
+
+Once formalized, tell user:
+
+```
+✅ Spec created: <project>/<name>-<hash>
+
+Summary:
+- Components: N
+- Complexity: X/10
+- Risk: LOW/MEDIUM/HIGH
+- Estimated reviewers: N
+
+To validate:
+  python -m orchestrations validate --spec <project>/<name>
+
+To execute:
+  python -m orchestrations run --spec <project>/<name>
+
+To check status:
+  python -m orchestrations status --spec <project>/<name>
+```
+
+---
+
+## Brainstorm Artifact Formats
+
+### MISSION.md (50-100 lines)
+```markdown
+# Mission
+
+## Goal
+[One sentence]
+
+## Success Criteria
+- [ ] Criterion 1
+- [ ] Criterion 2
+
+## Non-Goals
+- Thing we're NOT doing
+```
+
+### INVESTIGATION.md
+```markdown
+# Investigation Findings
+
+## Project Structure
+[What we found]
+
+## Existing Patterns
+[Auth, API, testing patterns]
+
+## Dependencies
+[External deps, internal deps]
+
+## Blast Radius
+[What this change affects]
+```
+
+### DECISIONS.md
+```markdown
+# Architectural Decisions
+
+## Decision 1: [Topic]
+**Choice:** [What we chose]
+**Rationale:** [Why]
+**Alternatives Considered:** [What else we looked at]
+**Consequences:** [Trade-offs accepted]
+```
+
+### CONCERNS.md
+```markdown
+# Concerns & Gotchas
+
+## Conflicts
+- [Issue 1]
+
+## Hidden Complexity
+- [Challenge 1]
+
+## Assumptions
+- [Assumption 1] - VALIDATED/NEEDS_SPIKE/ASK_USER
 ```
 
 ---
@@ -135,16 +240,7 @@ Turn vague intent into a precise, validated SPEC.md that `/conduct` can execute.
 | Gate | Trigger | Process |
 |------|---------|---------|
 | Architecture | Multiple valid approaches | 3 planners score, 2/3 or user decides |
-| Readiness | Before generating SPEC.md | 3 reviewers, 2/3 READY or fix issues |
-
----
-
-## Context Management
-
-**Keep focused:**
-- MISSION.md: 50 lines max
-- DISCOVERIES.md: <50 lines (prune regularly)
-- Archive obsolete → `.spec/archive/`
+| Readiness | Before formalization | 3 reviewers, 2/3 READY or fix issues |
 
 ---
 
@@ -167,24 +263,17 @@ Turn vague intent into a precise, validated SPEC.md that `/conduct` can execute.
 
 ---
 
-## Output: SPEC.md
+## Output: manifest.json
 
-Must include (exact section names):
-1. Problem Statement
-2. User Impact
-3. Mission
-4. Success Criteria
-5. Requirements (IMMUTABLE)
-6. Proposed Approach (EVOLVABLE)
-7. Implementation Phases
-8. Known Gotchas
-9. Quality Requirements
-10. Files to Create/Modify (with "Depends on:" fields)
+The formalization creates a machine-readable manifest with:
+- `name`, `project`, `work_dir`
+- `complexity` (1-10), `risk_level`
+- `components` with dependencies
+- `execution` config (mode, reviewers, gates)
+- `gotchas` list
 
-Optional: Testing Strategy, Custom Roles, Evolution Log
-
-**The "Depends on:" field is CRITICAL** - /conduct uses it for execution order.
+This drives the execution phase via `python -m orchestrations run`.
 
 ---
 
-**You are the investigator. Discover, challenge, validate, document. Don't proceed until the spec is solid.**
+**You are the investigator. Discover, challenge, validate, document. Don't proceed until ready for formalization.**

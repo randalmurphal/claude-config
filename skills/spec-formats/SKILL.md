@@ -1,259 +1,317 @@
 ---
 name: spec-formats
-description: Templates and structures for SPEC.md, BUILD specs, component specs, and .spec/ directory organization. Load when using /spec or /conduct.
+description: Templates for brainstorm artifacts and manifest.json. Load when using /spec.
 ---
 
 # Spec Formats
 
-## Directory Structure
+## Spec Storage
+
+Specs live in `~/.claude/orchestrations/specs/`:
 
 ```
-$WORK_DIR/.spec/
-├── SPEC.md                    # High-level architecture (from /spec)
-├── SPEC_1_component.md        # Component phase specs (for /conduct)
-├── SPEC_2_component.md
-├── BUILD_taskname.md          # Minimal spec (for /solo)
-├── DISCOVERIES.md             # Learnings during execution
-├── PROGRESS.md                # Execution tracking
-└── archive/                   # Completed artifacts
+specs/
+├── <project>/
+│   └── <name>-<hash>/
+│       ├── manifest.json          # Execution config (machine-readable)
+│       ├── SPEC.md                # Human-readable spec
+│       ├── CONTEXT.md             # Accumulated context
+│       ├── STATE.json             # Execution state
+│       ├── brainstorm/            # From /spec phase
+│       │   ├── MISSION.md
+│       │   ├── INVESTIGATION.md
+│       │   ├── DECISIONS.md
+│       │   ├── CONCERNS.md
+│       │   └── SPIKE_RESULTS/
+│       └── components/            # Per-component context
+│           ├── component_a.md
+│           └── component_b.md
 ```
 
 ---
 
-## SPEC.md Template (Full Orchestration)
+## Brainstorm Artifacts
 
-Created by `/spec`, consumed by `/conduct`.
+### MISSION.md (50-100 lines)
+
+```markdown
+# Mission
+
+## Goal
+[Single sentence: what we're building and why]
+
+## Success Criteria
+- [ ] Measurable outcome 1
+- [ ] Measurable outcome 2
+- [ ] Performance/quality target
+
+## Non-Goals
+- Thing we're explicitly NOT doing
+- Out of scope item
+
+## Constraints
+- Hard requirement 1
+- Hard requirement 2
+```
+
+### INVESTIGATION.md
+
+```markdown
+# Investigation Findings
+
+## Project Structure
+[What we found - tech stack, directory layout]
+
+## Existing Patterns
+- Auth: [how auth works]
+- APIs: [API patterns used]
+- Testing: [test approach]
+
+## Dependencies
+- External: [packages, services]
+- Internal: [modules this touches]
+
+## Blast Radius
+[What files/components this change affects]
+- Direct: [files we modify]
+- Indirect: [files that import from modified files]
+- Transitive: [N files deep]
+```
+
+### DECISIONS.md
+
+```markdown
+# Architectural Decisions
+
+## Decision 1: [Topic]
+
+**Choice:** [What we're doing]
+
+**Rationale:** [Why this approach]
+
+**Alternatives Considered:**
+- Option A: [pros/cons]
+- Option B: [pros/cons]
+
+**Consequences:**
+- [Trade-off accepted]
+- [Future implication]
+
+---
+
+## Decision 2: [Topic]
+[Same format]
+```
+
+### CONCERNS.md
+
+```markdown
+# Concerns & Gotchas
+
+## Conflicts
+- [Conflict with existing code]
+- [Breaking change risk]
+
+## Hidden Complexity
+- [Challenge that's not obvious]
+- [Edge case to handle]
+
+## Assumptions
+- [Assumption 1] - VALIDATED / NEEDS_SPIKE / ASK_USER
+- [Assumption 2] - Status
+
+## Risks
+| Risk | Impact | Mitigation |
+|------|--------|------------|
+| [Risk 1] | High | [How we handle it] |
+| [Risk 2] | Medium | [How we handle it] |
+```
+
+---
+
+## manifest.json Schema
+
+Machine-readable execution config created by formalization:
+
+```json
+{
+  "name": "feature-name",
+  "project": "project-name",
+  "work_dir": "~/.claude/path/to/project",
+  "spec_dir": "~/.claude/orchestrations/specs/project/feature-abc123",
+  "created": "2025-12-05",
+
+  "complexity": 7,
+  "risk_level": "medium",
+
+  "execution": {
+    "mode": "standard",
+    "parallel_components": false,
+    "reviewers": 4,
+    "require_tests": true,
+    "voting_gates": ["impact", "production_ready"]
+  },
+
+  "components": [
+    {
+      "id": "parser",
+      "file": "path/to/parser.py",
+      "depends_on": [],
+      "complexity": "medium",
+      "purpose": "Parse input data",
+      "context_file": "components/parser.md"
+    },
+    {
+      "id": "validator",
+      "file": "path/to/validator.py",
+      "depends_on": ["parser"],
+      "complexity": "high",
+      "purpose": "Validate against schema",
+      "context_file": "components/validator.md"
+    }
+  ],
+
+  "quality": {
+    "coverage_target": 95,
+    "lint_required": true,
+    "security_scan": false
+  },
+
+  "gotchas": [
+    "MongoDB aggregation has 16MB limit",
+    "Existing callers in endpoints.py"
+  ],
+
+  "validation_command": "python -m pytest tests/"
+}
+```
+
+### Required Fields
+- `name`, `project`, `work_dir`
+- `components` (at least one)
+- Each component needs: `id`, `file`, `depends_on`
+
+### Validation Rules
+- All `depends_on` entries must reference existing component IDs
+- No circular dependencies
+- Risk level should match complexity/reviewer count
+
+---
+
+## SPEC.md (Human-Readable)
+
+Reference document for humans, generated alongside manifest:
 
 ```markdown
 # [Feature Name]
 
 ## Problem Statement
-[1-2 paragraphs: What problem are we solving? Why now?]
-
-## User Impact
-[Who benefits? How? What changes for them?]
+[What problem we're solving]
 
 ## Mission
-[Single sentence: What we're building]
+[Single sentence goal]
 
 ## Success Criteria
-- [ ] Measurable outcome 1
-- [ ] Measurable outcome 2
-- [ ] Performance target (if applicable)
-
-## Requirements (IMMUTABLE)
-### Must Have
-- Requirement 1
-- Requirement 2
-
-### Must Not
-- Anti-requirement 1
-
-## Proposed Approach (EVOLVABLE)
-[High-level strategy - can be refined during implementation]
-
-### Architecture Decision
-**Decision:** [Chosen approach]
-**Context:** [Why decision was needed]
-**Alternatives:** [What else was considered]
-**Consequences:** [Trade-offs accepted]
-
-## Files to Create/Modify
-
-### New Files
-- `path/to/file.py`
-  - Purpose: [What it does]
-  - Depends on: [Other files] ← CRITICAL for dependency graph
-  - Complexity: Low|Medium|High
-
-### Modified Files
-- `path/to/existing.py`
-  - Changes: [What's changing]
-  - Risk: Low|Medium|High
-
-## Implementation Phases
-### Phase 1: [Name]
-- Task 1
-- Task 2
-
-### Phase 2: [Name]
-- Task 3
-- Task 4
-
-## Known Gotchas
-- [Gotcha 1 from investigation/spikes]
-- [Gotcha 2]
-
-## Quality Requirements
-- Coverage: 95%+ for new code
-- Review: [Risk-based from orchestration-standards]
-- Security: [If applicable]
-
-## Testing Strategy (Optional)
-### Unit Tests
-- [What to test]
-
-### Integration Tests
-- [Scenarios]
-```
-
----
-
-## BUILD Spec Template (Streamlined)
-
-Created internally by `/solo` for simpler tasks.
-
-```markdown
-# [Task Name]
-
-## Goal
-[Clear outcome - what to build]
-
-## Problem
-[1-2 sentences - what gap we're filling]
+- [ ] Criterion 1
+- [ ] Criterion 2
 
 ## Approach
-[Basic strategy]
+[High-level strategy from DECISIONS.md]
 
-## Tasks
-- [ ] Task 1
-- [ ] Task 2
-- [ ] Task 3
+## Components
 
-## Files
-### New
-- `path/file.py`: [purpose]
-
-### Modified
-- `path/existing.py`: [changes]
-
-## Quality
-- Linting: Pass python-code-quality
-- Tests: [If requested]
-
-## Context
-[Important constraints or notes]
-```
-
----
-
-## Component Spec Template
-
-Created by `/spec` or `/conduct` for each component in dependency order.
-
-```markdown
-# Phase [N]: [Component Name]
-
-## Component
-- `path/to/file.py`
-  - Purpose: [from SPEC.md]
-  - Complexity: [from SPEC.md]
+| ID | File | Purpose | Complexity |
+|----|------|---------|------------|
+| parser | parser.py | Parse input | Medium |
+| validator | validator.py | Validate schema | High |
 
 ## Dependencies
-[What this component needs from previous phases]
-
-## Available from Previous Phases
-[Populated as phases complete - APIs, types, utilities]
-
-## Success Criteria
-- [ ] Compiles without errors
-- [ ] Tests pass (95%+ coverage)
-- [ ] Validation clean
+```
+parser (no deps)
+  └── validator
+```
 
 ## Known Gotchas
-[From SPEC.md + discoveries during earlier phases]
+- [From CONCERNS.md]
 
-## Implementation Notes
-[Specific approach for this component]
+## Quality Requirements
+- Coverage: 95%
+- Reviewers: 4
+- Security scan: No
 ```
 
 ---
 
-## DISCOVERIES.md Template
+## Component Context Template
 
-Running log of learnings during execution.
-
-```markdown
-# Discoveries
-
-## [Date]: [Topic]
-**Status:** INVESTIGATING | RESOLVED | OBSOLETE
-
-### Findings
-- Key point 1
-- Key point 2
-
-### Gotchas
-- Issue discovered
-- Workaround/solution
-
-### Impact
-[How this affects other components/future work]
-
----
-[Repeat for each discovery]
-```
-
-**Maintenance:**
-- Keep under 50 lines
-- Archive OBSOLETE entries
-- Promote RESOLVED to permanent docs
-
----
-
-## PROGRESS.md Template
-
-Execution tracking for orchestrator.
+Per-component context in `components/<id>.md`:
 
 ```markdown
-# Progress: [Project/Task Name]
+# Component: <id>
 
 ## Status
-**Phase:** [Current phase]
-**Started:** [timestamp]
-**Components:** X / Y complete
+NOT_STARTED | SKELETON | IMPLEMENTING | VALIDATING | COMPLETE
 
-## Component Status
+## Purpose
+[From manifest]
 
-### [Component 1]
-- Status: NOT_STARTED | SKELETON | IMPLEMENTING | VALIDATING | COMPLETE
-- Tasks: X / Y
-- Issues: [Any blockers]
+## What's Been Done
+- [timestamp] Created skeleton
+- [timestamp] Implemented core logic
 
-### [Component 2]
-...
+## Discoveries
+- [timestamp] Found edge case with null values
+- [timestamp] Existing callers use old signature
 
-## Blockers
-[Current blockers with resolution status]
-
-## Recent Activity
-- [timestamp]: [what happened]
+## For Next Agent
+[Instructions for whoever works on this next]
+```
 
 ---
-Last Updated: [timestamp]
+
+## CONTEXT.md (Global)
+
+Accumulated context across all components:
+
+```markdown
+# Execution Context
+
+## Current State
+Status: IN_PROGRESS
+Components: 3/10 complete
+Last updated: 2025-12-05
+
+## Critical Discoveries
+- [timestamp] MongoDB 16MB limit affects bulk operations
+- [timestamp] Need to update test fixtures
+
+## Blockers
+- [Blocker if any]
+
+## For Next Agent
+[Global instructions]
 ```
 
 ---
 
 ## Naming Conventions
 
-| Artifact | Pattern | Example |
-|----------|---------|---------|
-| Full spec | `SPEC.md` | `SPEC.md` |
-| Component spec | `SPEC_N_name.md` | `SPEC_1_auth.md` |
-| Build spec | `BUILD_taskname.md` | `BUILD_rate-limit.md` |
-| Discoveries | `DISCOVERIES.md` | `DISCOVERIES.md` |
-| Progress | `PROGRESS.md` | `PROGRESS.md` |
+| Artifact | Location | Format |
+|----------|----------|--------|
+| Spec directory | `specs/<project>/<name>-<hash>/` | Unique hash suffix |
+| Manifest | `manifest.json` | Machine-readable |
+| Human spec | `SPEC.md` | Reference doc |
+| Brainstorm | `brainstorm/*.md` | Discovery artifacts |
+| Component context | `components/<id>.md` | Per-component |
+| Global context | `CONTEXT.md` | Accumulated state |
+| Execution state | `STATE.json` | Phase/component status |
 
 ---
 
 ## Dependency Graph Rules
 
-The `Depends on:` field in SPEC.md is **critical**:
-
-1. Must list all files this component imports from
-2. Used to build execution order (topological sort)
-3. Circular dependencies = fail immediately
-4. Missing dependency = incorrect execution order
-
-**Validation:** Before /conduct starts, verify declared dependencies match actual imports.
+1. **IDs must be unique** - Each component has a distinct ID
+2. **Dependencies reference IDs** - Not file paths
+3. **No cycles** - Detected by validator, fails immediately
+4. **Order matters** - Topological sort determines execution order
+5. **Declare all deps** - Missing dependency = wrong order

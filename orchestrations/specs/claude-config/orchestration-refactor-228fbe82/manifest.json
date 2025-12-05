@@ -1,0 +1,117 @@
+{
+  "name": "orchestration-refactor",
+  "project": "claude-config",
+  "work_dir": "~/.claude",
+  "spec_dir": "~/.claude/orchestrations/specs/claude-config/orchestration-refactor-228fbe82",
+  "created": "2025-12-05",
+
+  "complexity": 7,
+  "risk_level": "medium",
+
+  "execution": {
+    "mode": "standard",
+    "parallel_components": false,
+    "reviewers": 2,
+    "require_tests": true,
+    "voting_gates": ["production_ready"]
+  },
+
+  "components": [
+    {
+      "id": "paths",
+      "file": "orchestrations/core/paths.py",
+      "depends_on": [],
+      "complexity": "low",
+      "purpose": "Path resolution utilities - expand ~, resolve relative paths, no hardcoded user paths",
+      "context_file": "components/paths.md"
+    },
+    {
+      "id": "manifest",
+      "file": "orchestrations/core/manifest.py",
+      "depends_on": ["paths"],
+      "complexity": "medium",
+      "purpose": "Manifest dataclass, loading, serialization. The execution config that drives workflows.",
+      "context_file": "components/manifest.md"
+    },
+    {
+      "id": "context",
+      "file": "orchestrations/core/context.py",
+      "depends_on": ["paths"],
+      "complexity": "medium",
+      "purpose": "Context file management - read/write CONTEXT.md and per-component contexts",
+      "context_file": "components/context.md"
+    },
+    {
+      "id": "validator",
+      "file": "orchestrations/spec/validator.py",
+      "depends_on": ["manifest"],
+      "complexity": "medium",
+      "purpose": "Python validation of manifests - schema validation, dependency graph checks, consistency",
+      "context_file": "components/validator.md"
+    },
+    {
+      "id": "core_restructure",
+      "file": "orchestrations/core/__init__.py",
+      "depends_on": ["paths", "manifest", "context"],
+      "complexity": "low",
+      "purpose": "Move generic code from conduct/core to orchestrations/core, update imports",
+      "context_file": "components/core_restructure.md",
+      "notes": "Also moves config.py, state.py, schemas.py, and runner.py"
+    },
+    {
+      "id": "runner_context",
+      "file": "orchestrations/core/runner.py",
+      "depends_on": ["context", "core_restructure"],
+      "complexity": "medium",
+      "purpose": "Enhance runner to inject context before prompts and update context after responses",
+      "context_file": "components/runner_context.md"
+    },
+    {
+      "id": "workflow_restructure",
+      "file": "orchestrations/workflow/__init__.py",
+      "depends_on": ["core_restructure"],
+      "complexity": "low",
+      "purpose": "Move workflow/ up from conduct/workflow, update imports",
+      "context_file": "components/workflow_restructure.md"
+    },
+    {
+      "id": "formalizer",
+      "file": "orchestrations/spec/formalizer.py",
+      "depends_on": ["manifest", "validator", "runner_context"],
+      "complexity": "high",
+      "purpose": "Formalization agent + validation loop - turns brainstorm into validated manifest",
+      "context_file": "components/formalizer.md"
+    },
+    {
+      "id": "conduct_adapt",
+      "file": "orchestrations/workflows/conduct/__init__.py",
+      "depends_on": ["core_restructure", "workflow_restructure"],
+      "complexity": "medium",
+      "purpose": "Adapt conduct workflow to use new core structure, update imports",
+      "context_file": "components/conduct_adapt.md"
+    },
+    {
+      "id": "cli_update",
+      "file": "orchestrations/cli.py",
+      "depends_on": ["conduct_adapt", "formalizer"],
+      "complexity": "medium",
+      "purpose": "Unified CLI that can run any workflow, list/manage specs",
+      "context_file": "components/cli_update.md"
+    }
+  ],
+
+  "quality": {
+    "coverage_target": 80,
+    "lint_required": true,
+    "security_scan": false
+  },
+
+  "gotchas": [
+    "Existing conduct tests must keep passing - run dry-run validation",
+    "Import paths will change - need to update all internal imports",
+    "Runner context injection must not break existing prompt structure",
+    "Manifest validation should give specific, actionable errors"
+  ],
+
+  "validation_command": "python -m orchestrations.conduct.tests.test_dry_run"
+}

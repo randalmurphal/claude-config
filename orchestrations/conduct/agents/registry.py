@@ -6,7 +6,7 @@ Each agent type has default configuration that can be overridden.
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..core.config import AgentConfig
+from orchestrations.conduct.core.config import AgentConfig
 
 
 @dataclass
@@ -161,7 +161,7 @@ register_agent(
         description='Review code for issues',
         model='sonnet',
         schema='validator',
-        allowed_tools=['Read', 'Glob', 'Grep'] + REVIEWER_BASH_ALLOWED,
+        allowed_tools=['Read', 'Glob', 'Grep', *REVIEWER_BASH_ALLOWED],
         disallowed_tools=['Write', 'Edit', 'MultiEdit'],
         prompt_template='validate',
         timeout=300,
@@ -174,7 +174,7 @@ register_agent(
         description='Audit code for security vulnerabilities',
         model='sonnet',
         schema='validator',
-        allowed_tools=['Read', 'Glob', 'Grep'] + REVIEWER_BASH_ALLOWED,
+        allowed_tools=['Read', 'Glob', 'Grep', *REVIEWER_BASH_ALLOWED],
         disallowed_tools=['Write', 'Edit', 'MultiEdit'],
         prompt_template='security_audit',
         timeout=300,
@@ -187,7 +187,7 @@ register_agent(
         description='Review code for performance issues',
         model='sonnet',
         schema='validator',
-        allowed_tools=['Read', 'Glob', 'Grep'] + REVIEWER_BASH_ALLOWED,
+        allowed_tools=['Read', 'Glob', 'Grep', *REVIEWER_BASH_ALLOWED],
         disallowed_tools=['Write', 'Edit', 'MultiEdit'],
         prompt_template='performance_review',
         timeout=300,

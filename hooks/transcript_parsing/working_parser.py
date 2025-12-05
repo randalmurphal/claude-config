@@ -188,4 +188,4 @@ if __name__ == '__main__':
     with open('/tmp/parsed_results.json', 'w') as f:
         json.dump(output, f, indent=2)
 
-    print(f"\n✓ Saved to /tmp/parsed_results.json")
+    print("\n✓ Saved to /tmp/parsed_results.json")

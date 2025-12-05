@@ -201,10 +201,13 @@ See [`CLAUDE.md`](CLAUDE.md) for complete contract.
    cd ~ && git clone <repo> .claude
    ```
 
-2. Set up credentials (optional):
+2. Set up credentials (in project repos):
    ```bash
-   cp ~/.claude/scripts/.gitlab-credentials.example ~/.claude/scripts/.gitlab-credentials
-   cp ~/.claude/scripts/.jira-credentials.example ~/.claude/scripts/.jira-credentials
+   # Scripts and credentials are in each project's .claude/scripts/
+   # Example for m32rimm:
+   cd ~/repos/m32rimm
+   cp .claude/scripts/.gitlab-credentials.example .claude/scripts/.gitlab-credentials
+   cp .claude/scripts/.jira-credentials.example .claude/scripts/.jira-credentials
    # Edit with your tokens
    ```
 
@@ -225,12 +228,16 @@ See [`CLAUDE.md`](CLAUDE.md) for complete contract.
 ### Scripts failing
 
 ```bash
+# Scripts are in project directories, not ~/.claude/scripts/
+# Example for m32rimm:
+cd ~/repos/m32rimm
+
 # Check credentials exist
-ls ~/.claude/scripts/.gitlab-credentials
-ls ~/.claude/scripts/.jira-credentials
+ls .claude/scripts/.gitlab-credentials
+ls .claude/scripts/.jira-credentials
 
 # Test script
-~/.claude/scripts/jira-get-issue INT-1234
+.claude/scripts/jira-get-issue INT-1234
 ```
 
 ### Skills not loading

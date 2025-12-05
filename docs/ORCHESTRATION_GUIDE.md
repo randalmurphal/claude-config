@@ -225,11 +225,11 @@ Commands reference templates for details, keeping commands concise.
 
 ## Utilities
 
-**Worktree Script:**
+**Worktree Script (in project .claude/scripts/):**
 ```bash
-~/.claude/scripts/git-worktree variant-a variant-b variant-c
-~/.claude/scripts/git-worktree --list
-~/.claude/scripts/git-worktree --cleanup
+.claude/scripts/git-worktree variant-a variant-b variant-c
+.claude/scripts/git-worktree --list
+.claude/scripts/git-worktree --cleanup
 ```
 
 **Auto-detects:**

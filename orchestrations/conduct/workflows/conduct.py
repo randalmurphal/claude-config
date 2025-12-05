@@ -13,23 +13,25 @@ import json
 import logging
 from pathlib import Path
 
-from ..agents.registry import REGISTRY
-from ..core.config import (
+from orchestrations.core import (
+    REGISTRY,
+    ComponentState,
+    ComponentStatus,
     Config,
     PhaseConfig,
-    VotingGateConfig,
-    ValidationConfig,
     RiskConfig,
+    ValidationConfig,
+    VotingGateConfig,
 )
-from ..core.state import ComponentState, ComponentStatus
-from ..workflow.engine import (
-    WorkflowEngine,
+from orchestrations.workflow import (
+    ComponentLoop,
     ExecutionContext,
     PhaseResult,
-    ComponentLoop,
+    ValidationLoop,
+    WorkflowEngine,
+    run_voting_gate,
 )
-from ..workflow.gates import run_voting_gate
-from ..workflow.loops import ValidationLoop
+
 
 LOG = logging.getLogger(__name__)
 
@@ -608,11 +610,10 @@ def create_conduct_workflow(
 
     config = config_override or CONDUCT_CONFIG
 
-    engine = WorkflowEngine(
+    return WorkflowEngine(
         config=config,
         work_dir=work_dir,
         spec_path=spec_path,
         handlers=CONDUCT_HANDLERS,
     )
 
-    return engine

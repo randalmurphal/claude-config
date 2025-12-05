@@ -122,7 +122,7 @@ Review depth scales to blast radius (not file count):
 ## Language Tools
 
 **Container:** `nerdctl` (docker not available)
-**Python:** `python-code-quality --fix <path>` (ruff, pyright, bandit, semgrep)
+**Python:** `.claude/scripts/python-code-quality --fix <path>` (ruff, pyright, bandit, semgrep)
 
 Check project config first, fall back to `~/.claude/configs/`
 
@@ -130,14 +130,19 @@ Check project config first, fall back to `~/.claude/configs/`
 
 ## Scripts Available
 
+**All scripts are in project repos** (e.g., `m32rimm/.claude/scripts/`). Use project-relative paths:
+
 | Script | Purpose |
 |--------|---------|
-| `python-code-quality` | Unified lint + type + security |
-| `git-worktree` | Create parallel worktrees |
-| `gitlab-list-discussions` | List MR discussion threads |
-| `gitlab-reply-discussion` | Reply to MR discussions |
+| `.claude/scripts/python-code-quality` | Unified lint + type + security |
+| `.claude/scripts/git-worktree` | Create parallel worktrees |
+| `.claude/scripts/gitlab-list-discussions` | List MR discussion threads |
+| `.claude/scripts/gitlab-reply-discussion` | Reply to MR discussions |
+| `.claude/scripts/jira-get-issue` | Fetch Jira ticket details |
+| `.claude/scripts/jira-*` | Full Jira CRUD suite |
+| `.claude/scripts/gitlab-*` | Full GitLab CRUD suite |
 
-**Note:** Full Jira/GitLab scripts available in project repos (e.g., `m32rimm/.claude/scripts/`)
+**Note:** `~/.claude/scripts/` is deprecated - scripts archived there
 
 ---
 

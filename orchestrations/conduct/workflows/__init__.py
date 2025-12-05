@@ -1,5 +1,6 @@
 """Workflow definitions."""
 
-from .conduct import create_conduct_workflow, CONDUCT_CONFIG
+from .conduct import CONDUCT_CONFIG, CONDUCT_HANDLERS, create_conduct_workflow
 
-__all__ = ['create_conduct_workflow', 'CONDUCT_CONFIG']
+
+__all__ = ['CONDUCT_CONFIG', 'CONDUCT_HANDLERS', 'create_conduct_workflow']

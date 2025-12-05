@@ -6,9 +6,12 @@ import logging
 import sys
 from pathlib import Path
 
-from .core.config import ExecutionMode, load_config, save_config
-from .core.state import StateManager
-from .workflows.conduct import create_conduct_workflow, CONDUCT_CONFIG
+from orchestrations.conduct.workflows.conduct import (
+    CONDUCT_CONFIG,
+    create_conduct_workflow,
+)
+from orchestrations.core import ExecutionMode, StateManager
+from orchestrations.core.config import load_config, save_config
 
 
 def setup_logging(verbose: bool = False, debug: bool = False) -> None:
@@ -115,9 +118,8 @@ def cmd_run(args: argparse.Namespace) -> int:
         else:
             print('\n✅ Orchestration complete!')
         return 0
-    else:
-        print('\n❌ Orchestration failed. Check state for details.')
-        return 1
+    print('\n❌ Orchestration failed. Check state for details.')
+    return 1
 
 
 def cmd_status(args: argparse.Namespace) -> int:

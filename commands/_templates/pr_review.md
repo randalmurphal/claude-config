@@ -1,3 +1,16 @@
+<!--
+ARCHIVED TEMPLATE - Do not move back to parent directory
+
+This is the generic pr_review command template. It's kept here to:
+1. Avoid conflicts with project-level pr_review commands (which take precedence)
+2. Serve as a starting point for new projects that need PR review
+
+To use in a new project: Copy to <project>/.claude/commands/pr_review.md
+and customize with project-specific patterns.
+
+Moved here: 2025-11-25
+-->
+
 ---
 name: pr_review
 description: Comprehensive PR review against Jira ticket requirements
@@ -31,19 +44,34 @@ Load: orchestration-standards, pr-review-standards
 
 ---
 
-## Worktree Rules (Non-Negotiable)
+## Branch Setup (Non-Negotiable)
 
-**ALL review work happens in worktrees.** Never touch main repo.
+**CRITICAL: Always fetch latest before reviewing to avoid stale code.**
 
 ```bash
-# Create worktrees
-git-worktree --base /tmp/pr-review-$ticket --main $target_branch base pr
+# Step 1: Fetch latest from origin FIRST
+git fetch origin $source_branch $target_branch
 
-# Checkout PR branch (detached HEAD)
-cd /tmp/pr-review-$ticket/wt-pr && git checkout origin/$source_branch
+# Step 2: Verify you have the latest commits
+git log origin/$source_branch -1 --oneline
+git log origin/$target_branch -1 --oneline
 ```
 
-**ALLOWED in main repo:** `git fetch`, `git branch -r`, `git-worktree`
+**Reading files from PR branch:**
+```bash
+# Read specific file from PR branch (without checkout)
+git show origin/$source_branch:path/to/file.py
+
+# Get full diff between branches
+git diff origin/$target_branch...origin/$source_branch
+
+# Get changed files list
+git diff origin/$target_branch...origin/$source_branch --name-status
+```
+
+**Why fetch first?** PR branches get updated during review cycles. Without fetching, you'll review stale code and report already-fixed issues.
+
+**ALLOWED in main repo:** `git fetch`, `git show`, `git diff`, `git log`, `git branch -r`
 **FORBIDDEN:** checkout, commit, merge, any state changes
 
 ---
@@ -77,7 +105,7 @@ git diff --name-status           # Changed files
 | test-coverage | Coverage gaps, test quality |
 
 **Every agent receives:**
-- Worktree path
+- Branch refs (origin/$source_branch, origin/$target_branch)
 - Ticket content + full diff (for scoping)
 - MR comment analysis
 - Context (internal/external API, payment logic, etc.)
@@ -152,9 +180,7 @@ Remove low-value findings:
 
 ### Phase 12: Cleanup
 
-```bash
-git-worktree --cleanup
-```
+No cleanup needed - we use `git show` and `git diff` on fetched refs without creating worktrees.
 
 ---
 

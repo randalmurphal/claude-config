@@ -7,26 +7,32 @@ description: Templates for brainstorm artifacts and manifest.json. Load when usi
 
 ## Spec Storage
 
-Specs live in `~/.claude/orchestrations/specs/`:
+Specs live in the project's `.claude/specs/` directory:
 
 ```
-specs/
-├── <project>/
-│   └── <name>-<hash>/
-│       ├── manifest.json          # Execution config (machine-readable)
-│       ├── SPEC.md                # Human-readable spec
-│       ├── CONTEXT.md             # Accumulated context
-│       ├── STATE.json             # Execution state
-│       ├── brainstorm/            # From /spec phase
-│       │   ├── MISSION.md
-│       │   ├── INVESTIGATION.md
-│       │   ├── DECISIONS.md
-│       │   ├── CONCERNS.md
-│       │   └── SPIKE_RESULTS/
-│       └── components/            # Per-component context
-│           ├── component_a.md
-│           └── component_b.md
+<git_root>/
+└── .claude/
+    └── specs/
+        └── <name>-<hash>/
+            ├── manifest.json          # Execution config (machine-readable)
+            ├── SPEC.md                # Human-readable spec
+            ├── CONTEXT.md             # Accumulated context
+            ├── STATE.json             # Execution state
+            ├── brainstorm/            # From /spec phase
+            │   ├── MISSION.md
+            │   ├── INVESTIGATION.md
+            │   ├── DECISIONS.md
+            │   ├── CONCERNS.md
+            │   └── SPIKE_RESULTS/
+            └── components/            # Per-component context
+                ├── component_a.md
+                └── component_b.md
 ```
+
+CLI commands:
+- `python -m cc_orchestrations list` - List specs in current project
+- `python -m cc_orchestrations new --name feature` - Create new spec
+- `python -m cc_orchestrations status --spec <name>` - Show status
 
 ---
 
@@ -137,8 +143,8 @@ Machine-readable execution config created by formalization:
 {
   "name": "feature-name",
   "project": "project-name",
-  "work_dir": "~/.claude/path/to/project",
-  "spec_dir": "~/.claude/orchestrations/specs/project/feature-abc123",
+  "work_dir": "/path/to/project",
+  "spec_dir": ".claude/specs/feature-abc123",
   "created": "2025-12-05",
 
   "complexity": 7,
@@ -298,7 +304,7 @@ Last updated: 2025-12-05
 
 | Artifact | Location | Format |
 |----------|----------|--------|
-| Spec directory | `specs/<project>/<name>-<hash>/` | Unique hash suffix |
+| Spec directory | `.claude/specs/<name>-<hash>/` | Unique hash suffix |
 | Manifest | `manifest.json` | Machine-readable |
 | Human spec | `SPEC.md` | Reference doc |
 | Brainstorm | `brainstorm/*.md` | Discovery artifacts |

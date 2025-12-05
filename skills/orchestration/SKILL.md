@@ -11,22 +11,22 @@ External enforcement for complex multi-component tasks. Python controls flow, Cl
 
 ```bash
 # List all specs
-python -m orchestrations list
+python -m cc_orchestrations list
 
 # Create new spec
-python -m orchestrations new --project <project> --name <name>
+python -m cc_orchestrations new --project <project> --name <name>
 
 # Validate spec
-python -m orchestrations validate --spec <project>/<name>
+python -m cc_orchestrations validate --spec <project>/<name>
 
 # Check status
-python -m orchestrations status --spec <project>/<name>
+python -m cc_orchestrations status --spec <project>/<name>
 
 # Run spec (after /spec creates it)
-python -m orchestrations run --spec <project>/<name>
+python -m cc_orchestrations run --spec <project>/<name>
 
 # Run fresh (ignore saved state)
-python -m orchestrations run --spec <project>/<name> --fresh
+python -m cc_orchestrations run --spec <project>/<name> --fresh
 ```
 
 ## When to Use
@@ -44,7 +44,7 @@ python -m orchestrations run --spec <project>/<name> --fresh
 
 ## Spec Storage
 
-Specs live in `~/.claude/orchestrations/specs/`:
+Specs live in `~/.claude/cc_orchestrations/specs/`:
 ```
 specs/
 ├── <project>/
@@ -63,7 +63,7 @@ specs/
 
 1. **User runs `/spec`** → Interactive brainstorm, creates spec
 2. **Formalization** → Brainstorm artifacts → validated manifest.json
-3. **User runs `python -m orchestrations run`** → Executes spec
+3. **User runs `python -m cc_orchestrations run`** → Executes spec
 4. **Python enforces** → Validation gates, fix loops, voting
 
 ## Key Concepts
@@ -99,30 +99,30 @@ Python controls flow, Claude can't skip validation:
 ### Create and Run New Spec
 ```bash
 # 1. Create spec directory
-python -m orchestrations new --project myproject --name myfeature
+python -m cc_orchestrations new --project myproject --name myfeature
 
 # 2. Run /spec to populate it (interactive)
 /spec
 
 # 3. Validate
-python -m orchestrations validate --spec myproject/myfeature-abc123
+python -m cc_orchestrations validate --spec myproject/myfeature-abc123
 
 # 4. Execute
-python -m orchestrations run --spec myproject/myfeature-abc123
+python -m cc_orchestrations run --spec myproject/myfeature-abc123
 ```
 
 ### Check Progress
 ```bash
-python -m orchestrations status --spec myproject/myfeature-abc123
+python -m cc_orchestrations status --spec myproject/myfeature-abc123
 ```
 
 ### Resume After Interruption
 ```bash
 # Resumes from saved state by default
-python -m orchestrations run --spec myproject/myfeature-abc123
+python -m cc_orchestrations run --spec myproject/myfeature-abc123
 
 # Or start fresh
-python -m orchestrations run --spec myproject/myfeature-abc123 --fresh
+python -m cc_orchestrations run --spec myproject/myfeature-abc123 --fresh
 ```
 
 ## Integration with /spec

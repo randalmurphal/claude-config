@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cc_orchestrations"
+version = "0.1.0"
+description = "Claude Code orchestration system for multi-component workflows"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [
+    { name = "Ryan Murphy" }
+]
+dependencies = []  # No external dependencies - stdlib only
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.4",
+    "pyright>=1.1",
+]
+
+[project.scripts]
+cc-orchestrations = "cc_orchestrations.cli:main"
+
+[tool.setuptools]
+package-dir = {"cc_orchestrations" = "."}
+packages = [
+    "cc_orchestrations",
+    "cc_orchestrations.core",
+    "cc_orchestrations.spec",
+    "cc_orchestrations.workflow",
+    "cc_orchestrations.workflows",
+    "cc_orchestrations.workflows.conduct",
+    "cc_orchestrations.workflows.pr_review",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM"]
+ignore = ["E501"]
+
+[tool.pyright]
+pythonVersion = "3.11"
+typeCheckingMode = "basic"

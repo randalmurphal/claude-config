@@ -7,7 +7,7 @@ description: Transform vague intent into precise, executable specifications thro
 
 ## Your Mission
 
-Turn vague intent into a validated, executable spec stored in `~/.claude/orchestrations/specs/`.
+Turn vague intent into a validated, executable spec stored in `~/.claude/cc_orchestrations/specs/`.
 
 **Core principles:**
 1. **Investigate first** - Read code before asking questions
@@ -27,12 +27,12 @@ Turn vague intent into a validated, executable spec stored in `~/.claude/orchest
 
 ### Create Spec Directory
 ```bash
-python -m orchestrations new --project <project_name> --name <spec_name>
+python -m cc_orchestrations new --project <project_name> --name <spec_name>
 ```
 
 This creates:
 ```
-~/.claude/orchestrations/specs/<project>/<name>-<hash>/
+~/.claude/cc_orchestrations/specs/<project>/<name>-<hash>/
 ├── brainstorm/
 ├── components/
 └── SPEC.md
@@ -163,13 +163,13 @@ Summary:
 - Estimated reviewers: N
 
 To validate:
-  python -m orchestrations validate --spec <project>/<name>
+  python -m cc_orchestrations validate --spec <project>/<name>
 
 To execute:
-  python -m orchestrations run --spec <project>/<name>
+  python -m cc_orchestrations run --spec <project>/<name>
 
 To check status:
-  python -m orchestrations status --spec <project>/<name>
+  python -m cc_orchestrations status --spec <project>/<name>
 ```
 
 ---
@@ -272,7 +272,7 @@ The formalization creates a machine-readable manifest with:
 - `execution` config (mode, reviewers, gates)
 - `gotchas` list
 
-This drives the execution phase via `python -m orchestrations run`.
+This drives the execution phase via `python -m cc_orchestrations run`.
 
 ---
 

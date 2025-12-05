@@ -379,7 +379,11 @@ def cmd_pr_review(args: argparse.Namespace) -> int:
         phase_synthesis,
         phase_report,
     )
-    from .workflows.pr_review.config import create_default_config, RiskLevel
+    from .workflows.pr_review.config import (
+        create_default_config,
+        RiskLevel,
+        PRReviewConfig,
+    )
 
     ticket = args.ticket
     target_branch = args.target_branch or 'develop'
@@ -403,6 +407,41 @@ def cmd_pr_review(args: argparse.Namespace) -> int:
     print(f'Project: {project_name}')
     print(f'Repository: {repo_root}')
     print(f'Target branch: {target_branch}')
+
+    # Check for project-specific PR review config
+    project_config = None
+    project_agents = []
+    project_config_path = repo_root / '.claude' / 'cc_orchestrations' / 'pr_review' / 'config.py'
+    if project_config_path.exists():
+        print(f'Loading project extensions from: {project_config_path.parent}')
+        try:
+            import importlib.util
+            spec = importlib.util.spec_from_file_location(
+                'project_pr_review_config',
+                project_config_path,
+            )
+            if spec and spec.loader:
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                # Look for project-specific agents - prefer M32RIMM_AGENTS, etc.
+                for pattern in ['M32RIMM_AGENTS', 'PROJECT_AGENTS']:
+                    if hasattr(module, pattern):
+                        project_agents = getattr(module, pattern)
+                        print(f'  Loaded {len(project_agents)} project-specific agents from {pattern}')
+                        break
+                # Fallback: look for any list ending with _AGENTS (not GENERIC)
+                if not project_agents:
+                    for attr in dir(module):
+                        if (
+                            attr.endswith('_AGENTS')
+                            and attr != 'GENERIC_AGENTS'
+                            and isinstance(getattr(module, attr), list)
+                        ):
+                            project_agents = getattr(module, attr)
+                            print(f'  Loaded {len(project_agents)} project-specific agents from {attr}')
+                            break
+        except Exception as e:
+            print(f'  Warning: Could not load project config: {e}')
 
     # Find source branch if not specified
     if not source_branch:
@@ -559,6 +598,13 @@ def cmd_pr_review(args: argparse.Namespace) -> int:
             dry_run=False,
         )
 
+        # Create config with project-specific agents if available
+        review_config = create_default_config()
+        if project_agents:
+            # Merge project agents with generic agents
+            review_config.agents.extend(project_agents)
+            print(f'  Using {len(review_config.agents)} total agents')
+
         ctx = PRReviewContext(
             ticket_id=ticket,
             source_branch=source_branch,
@@ -566,7 +612,7 @@ def cmd_pr_review(args: argparse.Namespace) -> int:
             work_dir=repo_root,
             worktree_path=pr_wt,
             diff_files=diff_files,
-            config=create_default_config(),
+            config=review_config,
             runner=runner,
         )
 

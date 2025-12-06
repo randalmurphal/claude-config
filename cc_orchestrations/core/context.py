@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING
 
 from .paths import expand_path
 
-
 if TYPE_CHECKING:
     from .manifest import Manifest
 

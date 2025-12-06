@@ -32,7 +32,6 @@ from cc_orchestrations.workflow import (
     run_voting_gate,
 )
 
-
 LOG = logging.getLogger(__name__)
 
 
@@ -616,4 +615,3 @@ def create_conduct_workflow(
         spec_path=spec_path,
         handlers=CONDUCT_HANDLERS,
     )
-

@@ -13,7 +13,6 @@ from typing import Any
 
 from .paths import expand_path
 
-
 LOG = logging.getLogger(__name__)
 
 

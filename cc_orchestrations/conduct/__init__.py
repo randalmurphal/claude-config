@@ -16,7 +16,6 @@ from cc_orchestrations.conduct.workflows.conduct import (
     create_conduct_workflow,
 )
 
-
 __all__ = [
     'CONDUCT_CONFIG',
     'CONDUCT_HANDLERS',

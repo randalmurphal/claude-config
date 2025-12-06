@@ -31,13 +31,6 @@ from .paths import (
     relative_to_home,
 )
 from .registry import REGISTRY
-from .worktree import (
-    WORKTREES_BASE,
-    WorktreeContext,
-    WorktreeInfo,
-    WorktreeManager,
-    worktree_context,
-)
 from .runner import AgentResult, AgentRunner
 from .schemas import AgentSchema, get_schema, register_schema
 from .state import (
@@ -49,7 +42,13 @@ from .state import (
     StateManager,
     VoteResult,
 )
-
+from .worktree import (
+    WORKTREES_BASE,
+    WorktreeContext,
+    WorktreeInfo,
+    WorktreeManager,
+    worktree_context,
+)
 
 __all__ = [
     # Registry

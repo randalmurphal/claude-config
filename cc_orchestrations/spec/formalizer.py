@@ -16,7 +16,6 @@ from cc_orchestrations.core.runner import AgentRunner
 
 from .validator import ManifestValidator, ValidationError
 
-
 LOG = logging.getLogger(__name__)
 
 

@@ -24,7 +24,6 @@ from .config import AgentConfig, Config
 from .context import ContextManager, ContextUpdate
 from .schemas import get_schema
 
-
 LOG = logging.getLogger(__name__)
 
 # Dry-run prompt wrapper that asks for test data
@@ -316,7 +315,8 @@ CRITICAL RULES:
         try:
             result = subprocess.run(
                 cmd,
-                check=False, cwd=self.work_dir,
+                check=False,
+                cwd=self.work_dir,
                 capture_output=True,
                 text=True,
                 timeout=timeout or agent_config.timeout,
@@ -348,11 +348,17 @@ CRITICAL RULES:
                     # The result might be a string that needs parsing
                     result_content = output['result']
                     if isinstance(result_content, str):
+                        # First try direct JSON parse
                         try:
                             data = json.loads(result_content)
                         except json.JSONDecodeError:
-                            # Not JSON, use as-is
-                            data = {'raw': result_content}
+                            # Try to extract JSON from text response
+                            extracted = self._extract_json(result_content)
+                            if extracted:
+                                data = extracted
+                            else:
+                                # Not JSON, use as-is
+                                data = {'raw': result_content}
                     else:
                         data = result_content
                 else:
@@ -425,37 +431,109 @@ CRITICAL RULES:
 
     def run_parallel(
         self,
-        tasks: list[tuple[str, str, dict[str, Any] | None]],
-        max_workers: int = 4,
+        tasks: list[tuple[str, str, dict[str, Any] | None]]
+        | list[dict[str, Any]],
+        max_workers: int | None = None,
+        show_progress: bool = True,
     ) -> list[AgentResult]:
         """Run multiple agents in parallel.
 
         Args:
-            tasks: List of (agent_name, prompt, context) tuples
-            max_workers: Maximum parallel workers
+            tasks: List of (agent_name, prompt, context) tuples OR
+                   List of dicts with keys: name, prompt, context, model, skills
+            max_workers: Maximum parallel workers (None = all at once)
+            show_progress: Show progress spinner (default True)
 
         Returns:
             List of AgentResults in same order as tasks
         """
+        # Default to running all tasks in parallel
+        if max_workers is None:
+            max_workers = len(tasks)
+        from .progress import create_progress_tracker
+
         results: list[AgentResult | None] = [None] * len(tasks)
 
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_idx = {
-                executor.submit(self.run, agent_name, prompt, context): idx
-                for idx, (agent_name, prompt, context) in enumerate(tasks)
-            }
+        # Get agent names for progress tracking
+        agent_names = [
+            task['name'] if isinstance(task, dict) else task[0]
+            for task in tasks
+        ]
 
-            for future in as_completed(future_to_idx):
-                idx = future_to_idx[future]
-                try:
-                    results[idx] = future.result()
-                except Exception as e:
-                    LOG.error(f'Parallel task {idx} failed: {e}')
-                    results[idx] = AgentResult(
-                        success=False,
-                        error=str(e),
-                        agent_name=tasks[idx][0],
+        # Create progress tracker
+        tracker = (
+            create_progress_tracker(agent_names) if show_progress else None
+        )
+
+        def run_task_with_progress(task: tuple | dict, idx: int) -> AgentResult:
+            """Run a single task with progress tracking."""
+            agent_name = task['name'] if isinstance(task, dict) else task[0]
+
+            if tracker:
+                tracker.start_agent(agent_name)
+
+            try:
+                if isinstance(task, dict):
+                    result = self.run(
+                        agent_name=task['name'],
+                        prompt=task['prompt'],
+                        context=task.get('context'),
+                        model_override=task.get('model'),
+                        skills=task.get('skills'),
                     )
+                else:
+                    # Legacy tuple format
+                    agent_name, prompt, context = task
+                    result = self.run(agent_name, prompt, context)
+
+                if tracker:
+                    # Summarize result
+                    if result.success:
+                        findings = len(result.data.get('issues', []))
+                        summary = (
+                            f'{findings} findings' if findings else 'no issues'
+                        )
+                    else:
+                        summary = 'failed'
+                    tracker.complete_agent(agent_name, result.success, summary)
+
+                return result
+
+            except Exception as e:
+                if tracker:
+                    tracker.complete_agent(agent_name, False, str(e)[:30])
+                raise
+
+        # Start progress display
+        if tracker:
+            tracker.start_display()
+
+        try:
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_to_idx = {
+                    executor.submit(run_task_with_progress, task, idx): idx
+                    for idx, task in enumerate(tasks)
+                }
+
+                for future in as_completed(future_to_idx):
+                    idx = future_to_idx[future]
+                    try:
+                        results[idx] = future.result()
+                    except Exception as e:
+                        LOG.error(f'Parallel task {idx} failed: {e}')
+                        task = tasks[idx]
+                        agent_name = (
+                            task['name'] if isinstance(task, dict) else task[0]
+                        )
+                        results[idx] = AgentResult(
+                            success=False,
+                            error=str(e),
+                            agent_name=agent_name,
+                        )
+        finally:
+            # Stop progress display
+            if tracker:
+                tracker.stop_display()
 
         return [r for r in results if r is not None]
 
@@ -558,20 +636,40 @@ Include these in your JSON response."""
 
     def _extract_json(self, text: str) -> dict[str, Any] | None:
         """Try to extract JSON from text that might have other content."""
-        # Look for JSON object pattern
-        match = re.search(r'\{[^{}]*\}', text, re.DOTALL)
-        if match:
-            try:
-                return json.loads(match.group())
-            except json.JSONDecodeError:
-                pass
+        # First, try to find JSON in code blocks (most reliable)
+        code_block_patterns = [
+            r'```json\s*([\s\S]*?)\s*```',
+            r'```\s*([\s\S]*?)\s*```',
+        ]
+        for pattern in code_block_patterns:
+            match = re.search(pattern, text)
+            if match:
+                try:
+                    return json.loads(match.group(1))
+                except json.JSONDecodeError:
+                    continue
 
-        # Try to find JSON in code blocks
-        match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.DOTALL)
-        if match:
-            try:
-                return json.loads(match.group(1))
-            except json.JSONDecodeError:
-                pass
+        # Try to find a complete JSON object with nested braces
+        # Find all potential starting positions and try each
+        for start_idx in range(len(text)):
+            if text[start_idx] != '{':
+                continue
+
+            brace_count = 0
+            for i, char in enumerate(text[start_idx:], start_idx):
+                if char == '{':
+                    brace_count += 1
+                elif char == '}':
+                    brace_count -= 1
+                    if brace_count == 0:
+                        json_str = text[start_idx : i + 1]
+                        try:
+                            parsed = json.loads(json_str)
+                            # Only return if it looks like a valid response
+                            if isinstance(parsed, dict):
+                                return parsed
+                        except json.JSONDecodeError:
+                            pass
+                        break  # Try next { if this one failed
 
         return None

@@ -7,13 +7,12 @@ and are automatically cleaned up after orchestration completes.
 import logging
 import shutil
 import subprocess
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator
 
 from .paths import expand_path, get_claude_home
-
 
 LOG = logging.getLogger(__name__)
 
@@ -183,26 +182,49 @@ class WorktreeManager:
                 LOG.info(f'Worktree already exists: {worktree_path}')
                 return worktree_path
 
-        if checkout_branch:
-            # Checkout existing branch
-            LOG.info(f'Creating worktree for branch: {checkout_branch}')
-            self._run_git(
-                ['worktree', 'add', str(worktree_path), checkout_branch]
-            )
-        else:
-            # Create new branch from base
-            branch_name = f'wt-{name}'
-            LOG.info(f'Creating worktree with new branch: {branch_name}')
-            self._run_git(
-                [
-                    'worktree',
-                    'add',
-                    '-b',
-                    branch_name,
-                    str(worktree_path),
-                    base_branch,
-                ]
-            )
+        try:
+            if checkout_branch:
+                # Checkout existing branch
+                LOG.info(f'Creating worktree for branch: {checkout_branch}')
+                result = self._run_git(
+                    ['worktree', 'add', str(worktree_path), checkout_branch],
+                    check=False,
+                )
+                if result.returncode != 0:
+                    LOG.error(f'Worktree creation failed: {result.stderr}')
+                    raise RuntimeError(
+                        f'Failed to create worktree: {result.stderr}'
+                    )
+            else:
+                # Create new branch from base
+                branch_name = f'wt-{name}'
+                LOG.info(f'Creating worktree with new branch: {branch_name}')
+                result = self._run_git(
+                    [
+                        'worktree',
+                        'add',
+                        '-b',
+                        branch_name,
+                        str(worktree_path),
+                        base_branch,
+                    ],
+                    check=False,
+                )
+                if result.returncode != 0:
+                    LOG.error(f'Worktree creation failed: {result.stderr}')
+                    raise RuntimeError(
+                        f'Failed to create worktree: {result.stderr}'
+                    )
+
+            # Verify worktree was actually created
+            if not worktree_path.exists():
+                raise RuntimeError(
+                    f'Worktree path does not exist after creation: {worktree_path}'
+                )
+
+        except subprocess.CalledProcessError as e:
+            LOG.error(f'Git worktree command failed: {e.stderr}')
+            raise RuntimeError(f'Failed to create worktree: {e.stderr}') from e
 
         return worktree_path
 
@@ -228,6 +250,26 @@ class WorktreeManager:
                     shutil.rmtree(path)
                     self._run_git(['worktree', 'prune'])
                     LOG.info(f'Force-removed worktree: {path}')
+
+    def cleanup_worktree(
+        self, project: str, tool: str, name: str, force: bool = True
+    ) -> None:
+        """Clean up a specific worktree by name.
+
+        Args:
+            project: Project name
+            tool: Tool name (e.g., 'pr-review')
+            name: Worktree name to remove
+            force: Force removal even if dirty
+        """
+        worktree_path = WORKTREES_BASE / project / tool / name
+
+        if not worktree_path.exists():
+            LOG.info(f'Worktree does not exist: {worktree_path}')
+            return
+
+        self.remove_worktree(worktree_path, force=force)
+        self._run_git(['worktree', 'prune'], check=False)
 
     def cleanup_tool_worktrees(self, project: str, tool: str) -> None:
         """Clean up all worktrees for a specific tool.

@@ -23,7 +23,6 @@ from cc_orchestrations.core.state import (
 
 from .loops import LoopResult, ValidationLoop
 
-
 LOG = logging.getLogger(__name__)
 
 

@@ -8,7 +8,6 @@ This module provides tools for creating and validating specs:
 from .formalizer import FormalizationResult, SpecFormalizer
 from .validator import ManifestValidator, ValidationError, ValidationResult
 
-
 __all__ = [
     'FormalizationResult',
     'ManifestValidator',

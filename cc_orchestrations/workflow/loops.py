@@ -14,7 +14,6 @@ from cc_orchestrations.core.state import Issue
 
 from .gates import VotingOutcome, run_voting_gate
 
-
 LOG = logging.getLogger(__name__)
 
 

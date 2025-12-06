@@ -22,7 +22,6 @@ from typing import Any
 from cc_orchestrations.conduct.core.config import AgentConfig, Config
 from cc_orchestrations.conduct.core.schemas import get_schema
 
-
 LOG = logging.getLogger(__name__)
 
 # Dry-run prompt wrapper that asks for test data
@@ -306,7 +305,8 @@ CRITICAL RULES:
         try:
             result = subprocess.run(
                 cmd,
-                check=False, cwd=self.work_dir,
+                check=False,
+                cwd=self.work_dir,
                 capture_output=True,
                 text=True,
                 timeout=timeout or agent_config.timeout,

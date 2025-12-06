@@ -14,7 +14,6 @@ from cc_orchestrations.conduct.core.config import VotingGateConfig
 from cc_orchestrations.conduct.core.schemas import get_schema
 from cc_orchestrations.conduct.core.state import VoteResult
 
-
 LOG = logging.getLogger(__name__)
 
 
@@ -121,7 +120,6 @@ class VotingGate:
             options=self.config.options,
             threshold=self.config.consensus_threshold,
         )
-
 
     def _build_prompt(self, context: dict[str, Any]) -> str:
         """Build the voting prompt from template and context."""

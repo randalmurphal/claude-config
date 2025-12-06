@@ -168,15 +168,22 @@ class PRReviewConfig:
         agents_to_run: list[PRReviewAgent] = []
 
         for agent in self.agents:
-            if (
-                agent.required
-                and risk_cfg['required_agents']
-                or (
-                    not agent.required
-                    and risk_cfg['conditional_agents']
-                    and agent.should_run(context)
-                )
-            ):
+            # Check if agent should run based on risk config and triggers
+            should_run_agent = False
+
+            if agent.required and risk_cfg['required_agents']:
+                should_run_agent = True
+            elif not agent.required and risk_cfg['conditional_agents']:
+                # Support both should_run method and trigger callable
+                if hasattr(agent, 'should_run') and callable(agent.should_run):
+                    should_run_agent = agent.should_run(context)
+                elif hasattr(agent, 'trigger') and callable(agent.trigger):
+                    should_run_agent = agent.trigger(context)
+                else:
+                    # Default to running if no trigger defined
+                    should_run_agent = True
+
+            if should_run_agent:
                 agents_to_run.append(agent)
 
         return agents_to_run

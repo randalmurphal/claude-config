@@ -9,10 +9,14 @@ import logging
 import sys
 from pathlib import Path
 
-from .core import Manifest, expand_path, get_specs_dir, get_project_name, get_git_root
+from .core import (
+    Manifest,
+    expand_path,
+    get_project_name,
+    get_specs_dir,
+)
 from .core.state import StateManager
 from .spec.validator import ManifestValidator
-
 
 LOG = logging.getLogger(__name__)
 
@@ -93,7 +97,11 @@ def _run_dry_run(manifest: Manifest, spec_path: Path) -> int:
         order = manifest.get_dependency_order()
         for i, comp_id in enumerate(order, 1):
             comp = manifest.get_component(comp_id)
-            deps = f' (deps: {", ".join(comp.depends_on)})' if comp.depends_on else ''
+            deps = (
+                f' (deps: {", ".join(comp.depends_on)})'
+                if comp.depends_on
+                else ''
+            )
             print(f'  {i}. {comp_id}: {comp.file}{deps}')
             if comp.purpose:
                 print(f'      Purpose: {comp.purpose}')
@@ -121,11 +129,12 @@ def _run_dry_run(manifest: Manifest, spec_path: Path) -> int:
     # Test runner infrastructure
     print('Testing runner infrastructure...')
     try:
-        from .core.runner import AgentRunner
-        from .core.config import Config, AgentConfig
-
         # Create minimal config for testing
         import os
+
+        from .core.config import Config
+        from .core.runner import AgentRunner
+
         claude_path = os.path.expanduser('~/.claude/local/claude')
         config = Config(
             name='dry-run-test',
@@ -163,12 +172,16 @@ def _run_dry_run(manifest: Manifest, spec_path: Path) -> int:
     print('DRY RUN COMPLETE - Ready to execute')
     print('=' * 60)
     print()
-    print(f'To run for real: python -m cc_orchestrations run --spec {manifest.name}')
+    print(
+        f'To run for real: python -m cc_orchestrations run --spec {manifest.name}'
+    )
 
     return 0
 
 
-def _run_workflow(manifest: Manifest, spec_path: Path, fresh: bool = False) -> int:
+def _run_workflow(
+    manifest: Manifest, spec_path: Path, fresh: bool = False
+) -> int:
     """Execute the actual workflow.
 
     Args:
@@ -215,7 +228,9 @@ def cmd_list(args: argparse.Namespace) -> int:
 
     if not specs_dir.exists():
         print(f'No specs directory found for project: {project_name}')
-        print(f'Create a spec with: python -m cc_orchestrations new --name my-feature')
+        print(
+            'Create a spec with: python -m cc_orchestrations new --name my-feature'
+        )
         return 0
 
     spec_dirs = [d for d in specs_dir.iterdir() if d.is_dir()]
@@ -370,19 +385,17 @@ def cmd_pr_review(args: argparse.Namespace) -> int:
     """
     import subprocess
 
-    from .core.worktree import WorktreeManager, WORKTREES_BASE
-    from .workflows.pr_review.phases import (
-        PRReviewContext,
-        phase_triage,
-        phase_investigation,
-        phase_validation,
-        phase_synthesis,
-        phase_report,
-    )
+    from .core.worktree import WORKTREES_BASE, WorktreeManager
     from .workflows.pr_review.config import (
         create_default_config,
-        RiskLevel,
-        PRReviewConfig,
+    )
+    from .workflows.pr_review.phases import (
+        PRReviewContext,
+        phase_investigation,
+        phase_report,
+        phase_synthesis,
+        phase_triage,
+        phase_validation,
     )
 
     ticket = args.ticket
@@ -398,6 +411,7 @@ def cmd_pr_review(args: argparse.Namespace) -> int:
     # Find git root
     try:
         from .core.paths import get_git_root, get_project_name
+
         repo_root = get_git_root()
         project_name = get_project_name()
     except RuntimeError as e:
@@ -409,13 +423,15 @@ def cmd_pr_review(args: argparse.Namespace) -> int:
     print(f'Target branch: {target_branch}')
 
     # Check for project-specific PR review config
-    project_config = None
     project_agents = []
-    project_config_path = repo_root / '.claude' / 'cc_orchestrations' / 'pr_review' / 'config.py'
+    project_config_path = (
+        repo_root / '.claude' / 'cc_orchestrations' / 'pr_review' / 'config.py'
+    )
     if project_config_path.exists():
         print(f'Loading project extensions from: {project_config_path.parent}')
         try:
             import importlib.util
+
             spec = importlib.util.spec_from_file_location(
                 'project_pr_review_config',
                 project_config_path,
@@ -427,7 +443,9 @@ def cmd_pr_review(args: argparse.Namespace) -> int:
                 for pattern in ['M32RIMM_AGENTS', 'PROJECT_AGENTS']:
                     if hasattr(module, pattern):
                         project_agents = getattr(module, pattern)
-                        print(f'  Loaded {len(project_agents)} project-specific agents from {pattern}')
+                        print(
+                            f'  Loaded {len(project_agents)} project-specific agents from {pattern}'
+                        )
                         break
                 # Fallback: look for any list ending with _AGENTS (not GENERIC)
                 if not project_agents:
@@ -438,7 +456,9 @@ def cmd_pr_review(args: argparse.Namespace) -> int:
                             and isinstance(getattr(module, attr), list)
                         ):
                             project_agents = getattr(module, attr)
-                            print(f'  Loaded {len(project_agents)} project-specific agents from {attr}')
+                            print(
+                                f'  Loaded {len(project_agents)} project-specific agents from {attr}'
+                            )
                             break
         except Exception as e:
             print(f'  Warning: Could not load project config: {e}')
@@ -491,8 +511,14 @@ def cmd_pr_review(args: argparse.Namespace) -> int:
     manager = WorktreeManager(repo_root)
     tool_dir = WORKTREES_BASE / project_name / 'pr-review'
 
+    # Use branch name for PR-specific worktree (cleaned up after)
+    # Base worktree is shared and reused across reviews
+    pr_worktree_name = source_branch.replace(
+        '/', '-'
+    )  # Sanitize for directory name
+
     try:
-        # Create base worktree (target branch)
+        # Create base worktree (target branch) - shared, reused
         base_wt = manager.create_worktree(
             name='base',
             base_dir=tool_dir,
@@ -500,9 +526,9 @@ def cmd_pr_review(args: argparse.Namespace) -> int:
         )
         print(f'  Base worktree: {base_wt}')
 
-        # Create PR worktree (source branch)
+        # Create PR worktree (source branch) - branch-specific
         pr_wt = manager.create_worktree(
-            name='pr',
+            name=pr_worktree_name,
             base_dir=tool_dir,
             checkout_branch=f'origin/{source_branch}',
         )
@@ -524,8 +550,12 @@ def cmd_pr_review(args: argparse.Namespace) -> int:
             print(f'  ... and {len(diff_files) - 10} more')
         print()
 
-        # Get Jira context if script exists
-        jira_script = repo_root / '.claude' / 'scripts' / 'jira-get-issue'
+        # Get Jira context if script exists (check subdirectory first, then root)
+        jira_script = (
+            repo_root / '.claude' / 'scripts' / 'jira' / 'jira-get-issue'
+        )
+        if not jira_script.exists():
+            jira_script = repo_root / '.claude' / 'scripts' / 'jira-get-issue'
         jira_context = None
         if jira_script.exists():
             print(f'Fetching Jira ticket: {ticket}')
@@ -545,21 +575,35 @@ def cmd_pr_review(args: argparse.Namespace) -> int:
                 print(f'  Warning: Could not fetch Jira: {result.stderr[:100]}')
             print()
 
-        # Get GitLab MR context if script exists
-        gitlab_script = repo_root / '.claude' / 'scripts' / 'gitlab-get-mr'
+        # Get GitLab MR context if script exists (check subdirectory first, then root)
+        gitlab_script = (
+            repo_root / '.claude' / 'scripts' / 'gitlab' / 'gitlab-get-mr'
+        )
+        if not gitlab_script.exists():
+            gitlab_script = repo_root / '.claude' / 'scripts' / 'gitlab-get-mr'
         mr_context = None
         if gitlab_script.exists():
-            print(f'Fetching GitLab MR for: {source_branch}')
+            print(f'Fetching GitLab MR for: {ticket}')
             result = subprocess.run(
-                [str(gitlab_script), '--branch', source_branch],
+                [str(gitlab_script), ticket],
                 capture_output=True,
                 text=True,
             )
             if result.returncode == 0:
                 mr_context = result.stdout
-                print('  MR found')
+                # Extract MR title for display
+                for line in mr_context.split('\n'):
+                    if line.startswith('# MR'):
+                        print(f'  {line}')
+                        break
+                else:
+                    print('  MR found')
             else:
-                print('  No MR found (or error)')
+                # Show the actual error
+                error_msg = (
+                    result.stderr.strip() if result.stderr else 'Unknown error'
+                )
+                print(f'  No MR found: {error_msg}')
             print()
 
         if dry_run:
@@ -570,7 +614,9 @@ def cmd_pr_review(args: argparse.Namespace) -> int:
             print('Would run phases:')
             print('  1. Triage - Assess risk level')
             print('  2. Investigation - Run reviewers')
-            print('  3. Cross-Pollination - Second-round analysis (medium+ risk)')
+            print(
+                '  3. Cross-Pollination - Second-round analysis (medium+ risk)'
+            )
             print('  4. Validation - Validate findings, council votes')
             print('  5. Synthesis - Consolidate results')
             print('  6. Report - Generate report')
@@ -581,6 +627,7 @@ def cmd_pr_review(args: argparse.Namespace) -> int:
 
         # Create review context
         import os
+
         claude_path = os.path.expanduser('~/.claude/local/claude')
 
         from .core.config import Config
@@ -590,11 +637,36 @@ def cmd_pr_review(args: argparse.Namespace) -> int:
             name='pr-review',
             dry_run=False,
             claude_path=claude_path,
+            default_model='opus',  # PR review uses Opus for thoroughness
+        )
+
+        # Skills directory - check project first, then ~/.claude
+        project_skills_dir = repo_root / '.claude' / 'skills'
+        global_skills_dir = Path.home() / '.claude' / 'skills'
+        skills_dir = (
+            project_skills_dir
+            if project_skills_dir.exists()
+            else global_skills_dir
+        )
+
+        # Finding classification path (if exists)
+        finding_classification = (
+            repo_root
+            / '.claude'
+            / 'cc_orchestrations'
+            / 'pr_review'
+            / 'finding_classification.md'
         )
 
         runner = AgentRunner(
             config=config,
             work_dir=pr_wt,
+            skills_dir=skills_dir if skills_dir.exists() else None,
+            finding_classification_path=(
+                finding_classification
+                if finding_classification.exists()
+                else None
+            ),
             dry_run=False,
         )
 
@@ -670,10 +742,10 @@ def cmd_pr_review(args: argparse.Namespace) -> int:
         return 0
 
     finally:
-        # Cleanup worktrees
+        # Cleanup only the branch-specific worktree (keep base for reuse)
         print()
         print('Cleaning up worktrees...')
-        manager.cleanup_tool_worktrees(project_name, 'pr-review')
+        manager.cleanup_worktree(project_name, 'pr-review', pr_worktree_name)
         print('Done.')
 
 

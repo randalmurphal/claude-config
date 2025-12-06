@@ -68,6 +68,9 @@ class PRReviewContext:
     # Discoveries
     discoveries: list[str] = field(default_factory=list)
 
+    # Agents selected during triage
+    agents_to_run: list[Any] = field(default_factory=list)
+
     def log_status(self, phase: str, message: str) -> None:
         """Log phase status."""
         LOG.info(f'[{phase}] {message}')
@@ -110,19 +113,22 @@ def phase_triage(ctx: PRReviewContext) -> PhaseResult:
         ctx.worktree_path = ctx.work_dir / '.pr-review-worktree'
         ctx.log_status('triage', f'Using worktree at {ctx.worktree_path}')
 
-    # Step 2: Gather context
+    # Step 2: Use pre-computed context or gather if missing
     ctx.log_status('triage', 'Gathering diff and context')
 
-    if not ctx.runner:
-        return PhaseResult(
-            success=False,
-            error='No agent runner configured',
+    # diff_files is typically pre-computed by CLI - use it if available
+    if ctx.diff_files:
+        ctx.log_status(
+            'triage', f'Using {len(ctx.diff_files)} pre-computed changed files'
         )
-
-    # Run context gatherer
-    result = ctx.runner.run(
-        'investigator',
-        f"""Gather PR context for review.
+        # Extract test files from diff
+        ctx.test_files = [f for f in ctx.diff_files if 'test' in f.lower()]
+        ctx.diff_summary = f'{len(ctx.diff_files)} files changed'
+    elif ctx.runner:
+        # Fallback: run agent to gather context (slower, may fail in print mode)
+        result = ctx.runner.run(
+            'investigator',
+            f"""Gather PR context for review.
 
 Ticket: {ctx.ticket_id}
 Source: {ctx.source_branch}
@@ -141,25 +147,30 @@ Return structured data:
 - test_files: List of test files
 - requirements: Requirements from ticket (or "N/A")
 """,
-        context={
-            'ticket_id': ctx.ticket_id,
-            'source_branch': ctx.source_branch,
-            'target_branch': ctx.target_branch,
-            'work_dir': str(ctx.worktree_path),
-        },
-    )
-
-    if not result.success:
-        return PhaseResult(
-            success=False,
-            error=f'Context gathering failed: {result.error}',
+            context={
+                'ticket_id': ctx.ticket_id,
+                'source_branch': ctx.source_branch,
+                'target_branch': ctx.target_branch,
+                'work_dir': str(ctx.worktree_path),
+            },
         )
 
-    # Store context
-    ctx.diff_files = result.get('diff_files', [])
-    ctx.diff_summary = result.get('diff_summary', '')
-    ctx.test_files = result.get('test_files', [])
-    ctx.requirements = result.get('requirements', 'N/A')
+        if not result.success:
+            return PhaseResult(
+                success=False,
+                error=f'Context gathering failed: {result.error}',
+            )
+
+        # Store context from agent
+        ctx.diff_files = result.get('diff_files', [])
+        ctx.diff_summary = result.get('diff_summary', '')
+        ctx.test_files = result.get('test_files', [])
+        ctx.requirements = result.get('requirements', 'N/A')
+    else:
+        return PhaseResult(
+            success=False,
+            error='No diff_files provided and no runner to gather context',
+        )
 
     ctx.log_status('triage', f'Found {len(ctx.diff_files)} changed files')
 
@@ -218,16 +229,74 @@ Key question: If this PR has a bug, how bad is it and how many things break?
 
     ctx.log_status('triage', f'Risk level: {ctx.risk_level.value}')
 
-    # Step 4: Determine agents to run
-    agents_to_run = ctx.config.get_agents_for_risk(
-        ctx.risk_level,
-        {
-            'diff_files': ctx.diff_files,
-            'file_count': len(ctx.diff_files),
-        },
+    # Step 4: Determine agents to run using intelligent analysis
+    ctx.log_status('triage', 'Analyzing code to determine relevant reviewers')
+
+    # Get all available agent names and descriptions
+    available_agents = [
+        {'name': a.name, 'description': a.description, 'required': a.required}
+        for a in ctx.config.agents
+    ]
+
+    # Use agent to analyze which reviewers are relevant
+    agent_selection_result = ctx.runner.run(
+        'investigator',
+        f"""Analyze this PR and determine which specialized reviewers are needed.
+
+**Ticket:** {ctx.ticket_id}
+**Files changed ({len(ctx.diff_files)}):**
+{chr(10).join(f'- {f}' for f in ctx.diff_files)}
+
+**Risk level:** {ctx.risk_level.value}
+
+**Available reviewers:**
+{chr(10).join(f'- {a["name"]}: {a["description"]} (required: {a["required"]})' for a in available_agents)}
+
+**Your task:**
+1. Look at the actual code in the changed files
+2. Determine which reviewers are relevant based on what the code DOES, not just filenames
+3. Required reviewers always run
+4. For conditional reviewers, decide if they're relevant
+
+Consider:
+- Does the code have MongoDB/database operations? → mongo-ops-reviewer
+- Does it modify business objects or schemas? → schema-alignment-reviewer, bo-structure-reviewer
+- Does it have import/data processing logic? → import-framework-reviewer
+- Does it have API endpoints? → api-security-reviewer
+- Does it have performance-sensitive operations (loops, queries, bulk ops)? → performance-reviewer
+- Does it have complex architecture changes? → architecture-reviewer
+
+Return JSON:
+{{
+  "agents_to_run": ["agent-name-1", "agent-name-2", ...],
+  "reasoning": "Brief explanation of why each agent was selected"
+}}
+""",
+        model_override='opus',
     )
 
-    ctx.log_status('triage', f'Will run {len(agents_to_run)} review agents')
+    # Parse agent selection
+    selected_agent_names = set()
+    if agent_selection_result.success:
+        selected_names = agent_selection_result.data.get('agents_to_run', [])
+        if isinstance(selected_names, list):
+            selected_agent_names = set(selected_names)
+            reasoning = agent_selection_result.data.get('reasoning', '')
+            if reasoning:
+                ctx.add_discovery(f'Agent selection reasoning: {reasoning}')
+
+    # Always include required agents, plus intelligently selected ones
+    agents_to_run = []
+    for agent in ctx.config.agents:
+        if agent.required or agent.name in selected_agent_names:
+            agents_to_run.append(agent)
+
+    # Store for later phases
+    ctx.agents_to_run = agents_to_run
+
+    ctx.log_status('triage', f'Will run {len(agents_to_run)} review agents:')
+    for agent in agents_to_run:
+        ctx.log_status('triage', f'  - {agent.name}')
 
     return PhaseResult(
         success=True,
@@ -264,14 +333,17 @@ def phase_investigation(ctx: PRReviewContext) -> PhaseResult:
     if not ctx.runner:
         return PhaseResult(success=False, error='No agent runner configured')
 
-    # Step 1: Get agents to run
-    agents_to_run = ctx.config.get_agents_for_risk(
-        ctx.risk_level,
-        {
-            'diff_files': ctx.diff_files,
-            'file_count': len(ctx.diff_files),
-        },
-    )
+    # Step 1: Get agents selected during triage (or fall back to config-based selection)
+    agents_to_run = getattr(ctx, 'agents_to_run', None)
+    if not agents_to_run:
+        # Fallback if triage didn't set agents
+        agents_to_run = ctx.config.get_agents_for_risk(
+            ctx.risk_level,
+            {
+                'diff_files': ctx.diff_files,
+                'file_count': len(ctx.diff_files),
+            },
+        )
 
     if not agents_to_run:
         ctx.log_status('investigation', 'No agents to run')
@@ -281,7 +353,35 @@ def phase_investigation(ctx: PRReviewContext) -> PhaseResult:
         'investigation', f'Running {len(agents_to_run)} agents in parallel'
     )
 
-    # Step 2: Run agents in parallel
+    # Step 2: Run agents in parallel with proper model and skills
+    # JSON output instructions to append to all prompts
+    json_output_instructions = """
+
+---
+**IMPORTANT: Output Format**
+
+You MUST return your response as valid JSON with this structure:
+```json
+{
+  "issues": [
+    {
+      "severity": "critical|major|minor",
+      "issue": "Brief description of the issue",
+      "file": "path/to/file.py",
+      "line": 123,
+      "details": "Detailed explanation",
+      "recommendation": "How to fix it"
+    }
+  ],
+  "summary": "Brief summary of your review",
+  "no_issues_reason": "If no issues found, explain why the code looks good"
+}
+```
+
+If you find NO issues, return: `{"issues": [], "summary": "...", "no_issues_reason": "..."}`
+Do NOT return plain text. Return ONLY valid JSON.
+"""
+
     tasks = []
     for agent in agents_to_run:
         # Format prompt with context
@@ -293,15 +393,37 @@ def phase_investigation(ctx: PRReviewContext) -> PhaseResult:
             file_count=len(ctx.diff_files),
         )
 
+        # Append JSON output instructions
+        prompt = prompt + json_output_instructions
+
+        # Extract skill names from LOAD: directives in prompt
+        skills = []
+        for line in prompt.split('\n'):
+            if line.strip().startswith('LOAD:'):
+                skill_ref = line.strip()[5:].strip()
+                # Handle "skill (section: ...)" format
+                skill_name = skill_ref.split('(')[0].strip()
+                if skill_name:
+                    skills.append(skill_name)
+
+        # Get model from agent config (default to opus for PR review)
+        model = getattr(agent, 'model', 'opus') or 'opus'
+
+        ctx.log_status(
+            'investigation', f'  Agent: {agent.name} (model: {model})'
+        )
+
         tasks.append(
-            (
-                agent.name,
-                prompt,
-                {
+            {
+                'name': agent.name,
+                'prompt': prompt,
+                'context': {
                     'work_dir': str(ctx.worktree_path),
                     'diff_files': ctx.diff_files,
                 },
-            )
+                'model': model,
+                'skills': skills if skills else None,
+            }
         )
 
     results = ctx.runner.run_parallel(tasks)
@@ -310,12 +432,47 @@ def phase_investigation(ctx: PRReviewContext) -> PhaseResult:
     findings: list[dict[str, Any]] = []
 
     for result in results:
-        if result.success and 'issues' in result.data:
-            agent_findings = result.data['issues']
+        if not result.success:
+            ctx.log_status(
+                'investigation',
+                f'  Agent {result.agent_name} failed: {result.error[:100] if result.error else "unknown"}',
+            )
+            continue
+
+        # Try multiple keys that agents might use for findings
+        agent_findings = []
+        for key in ['issues', 'findings', 'problems', 'concerns', 'results']:
+            if key in result.data and isinstance(result.data[key], list):
+                agent_findings = result.data[key]
+                break
+
+        # If no standard key found, check if data itself is a list
+        if not agent_findings and isinstance(result.data, list):
+            agent_findings = result.data
+
+        if agent_findings:
+            ctx.log_status(
+                'investigation',
+                f'  Agent {result.agent_name}: {len(agent_findings)} findings',
+            )
             for finding in agent_findings:
-                # Tag with source agent
-                finding['source_agent'] = result.data.get('agent', 'unknown')
-                findings.append(finding)
+                if isinstance(finding, dict):
+                    finding['source_agent'] = result.agent_name
+                    findings.append(finding)
+                elif isinstance(finding, str):
+                    # Convert string findings to dict
+                    findings.append(
+                        {
+                            'issue': finding,
+                            'source_agent': result.agent_name,
+                            'severity': 'medium',
+                        }
+                    )
+        else:
+            ctx.log_status(
+                'investigation',
+                f'  Agent {result.agent_name}: 0 findings (keys: {list(result.data.keys()) if isinstance(result.data, dict) else "N/A"})',
+            )
 
     ctx.findings.extend(findings)
     ctx.log_status(
@@ -377,7 +534,7 @@ First-round findings ({len(findings)} total):
 {findings_summary}
 
 Files reviewed:
-{ctx.diff_files}
+{chr(10).join(f'- {f}' for f in ctx.diff_files)}
 
 Analysis:
 1. What patterns emerged across findings?
@@ -385,11 +542,16 @@ Analysis:
 3. Do any findings interact or compound?
 4. Are there blind spots in the review?
 
-Return synthesis:
-- patterns: List of patterns found
-- gaps: Areas not examined
-- interactions: Findings that might compound
-- needs_investigation: Specific areas needing deeper look
+**IMPORTANT: Return JSON with this structure:**
+```json
+{{
+  "patterns": ["pattern1", "pattern2"],
+  "gaps": ["area not examined 1", "area not examined 2"],
+  "interactions": ["finding X compounds with finding Y"],
+  "needs_investigation": ["specific area to look deeper"]
+}}
+```
+Return ONLY valid JSON. Include at least empty arrays for all keys.
 """,
         context={
             'findings': findings,
@@ -421,6 +583,13 @@ def _run_second_round(
 
     gaps = synthesis.get('gaps', [])
     interactions = synthesis.get('interactions', [])
+
+    # Log what we got from synthesis
+    ctx.log_status(
+        'investigation',
+        f'Synthesis returned: patterns={len(synthesis.get("patterns", []))}, '
+        f'gaps={len(gaps)}, interactions={len(interactions)}',
+    )
 
     if not gaps and not interactions:
         ctx.log_status(

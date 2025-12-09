@@ -1,8 +1,9 @@
-"""Spec creation and validation.
+"""Spec formalization and validation.
 
-This module provides tools for creating and validating specs:
-- ManifestValidator: Python validation of manifest.json
-- SpecFormalizer: Convert brainstorm artifacts to validated manifest
+This module provides:
+- SpecFormalizer: Converts brainstorm artifacts into validated manifest
+- ManifestValidator: Validates manifests against schemas and logic rules
+- ValidationError: Specific validation error with suggestions
 """
 
 from .formalizer import FormalizationResult, SpecFormalizer

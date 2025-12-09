@@ -1,0 +1,113 @@
+# Phase 3 Synthesis: Cross-Pollination Analysis
+
+## Your Mission
+
+You have Phase 2 investigation results from multiple reviewers. Now you must:
+1. Synthesize findings into a coherent understanding
+2. Identify gaps and blind spots
+3. Determine which second-round investigators are needed
+
+**This is a THINKING step** - you're preparing for the second investigation round.
+
+---
+
+## Investigation Results to Analyze
+
+{phase2_results}
+
+---
+
+## Synthesis Questions
+
+Answer each question with evidence from Phase 2 results:
+
+### 1. What is this PR actually doing?
+
+Beyond the ticket description, what patterns emerge from the investigation?
+- What components are being modified?
+- What data flows are affected?
+- What is the actual change in behavior?
+
+### 2. What patterns emerged across agents?
+
+Did multiple agents identify related concerns? Look for:
+- Same file flagged by multiple agents
+- Same function mentioned in different contexts
+- Same pattern issue (e.g., missing validation) appearing in multiple places
+
+### 3. What areas did NO agent examine?
+
+**Critical gap analysis.** Check the diff files against agent coverage:
+- Files that appear in diff but weren't mentioned by any agent
+- Types of changes (tests, config, utilities) that may have been skipped
+- Cross-cutting concerns (error handling, logging) that span files
+
+### 4. Do any findings interact or compound?
+
+Look for combinations that create higher risk than individual issues:
+- Missing validation + data mutation
+- Auth change + API endpoint change
+- Schema change + aggregation change
+
+---
+
+## Determine Second-Round Investigators
+
+Based on your synthesis, which agents should run?
+
+| Agent | Spawn When | Evidence Required |
+|-------|------------|-------------------|
+| interaction-investigator | Multiple findings that might compound | List the interacting findings |
+| blind-spot-hunter | Files in diff weren't examined | List the uncovered files |
+| conclusion-validator | High-severity findings to re-evaluate | List findings needing context review |
+
+**Not all are needed every time.** Only spawn based on evidence.
+
+---
+
+## Output Format
+
+Return JSON:
+```json
+{
+  "pr_summary": "What this PR is actually doing (based on investigation)",
+  "patterns_found": [
+    {
+      "pattern": "Description of recurring pattern",
+      "agents_reporting": ["agent1", "agent2"],
+      "files_affected": ["file1.py", "file2.py"]
+    }
+  ],
+  "gaps_identified": [
+    {
+      "type": "uncovered_file|uncovered_concern|missing_validation",
+      "description": "What wasn't examined",
+      "files": ["list of files if applicable"]
+    }
+  ],
+  "interacting_findings": [
+    {
+      "finding1": "First finding reference",
+      "finding2": "Second finding reference",
+      "interaction_risk": "How they combine to create higher risk"
+    }
+  ],
+  "second_round_agents": [
+    {
+      "agent": "agent-name",
+      "reason": "Why this agent is needed",
+      "focus": "What specifically to investigate"
+    }
+  ],
+  "synthesis_notes": "Any other observations for the final report"
+}
+```
+
+---
+
+## Important
+
+- **Evidence-based only** - every recommendation needs supporting evidence from Phase 2
+- **Don't over-spawn** - second round agents are expensive, only if truly needed
+- **Bias toward action on gaps** - if a file wasn't examined, that's worth investigating
+- **Flag pattern escalations** - if a "medium" finding appears 3 times, that's effectively "high"

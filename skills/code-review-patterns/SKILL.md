@@ -1,6 +1,6 @@
 ---
 name: code-review-patterns
-description: Code review workflow and collaboration patterns including review contexts (architecture, detailed, quick, mentor), feedback tone guidelines, handling reviewer-author disagreements, and GitLab/GitHub integration. Use for review PROCESS and collaboration - NOT for technical standards (use pr-review-standards instead).
+description: Code review workflow and collaboration patterns including review contexts (architecture, detailed, quick, mentor), feedback tone guidelines, handling reviewer-author disagreements, and GitLab/GitHub integration. Use for review PROCESS and collaboration. For technical standards, see python-style and testing-standards skills.
 allowed-tools:
   - Read
   - Grep
@@ -94,7 +94,7 @@ bandit -r src/             # Security scanning
 - [ ] Caching appropriate
 - [ ] Algorithm complexity reasonable
 
-**Integration:** Use vulnerability-triage for security, pr-review-standards for detailed checks.
+**Integration:** Use vulnerability-triage for security, python-style for code standards.
 
 #### Step 4: Tests Review (10 min)
 - [ ] Tests exist for new code
@@ -265,7 +265,7 @@ Keeping current PR focused on original scope.
 | **Low** | Style preferences, optimizations | Optional |
 | **Uncertain** | Can't confirm without context | Flag for discussion |
 
-**Integration:** See pr-review-standards for detailed severity matrix.
+**Integration:** See vulnerability-triage for security severity, python-style for code quality.
 
 ---
 
@@ -373,7 +373,7 @@ gitlab-mr-comments INT-3877
 | **gitlab-scripts** | Fetch MR data | `gitlab-mr-comments <ticket>` |
 | **code-refactoring** | Complexity checks | Flag functions >50 statements |
 | **vulnerability-triage** | Security assessment | Use CVSS scoring |
-| **pr-review-standards** | Detailed standards | try/except rules, logging patterns |
+| **python-style** | Code standards | try/except rules, logging patterns |
 | **testing-standards** | Coverage requirements | 95%+ unit, 1:1 file mapping |
 
 ---
@@ -422,8 +422,8 @@ gitlab-mr-comments INT-3877
 **For detailed examples, workflows, and troubleshooting:** See [reference.md](./reference.md)
 
 **Related skills:**
-- pr-review-standards (detailed code quality standards)
-- gitlab-scripts (MR integration)
-- code-refactoring (complexity patterns)
-- vulnerability-triage (security assessment)
+- python-style (code quality standards)
 - testing-standards (coverage requirements)
+- vulnerability-triage (security assessment)
+- code-refactoring (complexity patterns)
+- agent-prompting (spawning review agents)

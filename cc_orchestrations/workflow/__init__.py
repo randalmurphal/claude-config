@@ -1,6 +1,13 @@
-"""Workflow execution primitives.
+"""Workflow execution engine and loop constructs.
 
-Generic workflow infrastructure used by all workflow types.
+This module provides the core workflow execution infrastructure:
+- WorkflowEngine: Drives workflows through phases
+- ExecutionContext: Runtime context for phase handlers
+- PhaseResult: Result of a phase execution
+- ValidationLoop: Validation with multiple reviewers
+- FixLoop: Fix attempts until resolved
+- VotingGate: Multi-agent consensus for decisions
+- ComponentLoop: Per-component execution pipeline
 """
 
 from .engine import (
@@ -15,6 +22,7 @@ from .gates import (
     VotingOutcome,
     run_voting_gate,
     tally_votes,
+    tally_votes_weighted,
 )
 from .loops import (
     FixLoop,
@@ -24,20 +32,21 @@ from .loops import (
 )
 
 __all__ = [
+    # Engine
     'ComponentLoop',
     'ExecutionContext',
-    'FixLoop',
-    'LoopResult',
     'PhaseHandler',
     'PhaseResult',
-    # Loops
-    'ValidationLoop',
+    'WorkflowEngine',
     # Gates
     'VotingGate',
     'VotingOutcome',
-    # Engine
-    'WorkflowEngine',
-    'issues_are_same',
     'run_voting_gate',
     'tally_votes',
+    'tally_votes_weighted',
+    # Loops
+    'FixLoop',
+    'LoopResult',
+    'ValidationLoop',
+    'issues_are_same',
 ]

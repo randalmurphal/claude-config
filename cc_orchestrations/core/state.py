@@ -1,10 +1,16 @@
 """State machine and persistence for workflow execution.
 
 State is persisted to JSON files, allowing recovery from any point.
+Atomic writes with file locking ensure state integrity.
 """
 
+import fcntl
 import json
 import logging
+import os
+import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -271,11 +277,18 @@ class State:
 
 
 class StateManager:
-    """Manages state persistence and updates."""
+    """Manages state persistence and updates.
+
+    Features:
+    - Atomic writes: temp file + rename prevents corruption
+    - File locking: fcntl prevents concurrent access
+    - History: timestamped snapshots for debugging
+    """
 
     def __init__(self, state_dir: Path):
         self.state_dir = state_dir
         self.state_file = state_dir / 'STATE.json'
+        self.lock_file = state_dir / '.STATE.lock'
         self.history_dir = state_dir / 'history'
         self._state: State | None = None
 
@@ -284,23 +297,54 @@ class StateManager:
         self.state_dir.mkdir(parents=True, exist_ok=True)
         self.history_dir.mkdir(parents=True, exist_ok=True)
 
+    @contextmanager
+    def _file_lock(self, exclusive: bool = True) -> Iterator[None]:
+        """Acquire file lock for state operations.
+
+        Args:
+            exclusive: If True, acquire exclusive (write) lock.
+                      If False, acquire shared (read) lock.
+        """
+        self.ensure_dirs()
+        lock_fd = os.open(
+            str(self.lock_file),
+            os.O_RDWR | os.O_CREAT,
+            0o644,
+        )
+        try:
+            lock_type = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
+            fcntl.flock(lock_fd, lock_type)
+            yield
+        finally:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            os.close(lock_fd)
+
     def load(self) -> State:
-        """Load state from file or create new."""
-        if self.state_file.exists():
-            try:
-                data = json.loads(self.state_file.read_text())
-                self._state = State.from_dict(data)
-                LOG.info(f'Loaded state from {self.state_file}')
-            except (json.JSONDecodeError, KeyError) as e:
-                LOG.error(f'Failed to load state: {e}')
+        """Load state from file or create new.
+
+        Uses shared lock to allow concurrent reads.
+        """
+        with self._file_lock(exclusive=False):
+            if self.state_file.exists():
+                try:
+                    data = json.loads(self.state_file.read_text())
+                    self._state = State.from_dict(data)
+                    LOG.info(f'Loaded state from {self.state_file}')
+                except (json.JSONDecodeError, KeyError) as e:
+                    LOG.error(f'Failed to load state: {e}')
+                    self._state = State()
+            else:
                 self._state = State()
-        else:
-            self._state = State()
-            self._state.started_at = datetime.now().isoformat()
+                self._state.started_at = datetime.now().isoformat()
         return self._state
 
     def save(self, state: State | None = None) -> None:
-        """Save state to file."""
+        """Save state to file atomically.
+
+        Uses exclusive lock and atomic write (temp + rename) to prevent:
+        - Corruption from interrupted writes
+        - Race conditions with concurrent processes
+        """
         if state:
             self._state = state
         if not self._state:
@@ -309,17 +353,42 @@ class StateManager:
         self.ensure_dirs()
         self._state.updated_at = datetime.now().isoformat()
 
-        # Write current state
-        self.state_file.write_text(json.dumps(self._state.to_dict(), indent=2))
+        state_data = json.dumps(self._state.to_dict(), indent=2)
 
-        # Write timestamped history
-        history_file = (
-            self.history_dir
-            / f'{datetime.now().strftime("%Y%m%d_%H%M%S")}.json'
-        )
-        history_file.write_text(json.dumps(self._state.to_dict(), indent=2))
+        with self._file_lock(exclusive=True):
+            # Atomic write: write to temp file then rename
+            self._atomic_write(self.state_file, state_data)
+
+            # Write timestamped history (also atomic)
+            history_file = (
+                self.history_dir
+                / f'{datetime.now().strftime("%Y%m%d_%H%M%S")}.json'
+            )
+            self._atomic_write(history_file, state_data)
 
         LOG.debug(f'Saved state to {self.state_file}')
+
+    def _atomic_write(self, target: Path, content: str) -> None:
+        """Write content to file atomically using temp + rename."""
+        # Write to temp file in same directory (ensures same filesystem)
+        fd, temp_path = tempfile.mkstemp(
+            dir=str(target.parent),
+            prefix='.tmp_',
+            suffix='.json',
+        )
+        try:
+            with os.fdopen(fd, 'w') as f:
+                f.write(content)
+                f.flush()
+                os.fsync(f.fileno())  # Ensure data hits disk
+
+            # Atomic rename
+            os.rename(temp_path, str(target))
+        except Exception:
+            # Clean up temp file on error
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+            raise
 
     @property
     def state(self) -> State:
@@ -387,3 +456,85 @@ class StateManager:
         self.state.completed_at = datetime.now().isoformat()
         self.state.phase_status = PhaseStatus.COMPLETE
         self.save()
+        self.create_checkpoint('workflow_complete')
+
+    # =========================================================================
+    # CHECKPOINTING - Named snapshots for recovery
+    # =========================================================================
+
+    def create_checkpoint(self, name: str) -> Path:
+        """Create a named checkpoint of current state.
+
+        Checkpoints are named snapshots that can be resumed from.
+        Unlike history (timestamped), checkpoints have semantic names.
+
+        Args:
+            name: Checkpoint name (e.g., 'phase_triage_complete')
+
+        Returns:
+            Path to checkpoint file
+        """
+        self.ensure_dirs()
+        checkpoint_dir = self.state_dir / 'checkpoints'
+        checkpoint_dir.mkdir(parents=True, exist_ok=True)
+
+        checkpoint_file = checkpoint_dir / f'{name}.json'
+        if not self._state:
+            raise RuntimeError('Cannot create checkpoint: no state loaded')
+        state_data = json.dumps(self._state.to_dict(), indent=2)
+
+        with self._file_lock(exclusive=True):
+            self._atomic_write(checkpoint_file, state_data)
+
+        LOG.info(f'Created checkpoint: {name}')
+        return checkpoint_file
+
+    def list_checkpoints(self) -> list[str]:
+        """List available checkpoint names.
+
+        Returns:
+            List of checkpoint names (without .json extension)
+        """
+        checkpoint_dir = self.state_dir / 'checkpoints'
+        if not checkpoint_dir.exists():
+            return []
+
+        return sorted(f.stem for f in checkpoint_dir.glob('*.json'))
+
+    def load_checkpoint(self, name: str) -> State:
+        """Load state from a named checkpoint.
+
+        Args:
+            name: Checkpoint name to load
+
+        Returns:
+            Loaded State
+
+        Raises:
+            FileNotFoundError: If checkpoint doesn't exist
+        """
+        checkpoint_file = self.state_dir / 'checkpoints' / f'{name}.json'
+        if not checkpoint_file.exists():
+            available = self.list_checkpoints()
+            raise FileNotFoundError(
+                f"Checkpoint '{name}' not found. Available: {available}"
+            )
+
+        with self._file_lock(exclusive=False):
+            data = json.loads(checkpoint_file.read_text())
+            self._state = State.from_dict(data)
+
+        LOG.info(f'Loaded checkpoint: {name}')
+        return self._state
+
+    def checkpoint_phase(self, phase: str, status: str) -> None:
+        """Auto-create checkpoint when phase completes.
+
+        Call this at phase transitions for automatic recovery points.
+
+        Args:
+            phase: Phase name (e.g., 'triage', 'investigation')
+            status: Phase status ('start', 'complete', 'failed')
+        """
+        checkpoint_name = f'phase_{phase}_{status}'
+        self.create_checkpoint(checkpoint_name)

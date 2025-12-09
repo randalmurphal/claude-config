@@ -12,12 +12,79 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
-from .paths import expand_path, get_claude_home
+from .paths import expand_path, get_data_home
 
 LOG = logging.getLogger(__name__)
 
 # Base directory for all worktrees
-WORKTREES_BASE = get_claude_home() / 'git_worktrees'
+WORKTREES_BASE = get_data_home() / 'git_worktrees'
+
+
+def is_in_worktree(path: Path | None = None) -> bool:
+    """Check if the given path (or cwd) is inside a git worktree.
+
+    A worktree has a .git FILE (not directory) that points to the main repo.
+    The main repo has a .git DIRECTORY.
+
+    Args:
+        path: Path to check (defaults to cwd)
+
+    Returns:
+        True if in a worktree, False if in main repo or not in git
+    """
+    check_path = expand_path(path) if path else Path.cwd()
+
+    git_path = check_path / '.git'
+    if git_path.is_file():
+        # .git is a file = this is a worktree
+        content = git_path.read_text().strip()
+        return content.startswith('gitdir:')
+
+    # Check if we're in a subdirectory of a worktree
+    try:
+        result = subprocess.run(
+            ['git', 'rev-parse', '--git-dir'],
+            cwd=check_path,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        git_dir = result.stdout.strip()
+        # Worktrees have git dirs like /path/to/main/.git/worktrees/name
+        return '/worktrees/' in git_dir
+    except subprocess.CalledProcessError:
+        return False
+
+
+def get_main_repo_from_worktree(worktree_path: Path) -> Path | None:
+    """Get the main repository path from a worktree.
+
+    Args:
+        worktree_path: Path to a worktree
+
+    Returns:
+        Path to the main repository, or None if not a worktree
+    """
+    git_path = worktree_path / '.git'
+    if not git_path.is_file():
+        return None
+
+    content = git_path.read_text().strip()
+    if not content.startswith('gitdir:'):
+        return None
+
+    # Format: gitdir: /path/to/main/.git/worktrees/name
+    git_dir = content.replace('gitdir:', '').strip()
+    # Navigate up from .git/worktrees/name to the main repo
+    # git_dir = /path/to/main/.git/worktrees/name
+    # We want /path/to/main
+    parts = Path(git_dir).parts
+    if 'worktrees' in parts:
+        worktrees_idx = parts.index('worktrees')
+        # Go up to before .git
+        main_git = Path(*parts[:worktrees_idx])  # /path/to/main/.git
+        return main_git.parent  # /path/to/main
+    return None
 
 
 @dataclass
@@ -390,7 +457,9 @@ def worktree_context(
 
 def ensure_worktrees_gitignore() -> None:
     """Ensure git_worktrees directory is in .gitignore."""
-    gitignore_path = get_claude_home() / '.gitignore'
+    data_home = get_data_home()
+    data_home.mkdir(parents=True, exist_ok=True)
+    gitignore_path = data_home / '.gitignore'
 
     # Create or update .gitignore
     entry = 'git_worktrees/'

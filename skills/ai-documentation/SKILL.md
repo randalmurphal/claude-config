@@ -133,54 +133,158 @@ allowed-tools: Read, Write, Edit, Grep, Glob
 
 ---
 
-## llms.txt Index Pattern
+## Monorepo Documentation Patterns
 
-**Purpose**: Help AI agents find relevant docs quickly in large monorepos
+**The document type templates (OVERVIEW.md, BUSINESS_RULES.md, etc.) are for single tools/components.** For large monorepos (>50k lines, multiple tools), use domain-based organization instead.
 
-**When to Create**:
-- Monorepo has >10 documentation files
-- Multiple subsystems with separate docs
-- Documentation spread across directories
+### Monorepo Structure
 
-**Structure**: Organized sections (Quick Start, Business Logic, Architecture, Implementation, Troubleshooting) with file paths + line counts, plus task-specific navigation guides
+```
+monorepo/
+├── AGENTS.md              # Navigation hub (300-500 lines OK)
+├── CLAUDE.md              # Can be @AGENTS.md include
+├── docs/                  # Domain-organized reference docs
+│   ├── MONGO_PATTERNS.md  # Large reference OK (500+ lines)
+│   ├── TESTING_PATTERNS.md
+│   ├── business_objects/  # Domain folder with README + details
+│   ├── collections/
+│   └── imports/
+├── tool_a/
+│   └── AGENTS.md          # Tool-specific context
+└── tool_b/
+    └── AGENTS.md
+```
 
-**For full template:** See reference.md
+### Root AGENTS.md for Monorepos
+
+**Purpose**: Navigation hub + universal patterns (NOT comprehensive docs)
+
+**Structure** (300-500 lines):
+1. **Quick Navigation table** - "Need to... | Go to..."
+2. **Project Structure** - Condensed tree with line counts
+3. **Core Patterns** - Universal rules (DB operations, date handling, logging)
+4. **Common Utilities table** - Top 10 with import counts
+5. **Testing Standards** - Commands and conventions
+6. **Common Gotchas** - Numbered, cross-tool issues
+7. **Related Documentation** - Links to docs/ files
+
+### When Large Files ARE Appropriate
+
+**Reference docs in docs/ don't follow the 100-200 line rule:**
+
+| Location | Line Limit | Why |
+|----------|-----------|-----|
+| CLAUDE.md / AGENTS.md | 100-400 | Context-loaded every session |
+| docs/PATTERNS.md | 500-1000+ | Loaded on-demand, not auto-context |
+| docs/TESTING_PATTERNS.md | 500-1000+ | Comprehensive reference |
+| docs/collections/*.md | Variable | Deep-dive per topic |
+
+**Rule**: Files that are **auto-loaded into context** should be concise. Files in **docs/** that agents fetch on-demand can be comprehensive.
+
+### The @include Pattern
+
+**Use `@FILENAME` to include another file's content:**
+
+```markdown
+# CLAUDE.md
+@AGENTS.md
+```
+
+**Benefits**:
+- Single source of truth (AGENTS.md)
+- Works with both Claude and other AI tools
+- CLAUDE.md stays tiny, AGENTS.md has content
 
 ---
 
-## AGENTS.md Pattern
+## llms.txt Pattern
 
-**Purpose**: Specialized documentation for AI coding agents (alternative to CLAUDE.md)
+### For Public Websites (Formal Spec)
 
-**When to Use**: Detect parent format - maintain consistency (CLAUDE.md or AGENTS.md)
+**Location**: `https://example.com/llms.txt`
 
-**Location**: Project root
-
-**Structure**:
+**Format** (per [llmstxt.org](https://llmstxt.org) spec):
 ```markdown
-# AGENTS.md
+# Project Name
 
-## Quick Context
-- Tech stack, architecture, entry point
+> Brief summary for LLMs
 
-## Documentation Structure
-- Start: OVERVIEW.md, Rules: BUSINESS_RULES.md, API: API_REFERENCE.md
+## Section
+- [Doc Name](https://url): Description
+- [Another Doc](https://url): Description
 
-## For Documentation Updates
-- Review strategy: 1 reviewer per N components
-- Validation priority, line counts, session knowledge extraction
-
-## For Code Changes
-- Testing, linting, standards references
-
-## For Reviews
-- Parallel execution, grouping, focus areas
-
-## Critical Gotchas
-[Project-specific]
+## Optional
+[URLs here can be skipped for shorter context]
 ```
 
-**Key Difference from CLAUDE.md**: Focused on agent workflows vs general project context
+**llms-full.txt**: Companion file with ALL content inlined for single-fetch RAG systems.
+
+### For Local Repos (Index Pattern)
+
+**For local monorepos, formal spec is overkill.** Use simple navigation index:
+
+```markdown
+# llms.txt - Documentation Index
+
+## Quick Start
+- docs/OVERVIEW.md (150 lines) - System architecture
+- docs/QUICK_REF.md (300 lines) - Common tasks
+
+## By Domain
+- docs/business_objects/ - 30 BO type docs
+- docs/collections/ - 14 collection docs
+```
+
+**When to create**: >10 doc files, multiple subsystems, agents struggling to find docs.
+
+---
+
+## AGENTS.md Standard
+
+**AGENTS.md is now an industry standard** (OpenAI, Cursor, Google Jules, 20k+ repos). It's operational documentation for AI coding agents.
+
+### Six Core Areas (Best Practice)
+
+| Area | What to Include | Example |
+|------|-----------------|---------|
+| **Commands** | Build, test, lint with flags | `pytest -vs tests/ --fis-config=...` |
+| **Testing** | How to run, conventions, markers | `@pytest.mark.system` for integration |
+| **Project Structure** | Directory layout with purposes | Condensed tree, file counts |
+| **Code Style** | Patterns, conventions, anti-patterns | "Use retry_run() for all mongo writes" |
+| **Git Workflow** | Branch naming, commit format, PR process | "INT-XXXX: description" |
+| **Boundaries** | What agent should never touch | Secrets, production configs, vendor dirs |
+
+### Three-Tier Boundaries
+
+```markdown
+## Boundaries
+
+**Always do:**
+- Run tests before committing
+- Use retry_run() for MongoDB writes
+- Include ticket number in commits
+
+**Ask first:**
+- Schema changes to businessObjects
+- Changes to shared utilities (50+ importers)
+- API response format changes
+
+**Never do:**
+- Commit secrets or credentials
+- Modify production config files
+- Delete test files without discussion
+```
+
+### AGENTS.md vs CLAUDE.md
+
+| Aspect | AGENTS.md | CLAUDE.md |
+|--------|-----------|-----------|
+| **Focus** | Operational (commands, boundaries) | Philosophical (principles, decisions) |
+| **Audience** | All AI coding tools | Claude specifically |
+| **Content** | How to execute | How to think |
+| **Updates** | When workflows change | When principles change |
+
+**Recommendation**: Use AGENTS.md as primary, `@AGENTS.md` in CLAUDE.md. Add Claude-specific content to CLAUDE.md only if needed (hooks, slash commands).
 
 ---
 
@@ -394,13 +498,15 @@ Before committing documentation changes:
 - [ ] Bullet points over paragraphs where possible
 - [ ] Location references include file:line when relevant
 
-### Line Count Targets
+### Line Count Targets (Context-Loaded Files)
 - [ ] Global CLAUDE.md: 100-120 lines
 - [ ] Project CLAUDE.md: 150-180 lines
 - [ ] Subsystem CLAUDE.md: 120-150 lines
 - [ ] Framework CLAUDE.md: 100-120 lines
 - [ ] Simple Tool CLAUDE.md: 200-250 lines
 - [ ] Complex Tool CLAUDE.md: 300-400 lines max
+- [ ] Monorepo root AGENTS.md: 300-500 lines (navigation hub)
+- [ ] **Exception**: docs/*.md reference files can be 500-1000+ lines
 
 ### Deep-Dive Extraction
 - [ ] If CLAUDE.md > 400 lines, extract to QUICKREF.md
@@ -421,7 +527,8 @@ Before committing documentation changes:
 
 ### Structure
 - [ ] llms.txt index exists and is accurate (if needed)
-- [ ] No file >600 lines (except BUSINESS_RULES if needed)
+- [ ] Context-loaded files (CLAUDE.md, AGENTS.md) ≤500 lines
+- [ ] Reference docs (docs/*.md) can exceed 500 lines if comprehensive
 - [ ] Directory depth ≤3 levels
 - [ ] No duplicate files
 
@@ -490,12 +597,14 @@ Before committing documentation changes:
 ### The Golden Rules
 
 1. **Hierarchical Inheritance** - Never duplicate parent content, always reference
-2. **100-200 Line Target** - Most files should be this range (complex tools 300-400 max)
+2. **Context-Loaded = Concise** - CLAUDE.md/AGENTS.md: 100-400 lines. docs/*.md reference files can be longer
 3. **Tables Over Prose** - Business logic, gotchas, decisions all in table format
-4. **Extract Deep-Dive** - Code examples and detailed implementations → QUICKREF.md
+4. **Extract Deep-Dive** - Code examples and detailed implementations → QUICKREF.md or docs/
 5. **Define Once** - Testing, code style, core principles defined once at appropriate level
 6. **Location References** - Always include file:line for implementation details
 7. **Concise Over Comprehensive** - Documentation is a MAP, not a TUTORIAL
+8. **Monorepos: Domain Organization** - Use docs/ folders by domain, not document-type files
+9. **AGENTS.md Six Areas** - Commands, testing, structure, style, git workflow, boundaries
 
 ### The Test
 

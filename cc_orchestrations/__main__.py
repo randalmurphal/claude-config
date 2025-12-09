@@ -1,4 +1,4 @@
-"""Entry point for python -m orchestrations."""
+"""Entry point for python -m cc_orchestrations."""
 
 import sys
 

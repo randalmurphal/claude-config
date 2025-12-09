@@ -1,23 +1,20 @@
+"""Conduct orchestration workflow.
+
+This module provides the full orchestration workflow for complex features:
+1. Parse spec
+2. Impact analysis (with voting if high impact)
+3. Component loop: skeleton -> implement -> validate -> fix
+4. Integration validation
+5. Final validation (scaled by risk)
+6. Production readiness gate
 """
-Conduct Orchestrator - External enforcement for Claude Code workflows.
 
-Philosophy: Claude can't skip validation loops because the script won't let it
-proceed until the JSON says "pass".
-
-Backwards compatibility layer - imports from new locations.
-"""
-
-__version__ = '0.1.0'
-
-# Re-export from new locations for backwards compatibility
-from cc_orchestrations.conduct.workflows.conduct import (
-    CONDUCT_CONFIG,
-    CONDUCT_HANDLERS,
-    create_conduct_workflow,
-)
+from .config import CONDUCT_CONFIG, create_default_config
+from .workflow import CONDUCT_HANDLERS, create_conduct_workflow
 
 __all__ = [
     'CONDUCT_CONFIG',
     'CONDUCT_HANDLERS',
     'create_conduct_workflow',
+    'create_default_config',
 ]

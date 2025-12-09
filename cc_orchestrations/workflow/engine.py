@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from cc_orchestrations.core.config import Config, PhaseConfig
+from cc_orchestrations.core.git import git_commit
 from cc_orchestrations.core.runner import AgentRunner
 from cc_orchestrations.core.state import (
     ComponentState,
@@ -20,6 +21,7 @@ from cc_orchestrations.core.state import (
     State,
     StateManager,
 )
+from cc_orchestrations.core.workspace import Workspace
 
 from .loops import LoopResult, ValidationLoop
 
@@ -65,10 +67,40 @@ class ExecutionContext:
     components: list[dict[str, Any]] = field(default_factory=list)
     current_component: str = ''
     risk_level: str = 'medium'
+    draft_mode: bool = False  # True if running in draft mode (Composer)
+
+    # Workspace for context management (PULL model)
+    workspace: Workspace | None = None
 
     # Callbacks
     on_status_change: Callable[[str, str], None] | None = None
     on_user_prompt: Callable[[str], str] | None = None
+
+    # Commit tracking
+    commits: list[str] = field(default_factory=list)  # Commit hashes created
+
+    def commit_phase(
+        self, phase: str, component: str | None = None
+    ) -> str | None:
+        """Create a commit after a phase completes.
+
+        Args:
+            phase: Phase name (skeleton, implementation, validation)
+            component: Component name if applicable
+
+        Returns:
+            Commit hash if created, None if no changes
+        """
+        commit_hash = git_commit(
+            work_dir=self.work_dir,
+            phase=phase,
+            component=component,
+            draft_mode=self.draft_mode,
+        )
+        if commit_hash:
+            self.commits.append(commit_hash)
+            LOG.info(f'Committed {phase}: {commit_hash}')
+        return commit_hash
 
     @property
     def mode_config(self) -> Any:
@@ -94,23 +126,39 @@ class ExecutionContext:
             self.on_status_change(phase, status)
 
     def ask_user(self, prompt: str) -> str:
-        """Ask user for input."""
+        """Ask user for input.
+
+        Raises:
+            RuntimeError: If running non-interactively and no callback set
+        """
         if self.on_user_prompt:
             return self.on_user_prompt(prompt)
         # Fallback to stdin
         print(prompt)
-        return input('> ').strip()
+        try:
+            return input('> ').strip()
+        except EOFError:
+            # Non-interactive mode - can't prompt user
+            raise RuntimeError(
+                f'User input required but running non-interactively. '
+                f'Prompt was: {prompt[:200]}...'
+            ) from None
 
     def get_completed_components(self) -> list[str]:
         """Get list of completed component files."""
         return self.state.get_completed_components()
 
     def get_component_context(self, component: str) -> dict[str, Any]:
-        """Build context for a component operation."""
+        """Build context for a component operation.
+
+        If workspace is available, includes workspace context for the component.
+        Otherwise falls back to state-based context.
+        """
         comp_state = self.state.components.get(
             component, ComponentState(file=component)
         )
-        return {
+
+        base_context = {
             'component': component,
             'purpose': comp_state.purpose,
             'depends_on': comp_state.depends_on,
@@ -123,6 +171,18 @@ class ExecutionContext:
             'spec_path': str(self.spec_path),
         }
 
+        # Add workspace context if available
+        if self.workspace and self.workspace.is_initialized:
+            # Get component ID from file path (use stem or sanitized name)
+            component_id = (
+                Path(component).stem.replace('-', '_').replace('.', '_')
+            )
+            base_context['workspace_context'] = (
+                self.workspace.get_component_context(component_id)
+            )
+
+        return base_context
+
 
 class WorkflowEngine:
     """Executes a workflow through its phases."""
@@ -133,10 +193,12 @@ class WorkflowEngine:
         work_dir: Path,
         spec_path: Path,
         handlers: dict[str, PhaseHandler] | None = None,
+        draft_mode: bool = False,
     ):
         self.config = config
         self.work_dir = work_dir
         self.spec_path = spec_path
+        self.draft_mode = draft_mode  # Composer-only run for spec validation
 
         # Initialize state
         state_dir = work_dir / config.state_dir
@@ -189,6 +251,7 @@ class WorkflowEngine:
             handlers=self.handlers,
             on_status_change=self.on_status_change,
             on_user_prompt=self.on_user_prompt,
+            draft_mode=self.draft_mode,
         )
 
         # Find starting phase
@@ -316,7 +379,7 @@ class WorkflowEngine:
             else {}
         )
 
-        tasks = [
+        tasks: list[tuple[str, str, dict[str, Any] | None]] = [
             (agent, f'Execute {phase.name} for {component}', context)
             for agent in phase.agents
         ]
@@ -359,24 +422,112 @@ class WorkflowEngine:
         return PhaseResult(success=True)
 
     def _eval_condition(self, condition: str, ctx: ExecutionContext) -> bool:
-        """Safely evaluate a condition string."""
+        """Safely evaluate a condition string WITHOUT using eval().
+
+        Supports these patterns:
+        - Simple boolean: 'is_new_project'
+        - Equality: "risk_level == 'high'"
+        - Inequality: "risk_level != 'low'"
+        - Membership: "risk_level in ('high', 'critical')"
+        - Negated membership: "risk_level not in ('high', 'critical')"
+
+        Returns False for any unparseable condition (fail safe).
+        """
+        # Build namespace
+        namespace = {
+            'state': ctx.state,
+            'components': ctx.components,
+            'risk_level': ctx.risk_level,
+            'is_new_project': ctx.state.is_new_project,
+            'transitive_deps': getattr(ctx.state, 'transitive_deps', 0),
+        }
+
         try:
-            # Build safe namespace
-            namespace = {
-                'state': ctx.state,
-                'components': ctx.components,
-                'risk_level': ctx.risk_level,
-                'is_new_project': ctx.state.is_new_project,
-                'transitive_deps': getattr(ctx.state, 'transitive_deps', 0),
-            }
-            return bool(eval(condition, {'__builtins__': {}}, namespace))
+            return self._safe_evaluate(condition.strip(), namespace)
         except Exception as e:
             LOG.warning(f"Failed to evaluate condition '{condition}': {e}")
             return False
 
+    def _safe_evaluate(self, condition: str, namespace: dict[str, Any]) -> bool:
+        """Parse and evaluate a condition safely."""
+        import re
+
+        # Pattern: field not in ('a', 'b', ...)
+        match = re.match(
+            r'(\w+)\s+not\s+in\s+\(([^)]+)\)',
+            condition,
+        )
+        if match:
+            field, values_str = match.groups()
+            values = self._parse_tuple(values_str)
+            return namespace.get(field) not in values
+
+        # Pattern: field in ('a', 'b', ...)
+        match = re.match(r'(\w+)\s+in\s+\(([^)]+)\)', condition)
+        if match:
+            field, values_str = match.groups()
+            values = self._parse_tuple(values_str)
+            return namespace.get(field) in values
+
+        # Pattern: field == 'value' or field == value
+        match = re.match(r'(\w+)\s*==\s*(.+)', condition)
+        if match:
+            field, value_str = match.groups()
+            value = self._parse_value(value_str.strip())
+            return namespace.get(field) == value
+
+        # Pattern: field != 'value' or field != value
+        match = re.match(r'(\w+)\s*!=\s*(.+)', condition)
+        if match:
+            field, value_str = match.groups()
+            value = self._parse_value(value_str.strip())
+            return namespace.get(field) != value
+
+        # Pattern: simple field (truthy check)
+        if re.match(r'^\w+$', condition):
+            return bool(namespace.get(condition))
+
+        LOG.warning(f"Unsupported condition pattern: '{condition}'")
+        return False
+
+    def _parse_tuple(self, values_str: str) -> tuple[Any, ...]:
+        """Parse comma-separated values from a tuple string."""
+        values = []
+        for v in values_str.split(','):
+            values.append(self._parse_value(v.strip()))
+        return tuple(values)
+
+    def _parse_value(self, value_str: str) -> Any:
+        """Parse a single value from string."""
+        # String literal (single or double quotes)
+        if (value_str.startswith("'") and value_str.endswith("'")) or (
+            value_str.startswith('"') and value_str.endswith('"')
+        ):
+            return value_str[1:-1]
+        # Boolean
+        if value_str.lower() == 'true':
+            return True
+        if value_str.lower() == 'false':
+            return False
+        # None
+        if value_str.lower() == 'none':
+            return None
+        # Number
+        try:
+            if '.' in value_str:
+                return float(value_str)
+            return int(value_str)
+        except ValueError:
+            pass
+        # Return as-is (field reference would need more work)
+        return value_str
+
 
 class ComponentLoop:
     """Handles the per-component execution loop."""
+
+    # Risk levels that trigger Opus for implementation
+    HIGH_RISK_LEVELS = ('high', 'critical')
 
     def __init__(
         self,
@@ -399,8 +550,42 @@ class ComponentLoop:
             else 2,
         )
 
+    def _should_use_opus(self, component: str) -> bool:
+        """Determine if Opus should be used for this component.
+
+        Uses Opus when:
+        - Overall risk level is high/critical (blast radius)
+        - Component complexity is 'high'
+        - Component touches shared utilities (common/, helpers/, utils/)
+
+        Args:
+            component: Component file path
+
+        Returns:
+            True if Opus should be used for implementation
+        """
+        # Check overall risk level (blast radius)
+        if self.ctx.risk_level in self.HIGH_RISK_LEVELS:
+            return True
+
+        # Check component-specific complexity
+        comp_state = self.ctx.state.components.get(
+            component, ComponentState(file=component)
+        )
+        if comp_state.complexity == 'high':
+            return True
+
+        # Check for shared utility paths
+        shared_patterns = ('common/', 'helpers/', 'utils/', 'shared/', 'lib/')
+        if any(pattern in component.lower() for pattern in shared_patterns):
+            return True
+
+        return False
+
     def run_component(self, component: str) -> PhaseResult:
         """Run full component pipeline: skeleton -> implement -> validate.
+
+        Commits are created after each coding phase for reviewable timeline.
 
         Args:
             component: Component file path
@@ -419,6 +604,9 @@ class ComponentLoop:
         if not skeleton_result.success:
             return skeleton_result
 
+        # Commit skeleton
+        self.ctx.commit_phase('skeleton', component)
+
         self.ctx.state_manager.update_component(
             component, status=ComponentStatus.IMPLEMENTING
         )
@@ -429,6 +617,9 @@ class ComponentLoop:
         if not impl_result.success:
             return impl_result
 
+        # Commit implementation
+        self.ctx.commit_phase('implementation', component)
+
         self.ctx.state_manager.update_component(
             component, status=ComponentStatus.VALIDATING
         )
@@ -438,6 +629,9 @@ class ComponentLoop:
         validation_result = self._run_validation(component)
 
         if validation_result.passed:
+            # Commit any validation fixes
+            self.ctx.commit_phase('validation', component)
+
             self.ctx.state_manager.update_component(
                 component, status=ComponentStatus.COMPLETE
             )
@@ -445,6 +639,9 @@ class ComponentLoop:
             return PhaseResult(success=True)
 
         if validation_result.escalated:
+            # Commit partial progress even on escalation
+            self.ctx.commit_phase('validation-blocked', component)
+
             self.ctx.state_manager.update_component(
                 component,
                 status=ComponentStatus.BLOCKED,
@@ -466,11 +663,24 @@ class ComponentLoop:
     def _run_skeleton(self, component: str) -> PhaseResult:
         """Build skeleton for component."""
         context = self.ctx.get_component_context(component)
+        # Get component ID for workspace context
+        component_id = Path(component).stem.replace('-', '_').replace('.', '_')
+
+        # Use Opus for high-risk/high-complexity components
+        model_override = 'opus' if self._should_use_opus(component) else None
+        if model_override:
+            self.ctx.log_status(
+                component,
+                f'Using {model_override} for skeleton (high risk/complexity)',
+            )
 
         result = self.ctx.runner.run(
             'skeleton_builder',
             f'Create skeleton for {component}',
             context=context,
+            component_id=component_id,
+            workspace=self.ctx.workspace,
+            model_override=model_override,
         )
 
         if not result.success:
@@ -489,11 +699,24 @@ class ComponentLoop:
     def _run_implementation(self, component: str) -> PhaseResult:
         """Implement component."""
         context = self.ctx.get_component_context(component)
+        # Get component ID for workspace context
+        component_id = Path(component).stem.replace('-', '_').replace('.', '_')
+
+        # Use Opus for high-risk/high-complexity components
+        model_override = 'opus' if self._should_use_opus(component) else None
+        if model_override:
+            self.ctx.log_status(
+                component,
+                f'Using {model_override} for implementation (high risk/complexity)',
+            )
 
         result = self.ctx.runner.run(
             'implementation_executor',
             f'Implement {component}',
             context=context,
+            component_id=component_id,
+            workspace=self.ctx.workspace,
+            model_override=model_override,
         )
 
         if not result.success:

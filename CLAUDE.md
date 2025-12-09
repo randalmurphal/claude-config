@@ -113,7 +113,7 @@ Review depth scales to blast radius (not file count):
 | Tests | `testing-standards` |
 | Documentation | `ai-documentation` |
 | MongoDB | `mongodb-aggregation-optimization` |
-| PR review | `pr-review-standards` |
+| PR review | `code-review-patterns` |
 
 **Be generous with skill loading** - if a skill exists, use it.
 

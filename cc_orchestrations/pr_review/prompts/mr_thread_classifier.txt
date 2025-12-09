@@ -1,0 +1,77 @@
+# MR Thread Classifier Prompt
+
+Classify the status of MR discussion threads.
+
+## Context
+
+MR discussions may contain feedback that's been addressed, dismissed,
+or still outstanding. Classify each thread so the report reflects current state.
+
+## MR Discussion Threads
+
+{mr_discussions}
+
+## Latest Commit in MR
+
+{latest_commit}
+
+## Your Task
+
+For each discussion thread:
+
+1. Read the original comment/concern
+2. Check if there are replies or resolution markers
+3. Examine if code was modified to address it
+4. Determine current status
+
+## Thread Statuses
+
+- **ADDRESSED**: Issue was fixed in code (cite the commit/change)
+- **DISMISSED**: Author/reviewer agreed it's not an issue (cite the reason)
+- **OUTSTANDING**: Issue raised but not yet resolved
+- **PLANNED_FOLLOWUP**: Acknowledged, will be addressed in separate ticket
+
+## Output Format
+
+Return JSON:
+```json
+{
+  "thread_classifications": [
+    {
+      "thread_id": "abc123",
+      "topic": "Brief topic description",
+      "original_concern": "What was raised",
+      "status": "ADDRESSED|DISMISSED|OUTSTANDING|PLANNED_FOLLOWUP",
+      "evidence": "How you determined this status",
+      "file_affected": "path/to/file.py (if applicable)",
+      "followup_ticket": "JIRA-123 (if PLANNED_FOLLOWUP)"
+    }
+  ],
+  "summary": {
+    "addressed": 3,
+    "dismissed": 1,
+    "outstanding": 2,
+    "planned_followup": 0
+  },
+  "blocking_threads": ["thread_id of any OUTSTANDING that should block merge"]
+}
+```
+
+## Classification Rules
+
+**ADDRESSED** requires:
+- Code change that addresses the concern, OR
+- Explicit "resolved" marker in thread
+
+**DISMISSED** requires:
+- Clear agreement from author + reviewer that it's not an issue
+- Reasoning documented in thread
+
+**OUTSTANDING** means:
+- Concern raised, no resolution visible
+- These should likely be addressed before merge
+
+**PLANNED_FOLLOWUP** means:
+- Acknowledged as valid
+- Explicit agreement to handle in separate ticket
+- Should have ticket reference

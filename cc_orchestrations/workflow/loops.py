@@ -7,10 +7,13 @@ until the validation passes or escalates.
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from cc_orchestrations.core.runner import AgentResult, AgentRunner
 from cc_orchestrations.core.state import Issue
+
+if TYPE_CHECKING:
+    from cc_orchestrations.core.state import StateManager
 
 from .gates import VotingOutcome, run_voting_gate
 
@@ -57,11 +60,13 @@ class ValidationLoop:
         max_attempts: int = 3,
         reviewers: int = 2,
         same_issue_threshold: int = 2,
+        state_manager: 'StateManager | None' = None,
     ):
         self.runner = runner
         self.max_attempts = max_attempts
         self.reviewers = reviewers
         self.same_issue_threshold = same_issue_threshold
+        self.state_manager = state_manager
 
     def run(
         self,
@@ -87,14 +92,20 @@ class ValidationLoop:
         all_issues: list[Issue] = []
         previous_issues: list[Issue] = []
         same_issue_count = 0
+        attempt_history: list[dict[str, Any]] = []
 
         for attempt in range(1, self.max_attempts + 1):
+            # Checkpoint before each attempt if state manager available
+            if self.state_manager:
+                self.state_manager.create_checkpoint(
+                    f'{component}_validation_attempt_{attempt}'
+                )
             LOG.info(
                 f'Validation attempt {attempt}/{self.max_attempts} for {component}'
             )
 
             # Run validators in parallel
-            tasks = [
+            tasks: list[tuple[str, str, dict[str, Any] | None]] = [
                 (
                     agent,
                     f'Validate {component}',
@@ -183,10 +194,37 @@ class ValidationLoop:
 
             # If not last attempt, run fix loop
             if attempt < self.max_attempts:
-                fix_result = self._run_fix(component, current_issues, context)
+                fix_result = self._run_fix(
+                    component,
+                    current_issues,
+                    context,
+                    attempt=attempt,
+                    attempt_history=attempt_history,
+                )
                 if not fix_result.success:
                     LOG.error(f'Fix failed: {fix_result.error}')
                     # Continue to next validation attempt anyway
+
+                # Track attempt history for next fix
+                attempt_history.append(
+                    {
+                        'attempt': attempt,
+                        'issues_before': [i.to_dict() for i in current_issues],
+                        'outcome': 'failed'
+                        if not fix_result.success
+                        else ('partial' if current_issues else 'success'),
+                        'remaining': len(current_issues),
+                        'error': fix_result.error
+                        if not fix_result.success
+                        else '',
+                    }
+                )
+
+                # Checkpoint after fix attempt
+                if self.state_manager:
+                    self.state_manager.create_checkpoint(
+                        f'{component}_fix_attempt_{attempt}'
+                    )
 
         # Max attempts reached
         return LoopResult(
@@ -202,12 +240,54 @@ class ValidationLoop:
         component: str,
         issues: list[Issue],
         context: dict[str, Any],
+        attempt: int = 1,
+        attempt_history: list[dict[str, Any]] | None = None,
     ) -> AgentResult:
-        """Run fix executor for issues."""
-        issues_json = [i.to_dict() for i in issues]
-        prompt = f"""Fix the following issues in {component}:
+        """Run fix executor for issues.
 
-Issues:
+        Escalates to Opus model after first failed attempt to improve fix quality.
+        Includes failure history from previous attempts to help fix executor
+        avoid repeating the same mistakes.
+        """
+        issues_json = [i.to_dict() for i in issues]
+
+        # Escalate to Opus after first failed fix attempt
+        model_override = 'opus' if attempt > 1 else None
+        if model_override:
+            LOG.info(
+                f'Escalating to {model_override} for fix attempt {attempt}'
+            )
+
+        # Build history section if we have previous attempts
+        history_section = ''
+        if attempt_history and attempt > 1:
+            history_lines = []
+            for h in attempt_history:
+                outcome = h.get('outcome', 'unknown')
+                remaining = h.get('remaining', '?')
+                error = h.get('error', '')
+                error_suffix = f' - Error: {error[:100]}' if error else ''
+                history_lines.append(
+                    f'- Attempt {h["attempt"]}: {outcome} ({remaining} issues remaining){error_suffix}'
+                )
+
+            history_section = f"""
+## Previous Attempts ({len(attempt_history)} so far)
+
+{chr(10).join(history_lines)}
+
+## What to try differently:
+- If previous fix was incomplete, finish it
+- If previous fix caused new errors, revert and try alternative approach
+- If same error repeats, investigate root cause first
+- Check if the fix is in the correct file/location
+
+"""
+
+        prompt = f"""Fix the following issues in {component}:
+{history_section}
+## Current Issues
+
 {issues_json}
 
 Fix all critical and major issues. Run linting after fixes.
@@ -216,6 +296,7 @@ Fix all critical and major issues. Run linting after fixes.
             'fix_executor',
             prompt,
             context={**context, 'issues': issues_json},
+            model_override=model_override,
         )
 
     def _vote_on_fix_strategy(
@@ -252,6 +333,102 @@ Consider the root cause and whether the issue is fixable with current approach.
             options=['FIX_IN_PLACE', 'REFACTOR', 'ESCALATE'],
             schema='fix_strategy_vote',
             voter_agent='investigator',
+        )
+
+    def run_end_state_validation(
+        self,
+        components: list[str],
+        context: dict[str, Any],
+        spec_summary: str = '',
+    ) -> LoopResult:
+        """Validate that all components work together.
+
+        Call after component loop completes, before marking workflow done.
+        Checks for integration issues between components.
+
+        Args:
+            components: List of completed component file paths
+            context: Context for the validator
+            spec_summary: Summary of the spec goals (optional)
+
+        Returns:
+            LoopResult indicating pass/fail for integration
+        """
+        if not components:
+            return LoopResult(passed=True, attempts=1)
+
+        component_list = '\n'.join(f'- {c}' for c in components)
+
+        prompt = f"""## End-State Validation
+
+All components claim to be complete. Verify the system as a whole works.
+
+### Components Completed ({len(components)})
+{component_list}
+
+### Spec Summary
+{spec_summary or 'Not provided'}
+
+### Checks Required
+1. **Imports resolve**: Do all modules import correctly? Check for circular imports.
+2. **Interfaces match**: Do function signatures match between callers and callees?
+3. **Integration gaps**: Are there missing connections between components?
+4. **Runtime issues**: Missing __init__.py, incorrect relative imports, etc.
+5. **Spec goal**: Does the system achieve the original spec goal?
+
+### Output Format
+{{
+    "integration_passed": true/false,
+    "issues": [
+        {{
+            "type": "circular_import|missing_import|interface_mismatch|integration_gap|spec_gap",
+            "components": ["file_a.py", "file_b.py"],
+            "issue": "Description of the problem",
+            "severity": "critical|major|minor"
+        }}
+    ],
+    "recommendation": "PROCEED|FIX_REQUIRED|MANUAL_CHECK"
+}}
+"""
+
+        result = self.runner.run(
+            'validator',
+            prompt,
+            context={**context, 'components': components},
+            model_override='opus',  # End-state needs good judgment
+        )
+
+        if not result.success:
+            return LoopResult(
+                passed=False,
+                attempts=1,
+                error=f'End-state validation failed: {result.error}',
+            )
+
+        passed = result.data.get('integration_passed', False)
+        recommendation = result.data.get('recommendation', 'MANUAL_CHECK')
+
+        issues = [
+            Issue(
+                severity=i.get('severity', 'major'),
+                issue=i.get('issue', ''),
+                file=', '.join(i.get('components', [])),
+            )
+            for i in result.data.get('issues', [])
+        ]
+
+        # Checkpoint after end-state validation
+        if self.state_manager:
+            self.state_manager.create_checkpoint('end_state_validation')
+
+        return LoopResult(
+            passed=passed,
+            attempts=1,
+            issues_found=issues,
+            escalated=not passed and recommendation == 'MANUAL_CHECK',
+            escalation_reason='End-state validation requires manual review'
+            if recommendation == 'MANUAL_CHECK'
+            else '',
         )
 
 

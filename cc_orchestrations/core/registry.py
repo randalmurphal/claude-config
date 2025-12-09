@@ -35,7 +35,7 @@ class AgentType:
             prompt_template=overrides.get(
                 'prompt_template', self.prompt_template
             ),
-            timeout=overrides.get('timeout', self.timeout),
+            _timeout=overrides.get('timeout', self.timeout),
             description=overrides.get('description', self.description),
         )
 

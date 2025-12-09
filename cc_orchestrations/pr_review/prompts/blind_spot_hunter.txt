@@ -1,0 +1,64 @@
+# Blind Spot Hunter Prompt
+
+Investigate areas that first-round reviewers MISSED.
+
+## Context
+
+First-round reviewers looked at files based on their domain expertise.
+You're looking for what they DIDN'T examine.
+
+## Gaps Identified
+
+These areas were not covered by any first-round reviewer:
+{gaps}
+
+## Changed Files
+
+{diff_files}
+
+## Your Task
+
+1. For each gap, examine the relevant code
+2. Look for issues the domain-specific reviewers wouldn't catch
+3. Focus on cross-cutting concerns:
+   - Error handling consistency
+   - Resource cleanup (file handles, connections)
+   - State management across calls
+   - Backwards compatibility
+   - Edge cases at boundaries
+
+## Output Format
+
+Return JSON:
+```json
+{
+  "issues": [
+    {
+      "severity": "critical|high|medium|low",
+      "issue": "Brief description",
+      "file": "path/to/file.py",
+      "line": 123,
+      "details": "Full explanation",
+      "recommendation": "How to fix",
+      "gap_addressed": "Which gap this finding addresses"
+    }
+  ],
+  "gaps_examined": ["gap1", "gap2"],
+  "no_issues_areas": ["gap3 - examined, looks fine because..."]
+}
+```
+
+## Focus Areas
+
+- **Integration points**: Where modules connect
+- **Data transformations**: Where types change
+- **Boundary conditions**: Limits, empty cases, nulls
+- **Concurrency**: Parallel access, race conditions
+- **Cleanup paths**: Finally blocks, context managers, destructors
+
+## NOT Looking For
+
+- Style/formatting (ruff handles this)
+- Type hints on existing code
+- "Could be better" suggestions
+- Theoretical issues without proof

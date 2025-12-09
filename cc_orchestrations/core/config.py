@@ -13,6 +13,118 @@ from typing import Any
 LOG = logging.getLogger(__name__)
 
 
+class CLIBackend(str, Enum):
+    """CLI backend for agent execution.
+
+    IMPORTANT: Always prefer CLAUDE for Anthropic models (opus, sonnet, haiku).
+    Only use CURSOR for non-Anthropic models (gpt-5.1, gemini-3-pro, grok, composer-1).
+    """
+
+    CLAUDE = 'claude'  # Claude Code CLI - for all Anthropic models
+    CURSOR = 'cursor'  # cursor-agent CLI - for non-Anthropic models only
+
+
+# Claude Code thinking model (full model ID required)
+# Use this for critical decisions requiring extended reasoning
+OPUS_THINKING_MODEL = 'claude-opus-4-5-20251101-thinking'
+
+# Cursor-agent supported models (actual names the CLI accepts)
+# See: cursor-agent --help for available models
+# NEVER route opus/sonnet/haiku through cursor - use Claude Code CLI for those
+CURSOR_MODELS: set[str] = {
+    # Cursor-native models (use these names directly)
+    'composer-1',
+    'auto',
+    'gpt-5.1',
+    'gpt-5.1-high',
+    'gpt-5.1-codex',
+    'gpt-5.1-codex-high',
+    'gpt-5.1-codex-max',
+    'gpt-5.1-codex-max-high',
+    'gemini-3-pro',
+    'grok',
+    # Claude models available through cursor (but prefer Claude Code for these)
+    'sonnet-4.5',
+    'sonnet-4.5-thinking',
+    'opus-4.5',
+    'opus-4.5-thinking',
+    'opus-4.1',
+}
+
+# Models that should ALWAYS use Claude Code (never route through cursor)
+CLAUDE_ONLY_MODELS = {'opus', 'sonnet', 'haiku'}
+
+
+def get_backend_for_model(model: str) -> CLIBackend:
+    """Determine which backend to use based on model.
+
+    Claude models (opus, sonnet, haiku) ALWAYS go through Claude Code.
+    Cursor models (composer-1, gpt-5.1, etc.) use cursor-agent.
+
+    Args:
+        model: Model name (use actual model names like 'composer-1', not aliases)
+
+    Returns:
+        CLIBackend to use
+    """
+    model_lower = model.lower()
+
+    # Check for Claude models - always use Claude Code
+    for claude_model in CLAUDE_ONLY_MODELS:
+        if claude_model in model_lower:
+            return CLIBackend.CLAUDE
+
+    # Check for explicit cursor models (exact match)
+    if model_lower in CURSOR_MODELS:
+        return CLIBackend.CURSOR
+
+    # Default to Claude Code
+    return CLIBackend.CLAUDE
+
+
+# Model-specific default timeouts (seconds)
+# These are generous defaults - agents often need time to think and work
+# Use actual model names (what the CLIs expect)
+MODEL_TIMEOUTS: dict[str, int] = {
+    # Claude Code models - generous timeouts for complex work
+    'opus': 600,  # Complex reasoning, 10 minutes
+    'sonnet': 480,  # Standard model, 8 minutes
+    'haiku': 180,  # Fast model, 3 minutes
+    # Cursor-agent models (use actual names)
+    'composer-1': 300,  # 5 minutes
+    'gpt-5.1': 480,
+    'gpt-5.1-high': 600,
+    'gpt-5.1-codex': 600,
+    'gemini-3-pro': 480,
+    'grok': 300,
+}
+
+# Default timeout if model not found in MODEL_TIMEOUTS
+DEFAULT_TIMEOUT = 480
+
+
+def get_timeout_for_model(model: str) -> int:
+    """Get the appropriate timeout for a model.
+
+    Args:
+        model: Model name (opus, sonnet, haiku, or full model ID)
+
+    Returns:
+        Timeout in seconds
+    """
+    # Check exact match first
+    if model in MODEL_TIMEOUTS:
+        return MODEL_TIMEOUTS[model]
+
+    # Check for partial match (e.g., 'claude-3-opus' contains 'opus')
+    model_lower = model.lower()
+    for key, timeout in MODEL_TIMEOUTS.items():
+        if key in model_lower:
+            return timeout
+
+    return DEFAULT_TIMEOUT
+
+
 class ExecutionMode(str, Enum):
     """Execution mode controlling validation depth and parallelization."""
 
@@ -107,7 +219,11 @@ MODE_CONFIGS: dict[ExecutionMode, ModeConfig] = {
 
 @dataclass
 class AgentConfig:
-    """Configuration for an agent type."""
+    """Configuration for an agent type.
+
+    Timeout is model-aware: if not explicitly set, uses MODEL_TIMEOUTS
+    based on the agent's model (opus: 600s, sonnet: 480s, haiku: 180s).
+    """
 
     name: str
     model: str = 'sonnet'
@@ -115,8 +231,20 @@ class AgentConfig:
     allowed_tools: list[str] = field(default_factory=list)
     disallowed_tools: list[str] = field(default_factory=list)
     prompt_template: str = ''
-    timeout: int = 300  # seconds
+    _timeout: int | None = None  # Explicit timeout, or None for model-based
     description: str = ''
+
+    @property
+    def timeout(self) -> int:
+        """Get timeout - uses model-based default if not explicitly set."""
+        if self._timeout is not None:
+            return self._timeout
+        return get_timeout_for_model(self.model)
+
+    @timeout.setter
+    def timeout(self, value: int) -> None:
+        """Set explicit timeout."""
+        self._timeout = value
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -126,37 +254,61 @@ class AgentConfig:
             'allowed_tools': self.allowed_tools,
             'disallowed_tools': self.disallowed_tools,
             'prompt_template': self.prompt_template,
-            'timeout': self.timeout,
+            'timeout': self._timeout,  # Save explicit value (None = use default)
             'description': self.description,
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> 'AgentConfig':
-        return cls(
+        config = cls(
             name=data['name'],
             model=data.get('model', 'sonnet'),
             schema=data.get('schema', ''),
             allowed_tools=data.get('allowed_tools', []),
             disallowed_tools=data.get('disallowed_tools', []),
             prompt_template=data.get('prompt_template', ''),
-            timeout=data.get('timeout', 300),
             description=data.get('description', ''),
         )
+        # Only set explicit timeout if provided in data
+        if 'timeout' in data and data['timeout'] is not None:
+            config._timeout = data['timeout']
+        return config
 
 
 @dataclass
 class VotingGateConfig:
-    """Configuration for a voting gate."""
+    """Configuration for a voting gate.
+
+    Supports multi-model councils for diverse perspectives:
+    - voter_models: List of models to use (cycles through if fewer than num_voters)
+    - Default: 2x opus + gpt5 + gemini for 4-voter councils
+    """
 
     name: str
     trigger_condition: str  # Python expression evaluated against state
-    num_voters: int = 3
+    num_voters: int = 4  # Default to 4 for diverse council
     consensus_threshold: float = 0.67  # 2/3 default
     voter_agent: str = 'investigator'
+    voter_models: list[str] = field(default_factory=list)  # Multi-model support
     schema: str = ''
     prompt_template: str = ''
     options: list[str] = field(default_factory=list)
     description: str = ''
+
+    def __post_init__(self) -> None:
+        """Set default voter models if not provided."""
+        if not self.voter_models:
+            # Default diverse council: 2 opus + 1 gpt5 + 1 gemini
+            self.voter_models = DEFAULT_COUNCIL_MODELS.copy()
+
+    def get_model_for_voter(self, voter_index: int) -> str:
+        """Get model for a specific voter index.
+
+        Cycles through voter_models if fewer models than voters.
+        """
+        if not self.voter_models:
+            return 'opus'  # Fallback
+        return self.voter_models[voter_index % len(self.voter_models)]
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -165,6 +317,7 @@ class VotingGateConfig:
             'num_voters': self.num_voters,
             'consensus_threshold': self.consensus_threshold,
             'voter_agent': self.voter_agent,
+            'voter_models': self.voter_models,
             'schema': self.schema,
             'prompt_template': self.prompt_template,
             'options': self.options,
@@ -176,14 +329,25 @@ class VotingGateConfig:
         return cls(
             name=data['name'],
             trigger_condition=data.get('trigger_condition', 'False'),
-            num_voters=data.get('num_voters', 3),
+            num_voters=data.get('num_voters', 4),
             consensus_threshold=data.get('consensus_threshold', 0.67),
             voter_agent=data.get('voter_agent', 'investigator'),
+            voter_models=data.get('voter_models', []),
             schema=data.get('schema', ''),
             prompt_template=data.get('prompt_template', ''),
             options=data.get('options', []),
             description=data.get('description', ''),
         )
+
+
+# Default council: 1 opus-thinking (deep reasoning) + 1 opus + 1 gpt-5.1-high + 1 gemini-3-pro
+# The thinking model goes first for critical decisions requiring extended reasoning
+DEFAULT_COUNCIL_MODELS: list[str] = [
+    OPUS_THINKING_MODEL,  # Deep reasoning for critical decisions
+    'opus',  # Standard opus for judgment
+    'gpt-5.1-high',  # Diversity: OpenAI perspective
+    'gemini-3-pro',  # Diversity: Google perspective
+]
 
 
 @dataclass
@@ -338,6 +502,12 @@ class Config:
     dry_run: bool = (
         False  # When True, agents return test data without doing work
     )
+    live_test: bool = False  # When True, use real CLIs with cheap models
+    # live_test model overrides: Claude→haiku, Cursor→composer
+
+    # Workspace-based context management (PULL model)
+    # When True, uses .workspace/ files for context instead of injecting full spec
+    use_workspace: bool = True
 
     # Agents
     agents: dict[str, AgentConfig] = field(default_factory=dict)
@@ -362,6 +532,9 @@ class Config:
     claude_path: str = 'claude'
     default_model: str = 'sonnet'
     permission_mode: str = 'default'
+    # force_model overrides ALL model selection including model_override
+    # Used for draft mode to ensure cheap models are used everywhere
+    force_model: str | None = None
 
     def __post_init__(self) -> None:
         """Set mode_config from mode if not provided."""
@@ -380,6 +553,8 @@ class Config:
             if self.mode_config
             else None,
             'dry_run': self.dry_run,
+            'live_test': self.live_test,
+            'use_workspace': self.use_workspace,
             'agents': {k: v.to_dict() for k, v in self.agents.items()},
             'phases': [p.to_dict() for p in self.phases],
             'voting_gates': {
@@ -392,6 +567,7 @@ class Config:
             'claude_path': self.claude_path,
             'default_model': self.default_model,
             'permission_mode': self.permission_mode,
+            'force_model': self.force_model,
         }
 
     @classmethod
@@ -415,6 +591,8 @@ class Config:
             mode=mode,
             mode_config=mode_config,
             dry_run=data.get('dry_run', False),
+            live_test=data.get('live_test', False),
+            use_workspace=data.get('use_workspace', True),
             agents={
                 k: AgentConfig.from_dict(v)
                 for k, v in data.get('agents', {}).items()

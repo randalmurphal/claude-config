@@ -7,32 +7,221 @@ description: Templates for brainstorm artifacts and manifest.json. Load when usi
 
 ## Spec Storage
 
-Specs live in the project's `.claude/specs/` directory:
+Specs live in the **project's** `.claude/specs/` directory (not ~/.claude):
 
 ```
-<git_root>/
+<project>/                    # e.g., m32rimm/
 └── .claude/
     └── specs/
         └── <name>-<hash>/
             ├── manifest.json          # Execution config (machine-readable)
             ├── SPEC.md                # Human-readable spec
-            ├── CONTEXT.md             # Accumulated context
-            ├── STATE.json             # Execution state
             ├── brainstorm/            # From /spec phase
             │   ├── MISSION.md
             │   ├── INVESTIGATION.md
             │   ├── DECISIONS.md
-            │   ├── CONCERNS.md
-            │   └── SPIKE_RESULTS/
+            │   └── CONCERNS.md
             └── components/            # Per-component context
-                ├── component_a.md
-                └── component_b.md
 ```
 
-CLI commands:
-- `python -m cc_orchestrations list` - List specs in current project
-- `python -m cc_orchestrations new --name feature` - Create new spec
-- `python -m cc_orchestrations status --spec <name>` - Show status
+**Workflow:**
+1. `/spec` - Create spec (brainstorm → formalize → manifest.json)
+2. `cd ~/.claude && python3 -m cc_orchestrations run --spec <name>` - Execute spec
+
+**Utility:**
+- `ls .claude/specs/` - List specs
+
+---
+
+## manifest.json Schema (Full)
+
+Machine-readable execution config created by formalization:
+
+```json
+{
+  "name": "feature-name",
+  "project": "project-name",
+  "work_dir": "/path/to/project",
+  "spec_dir": ".claude/specs/feature-abc123",
+  "created": "2025-12-08",
+
+  "complexity": 7,
+  "risk_level": "medium",
+  "risk_score": 9,
+
+  "execution": {
+    "mode": "standard",
+    "reviewers": 4,
+    "require_tests": true,
+    "voting_gates": ["fix_strategy", "production_ready"]
+  },
+
+  "components": [
+    {
+      "id": "parser",
+      "file": "path/to/parser.py",
+      "depends_on": [],
+      "complexity": "medium",
+      "purpose": "Parse input data",
+      "parallel_group": 1
+    },
+    {
+      "id": "validator",
+      "file": "path/to/validator.py",
+      "depends_on": ["parser"],
+      "complexity": "high",
+      "purpose": "Validate against schema",
+      "parallel_group": 2
+    }
+  ],
+
+  "parallelization": {
+    "skeleton_parallel": true,
+    "implementation_parallel": true,
+    "validation_parallel": false,
+    "parallel_groups": [
+      {
+        "group": 1,
+        "components": ["parser", "config"],
+        "reason": "No dependencies between them"
+      },
+      {
+        "group": 2,
+        "components": ["validator"],
+        "reason": "Depends on group 1"
+      }
+    ]
+  },
+
+  "agents": {
+    "skeleton": "skeleton-builder",
+    "implementation": "implementation-executor",
+    "test_skeleton": "test-skeleton-builder",
+    "test_implementation": "test-implementer",
+    "validators": ["code-reviewer"],
+    "project_validators": []
+  },
+
+  "project_config": {
+    "extends": "m32rimm",
+    "validators": ["mongo_validator", "import_validator", "general_validator"],
+    "finding_validator": true,
+    "validator_triggers": {
+      "mongo_validator": "file uses: db., pymongo, DBOpsHelper, retry_run, businessObjects",
+      "import_validator": "file in: imports/, or uses: data_importer"
+    }
+  },
+
+  "quality": {
+    "coverage_target": 95,
+    "lint_required": true,
+    "lint_command": "python-code-quality --fix",
+    "security_scan": false
+  },
+
+  "gotchas": [
+    "MongoDB aggregation has 16MB limit",
+    "Must call flush() before mark_for_aggregation()"
+  ],
+
+  "validation_command": "python -m pytest tests/"
+}
+```
+
+---
+
+## Parallelization Rules
+
+### How to Determine Parallel Groups
+
+1. **Group 0**: Components with NO dependencies (can all run in parallel)
+2. **Group N**: Components that depend ONLY on completed groups < N
+3. **Same group = parallel, different group = sequential**
+
+```
+Example:
+  A (no deps)     → Group 0
+  B (no deps)     → Group 0   ← A and B run in PARALLEL
+  C (depends A)   → Group 1
+  D (depends B)   → Group 1   ← C and D run in PARALLEL (after A,B complete)
+  E (depends C,D) → Group 2   ← E runs after C,D complete
+```
+
+### Parallel Safety Rules
+
+1. **Never parallelize components that write to the same file**
+2. **Tests can parallelize if they don't share fixtures**
+3. **skeleton + test-skeleton can ALWAYS parallelize (different files)**
+4. **implementation + test-implementation can parallelize if isolated**
+
+### Parallelization Config Options
+
+```json
+{
+  "parallelization": {
+    "skeleton_parallel": true,       // skeleton-builder + test-skeleton-builder
+    "implementation_parallel": true, // implementation-executor + test-implementer
+    "validation_parallel": false,    // Multiple validators (be careful with edits)
+    "max_concurrent": 4              // Max parallel agents
+  }
+}
+```
+
+---
+
+## Project-Specific Agent Configuration
+
+### For m32rimm Projects
+
+When working in m32rimm, include in manifest:
+
+```json
+{
+  "project_config": {
+    "extends": "m32rimm",
+    "validators": [
+      "mongo_validator",
+      "import_validator",
+      "general_validator"
+    ],
+    "finding_validator": true,
+    "validator_triggers": {
+      "mongo_validator": "file uses: db., pymongo, DBOpsHelper, retry_run, businessObjects",
+      "import_validator": "file in: imports/, or uses: data_importer, insert_data_importer",
+      "bo_structure_validator": "file creates: BO, or uses: upsert_bo, BOUpsert"
+    },
+    "agents_dir": ".claude/agents/"
+  }
+}
+```
+
+### Available m32rimm Validators
+
+| Validator | Purpose | Trigger |
+|-----------|---------|---------|
+| `mongo_validator` | flush(), subID, retry_run | Any MongoDB operation |
+| `import_validator` | data_importer patterns | Files in imports/ |
+| `general_validator` | Logging, try/except, types | All code |
+| `finding_validator` | False positive filter | All findings |
+| `bo_structure_validator` | BO field validation | BO creation |
+| `schema_alignment_validator` | MongoDB schema | Collection operations |
+
+### Agent Override in Components
+
+```json
+{
+  "components": [
+    {
+      "id": "complex_import",
+      "file": "imports/scanner/handler.py",
+      "agents": {
+        "implementation": "implementation-executor",
+        "validators": ["mongo_validator", "import_validator", "general_validator"]
+      }
+    }
+  ]
+}
+```
 
 ---
 
@@ -49,15 +238,12 @@ CLI commands:
 ## Success Criteria
 - [ ] Measurable outcome 1
 - [ ] Measurable outcome 2
-- [ ] Performance/quality target
 
 ## Non-Goals
 - Thing we're explicitly NOT doing
-- Out of scope item
 
 ## Constraints
-- Hard requirement 1
-- Hard requirement 2
+- Hard requirement
 ```
 
 ### INVESTIGATION.md
@@ -66,21 +252,20 @@ CLI commands:
 # Investigation Findings
 
 ## Project Structure
-[What we found - tech stack, directory layout]
+[Tech stack, directory layout]
 
 ## Existing Patterns
 - Auth: [how auth works]
-- APIs: [API patterns used]
+- APIs: [API patterns]
 - Testing: [test approach]
 
 ## Dependencies
-- External: [packages, services]
+- External: [packages]
 - Internal: [modules this touches]
 
 ## Blast Radius
-[What files/components this change affects]
 - Direct: [files we modify]
-- Indirect: [files that import from modified files]
+- Indirect: [files that import modified files]
 - Transitive: [N files deep]
 ```
 
@@ -92,21 +277,25 @@ CLI commands:
 ## Decision 1: [Topic]
 
 **Choice:** [What we're doing]
+**Rationale:** [Why]
+**Alternatives:** [What else we considered]
+**Consequences:** [Trade-offs]
 
-**Rationale:** [Why this approach]
+## Parallelization Decision
 
-**Alternatives Considered:**
-- Option A: [pros/cons]
-- Option B: [pros/cons]
+**Parallel Groups:**
+- Group 0: [components] - no dependencies
+- Group 1: [components] - depends on group 0
 
-**Consequences:**
-- [Trade-off accepted]
-- [Future implication]
+**Rationale:** [Why this grouping]
 
----
+## Agent Selection
 
-## Decision 2: [Topic]
-[Same format]
+**Project validators needed:**
+- [validator]: [because X uses Y]
+
+**Model overrides:**
+- [component]: opus (complex judgment needed)
 ```
 
 ### CONCERNS.md
@@ -116,208 +305,98 @@ CLI commands:
 
 ## Conflicts
 - [Conflict with existing code]
-- [Breaking change risk]
 
 ## Hidden Complexity
 - [Challenge that's not obvious]
-- [Edge case to handle]
 
-## Assumptions
-- [Assumption 1] - VALIDATED / NEEDS_SPIKE / ASK_USER
-- [Assumption 2] - Status
+## m32rimm-Specific Concerns
+- [ ] DBOpsHelper flush() before aggregation
+- [ ] subID filter on businessObjects queries
+- [ ] retry_run on all mongo operations
 
 ## Risks
 | Risk | Impact | Mitigation |
 |------|--------|------------|
-| [Risk 1] | High | [How we handle it] |
-| [Risk 2] | Medium | [How we handle it] |
+| [Risk] | High | [Mitigation] |
 ```
 
 ---
 
-## manifest.json Schema
+## Formalization Checklist
 
-Machine-readable execution config created by formalization:
+Before converting brainstorm to manifest, verify:
 
-```json
-{
-  "name": "feature-name",
-  "project": "project-name",
-  "work_dir": "/path/to/project",
-  "spec_dir": ".claude/specs/feature-abc123",
-  "created": "2025-12-05",
+### Parallelization
+- [ ] Components grouped by dependency level
+- [ ] No conflicts in parallel groups
+- [ ] skeleton/test parallel where possible
+- [ ] implementation/test parallel where safe
 
-  "complexity": 7,
-  "risk_level": "medium",
+### Agent Config
+- [ ] Project-specific validators identified
+- [ ] Validator triggers defined
+- [ ] Model overrides for complex components
 
-  "execution": {
-    "mode": "standard",
-    "parallel_components": false,
-    "reviewers": 4,
-    "require_tests": true,
-    "voting_gates": ["impact", "production_ready"]
-  },
+### Risk Assessment
+- [ ] Risk score calculated (5-15)
+- [ ] Reviewer count matches risk level
+- [ ] Voting gates appropriate for risk
 
-  "components": [
-    {
-      "id": "parser",
-      "file": "path/to/parser.py",
-      "depends_on": [],
-      "complexity": "medium",
-      "purpose": "Parse input data",
-      "context_file": "components/parser.md"
-    },
-    {
-      "id": "validator",
-      "file": "path/to/validator.py",
-      "depends_on": ["parser"],
-      "complexity": "high",
-      "purpose": "Validate against schema",
-      "context_file": "components/validator.md"
-    }
-  ],
-
-  "quality": {
-    "coverage_target": 95,
-    "lint_required": true,
-    "security_scan": false
-  },
-
-  "gotchas": [
-    "MongoDB aggregation has 16MB limit",
-    "Existing callers in endpoints.py"
-  ],
-
-  "validation_command": "python -m pytest tests/"
-}
-```
-
-### Required Fields
-- `name`, `project`, `work_dir`
-- `components` (at least one)
-- Each component needs: `id`, `file`, `depends_on`
-
-### Validation Rules
-- All `depends_on` entries must reference existing component IDs
-- No circular dependencies
-- Risk level should match complexity/reviewer count
+### Quality
+- [ ] Coverage target set
+- [ ] Lint command specified
+- [ ] Test command specified
 
 ---
 
-## SPEC.md (Human-Readable)
+## SPEC.md Generation
 
-Reference document for humans, generated alongside manifest:
+After formalization, generate human-readable SPEC.md:
 
 ```markdown
 # [Feature Name]
 
-## Problem Statement
-[What problem we're solving]
-
 ## Mission
-[Single sentence goal]
-
-## Success Criteria
-- [ ] Criterion 1
-- [ ] Criterion 2
-
-## Approach
-[High-level strategy from DECISIONS.md]
+[From MISSION.md]
 
 ## Components
 
-| ID | File | Purpose | Complexity |
-|----|------|---------|------------|
-| parser | parser.py | Parse input | Medium |
-| validator | validator.py | Validate schema | High |
+| ID | File | Group | Validators |
+|----|------|-------|------------|
+| parser | parser.py | 0 | general |
+| validator | validator.py | 1 | general, mongo |
 
-## Dependencies
+## Execution Plan
+
 ```
-parser (no deps)
-  └── validator
+Group 0 (parallel): parser, config
+       ↓
+Group 1 (parallel): validator, transformer
+       ↓
+Group 2: aggregator (depends on all)
 ```
 
-## Known Gotchas
-- [From CONCERNS.md]
+## Validators Active
+- mongo_validator (files use MongoDB)
+- import_validator (files in imports/)
+- general_validator (all files)
+- finding_validator (filter false positives)
 
-## Quality Requirements
-- Coverage: 95%
+## Risk Assessment
+- Score: 9/15 (Medium)
 - Reviewers: 4
-- Security scan: No
+- Voting gates: fix_strategy, production_ready
+
+## Gotchas
+[From CONCERNS.md]
 ```
 
 ---
 
-## Component Context Template
+## Dependency Rules
 
-Per-component context in `components/<id>.md`:
-
-```markdown
-# Component: <id>
-
-## Status
-NOT_STARTED | SKELETON | IMPLEMENTING | VALIDATING | COMPLETE
-
-## Purpose
-[From manifest]
-
-## What's Been Done
-- [timestamp] Created skeleton
-- [timestamp] Implemented core logic
-
-## Discoveries
-- [timestamp] Found edge case with null values
-- [timestamp] Existing callers use old signature
-
-## For Next Agent
-[Instructions for whoever works on this next]
-```
-
----
-
-## CONTEXT.md (Global)
-
-Accumulated context across all components:
-
-```markdown
-# Execution Context
-
-## Current State
-Status: IN_PROGRESS
-Components: 3/10 complete
-Last updated: 2025-12-05
-
-## Critical Discoveries
-- [timestamp] MongoDB 16MB limit affects bulk operations
-- [timestamp] Need to update test fixtures
-
-## Blockers
-- [Blocker if any]
-
-## For Next Agent
-[Global instructions]
-```
-
----
-
-## Naming Conventions
-
-| Artifact | Location | Format |
-|----------|----------|--------|
-| Spec directory | `.claude/specs/<name>-<hash>/` | Unique hash suffix |
-| Manifest | `manifest.json` | Machine-readable |
-| Human spec | `SPEC.md` | Reference doc |
-| Brainstorm | `brainstorm/*.md` | Discovery artifacts |
-| Component context | `components/<id>.md` | Per-component |
-| Global context | `CONTEXT.md` | Accumulated state |
-| Execution state | `STATE.json` | Phase/component status |
-
----
-
-## Dependency Graph Rules
-
-1. **IDs must be unique** - Each component has a distinct ID
-2. **Dependencies reference IDs** - Not file paths
-3. **No cycles** - Detected by validator, fails immediately
-4. **Order matters** - Topological sort determines execution order
-5. **Declare all deps** - Missing dependency = wrong order
+1. **IDs must be unique**
+2. **Dependencies reference IDs, not file paths**
+3. **No cycles** - Validator fails immediately
+4. **Parallel group derived from deps** - Don't manually assign wrong group
+5. **Components in same group MUST NOT conflict**

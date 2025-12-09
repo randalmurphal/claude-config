@@ -4,12 +4,17 @@ This module provides the generic foundation for all workflow types:
 - Configuration management
 - State persistence
 - Agent invocation
-- Schema definitions
-- Path and context utilities
+- Extension discovery
+- Git and worktree utilities
 """
 
 from .config import (
+    CLAUDE_ONLY_MODELS,
+    CURSOR_MODELS,
+    DEFAULT_COUNCIL_MODELS,
+    OPUS_THINKING_MODEL,
     AgentConfig,
+    CLIBackend,
     Config,
     ExecutionMode,
     ModeConfig,
@@ -17,18 +22,32 @@ from .config import (
     RiskConfig,
     ValidationConfig,
     VotingGateConfig,
+    get_backend_for_model,
 )
 from .context import ContextManager, ContextUpdate
+from .extensions import (
+    detect_project_extensions,
+    get_extension_context,
+    get_extension_prompts,
+    get_extension_validators,
+    get_installed_extensions,
+    load_extension,
+    merge_prompts,
+)
+from .git import (
+    get_conduct_commits,
+    git_commit,
+    git_has_changes,
+    git_log_since,
+    git_show_commit,
+    git_stage_all,
+)
 from .manifest import ComponentDef, ExecutionConfig, Manifest, QualityConfig
 from .paths import (
     expand_path,
-    get_claude_home,
     get_git_root,
     get_project_name,
-    get_spec_path,
-    get_specs_dir,
     relative_to_git_root,
-    relative_to_home,
 )
 from .registry import REGISTRY
 from .runner import AgentResult, AgentRunner
@@ -42,62 +61,88 @@ from .state import (
     StateManager,
     VoteResult,
 )
+from .trajectory import AgentTrajectory, SessionSummary, TrajectoryLogger
 from .worktree import (
     WORKTREES_BASE,
     WorktreeContext,
     WorktreeInfo,
     WorktreeManager,
+    get_main_repo_from_worktree,
+    is_in_worktree,
     worktree_context,
 )
 
 __all__ = [
-    # Registry
-    'REGISTRY',
-    'AgentConfig',
-    'AgentResult',
-    # Runner
-    'AgentRunner',
-    'AgentSchema',
-    'ComponentDef',
-    'ComponentState',
-    'ComponentStatus',
     # Config
+    'AgentConfig',
+    'CLIBackend',
+    'CLAUDE_ONLY_MODELS',
     'Config',
+    'CURSOR_MODELS',
+    'DEFAULT_COUNCIL_MODELS',
+    'ExecutionMode',
+    'OPUS_THINKING_MODEL',
+    'ModeConfig',
+    'PhaseConfig',
+    'RiskConfig',
+    'ValidationConfig',
+    'VotingGateConfig',
+    'get_backend_for_model',
     # Context
     'ContextManager',
     'ContextUpdate',
-    'ExecutionConfig',
-    'ExecutionMode',
-    'Issue',
+    # Extensions
+    'detect_project_extensions',
+    'get_extension_context',
+    'get_extension_prompts',
+    'get_extension_validators',
+    'get_installed_extensions',
+    'load_extension',
+    'merge_prompts',
+    # Git
+    'get_conduct_commits',
+    'git_commit',
+    'git_has_changes',
+    'git_log_since',
+    'git_show_commit',
+    'git_stage_all',
     # Manifest
+    'ComponentDef',
+    'ExecutionConfig',
     'Manifest',
-    'ModeConfig',
-    'PhaseConfig',
-    'PhaseStatus',
     'QualityConfig',
-    'RiskConfig',
-    # State
-    'State',
-    'StateManager',
-    'ValidationConfig',
-    'VoteResult',
-    'VotingGateConfig',
     # Paths
     'expand_path',
-    'get_claude_home',
     'get_git_root',
     'get_project_name',
-    'get_spec_path',
-    'get_specs_dir',
     'relative_to_git_root',
-    'relative_to_home',
+    # Registry
+    'REGISTRY',
+    # Runner
+    'AgentResult',
+    'AgentRunner',
     # Schemas
+    'AgentSchema',
     'get_schema',
     'register_schema',
+    # Trajectory
+    'AgentTrajectory',
+    'SessionSummary',
+    'TrajectoryLogger',
+    # State
+    'ComponentState',
+    'ComponentStatus',
+    'Issue',
+    'PhaseStatus',
+    'State',
+    'StateManager',
+    'VoteResult',
     # Worktrees
     'WORKTREES_BASE',
     'WorktreeContext',
     'WorktreeInfo',
     'WorktreeManager',
+    'get_main_repo_from_worktree',
+    'is_in_worktree',
     'worktree_context',
 ]

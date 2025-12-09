@@ -5,7 +5,7 @@ collects their votes, and either proceeds with consensus or escalates to user.
 """
 
 import logging
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from typing import Any
 
@@ -65,7 +65,10 @@ class VotingGate:
         Returns:
             VotingOutcome with consensus result or user escalation
         """
-        prompt = voter_prompt or self._build_prompt(context)
+        base_prompt = voter_prompt or self._build_prompt(context)
+
+        # Always add JSON output instructions to ensure structured response
+        prompt = base_prompt + self._get_json_instructions()
 
         # Validate schema exists for voters
         schema_name = self.config.schema
@@ -78,28 +81,46 @@ class VotingGate:
                 )
 
         # Run voters in parallel
+        # Use model from voter_models if configured (supports thinking models for critical decisions)
         LOG.info(
             f'Running voting gate: {self.config.name} with {self.config.num_voters} voters'
         )
-
-        tasks = [
-            (
-                self.config.voter_agent,
-                f'{prompt}\n\nYou are voter {i + 1} of {self.config.num_voters}.',
-                {'voter_id': f'voter_{i + 1}', **context},
+        if self.config.voter_models:
+            LOG.info(
+                f'  Using models: {self.config.voter_models[: self.config.num_voters]}'
             )
-            for i in range(self.config.num_voters)
-        ]
+
+        tasks = []
+        for i in range(self.config.num_voters):
+            model = (
+                self.config.get_model_for_voter(i)
+                if self.config.voter_models
+                else None
+            )
+            task = {
+                'name': self.config.voter_agent,
+                'prompt': f'{prompt}\n\nYou are voter {i + 1} of {self.config.num_voters}.',
+                'context': {'voter_id': f'voter_{i + 1}', **context},
+            }
+            if model:
+                task['model'] = model
+            tasks.append(task)
 
         results = self.runner.run_parallel(tasks)
 
         # Collect votes
         votes = []
         for result in results:
-            if result.success and 'vote' in result.data:
+            if (
+                result.success
+                and isinstance(result.data, dict)
+                and 'vote' in result.data
+            ):
                 votes.append(result.data)
             else:
-                LOG.warning(f'Voter failed or no vote: {result.error}')
+                LOG.warning(
+                    f'Voter failed or invalid vote format: {result.error or type(result.data).__name__}'
+                )
 
         if not votes:
             LOG.error('No valid votes collected')
@@ -113,8 +134,8 @@ class VotingGate:
                 user_prompt='Voting failed - no valid votes received. Please decide manually.',
             )
 
-        # Tally votes
-        return tally_votes(
+        # Tally votes with confidence weighting
+        return tally_votes_weighted(
             gate_name=self.config.name,
             votes=votes,
             options=self.config.options,
@@ -143,6 +164,154 @@ Options:
 
 Evaluate the situation and cast your vote. Provide reasoning for your choice.
 """
+
+    def _get_json_instructions(self) -> str:
+        """Get JSON output instructions for voters."""
+        options_list = ', '.join(f'"{opt}"' for opt in self.config.options)
+        return f"""
+
+## CRITICAL: JSON Output Required
+
+You MUST respond with a JSON object containing these fields:
+- "vote": One of [{options_list}]
+- "confidence": A number between 0.0 and 1.0
+- "reasoning": A string explaining your vote
+
+Example format:
+{{
+    "vote": "{self.config.options[0]}",
+    "confidence": 0.85,
+    "reasoning": "Your explanation here..."
+}}
+
+Output ONLY the JSON object, no other text before or after."""
+
+
+def tally_votes_weighted(
+    gate_name: str,
+    votes: list[dict[str, Any]],
+    options: list[str],
+    threshold: float = 0.67,
+) -> VotingOutcome:
+    """Tally votes with confidence weighting.
+
+    Weight = confidence value (0.0-1.0), defaults to 0.5 if missing.
+    Winner needs weighted_score / total_weight >= threshold.
+
+    Falls back to unweighted tally_votes() if all confidences are missing.
+
+    Args:
+        gate_name: Name of the voting gate
+        votes: List of vote dictionaries with 'vote' and optional 'confidence' keys
+        options: Valid options
+        threshold: Fraction needed for consensus (default 2/3)
+
+    Returns:
+        VotingOutcome with consensus result
+    """
+    if not votes:
+        return VotingOutcome(
+            gate_name=gate_name,
+            consensus=False,
+            winner=None,
+            vote_counts={},
+            votes=[],
+            needs_user_decision=True,
+            user_prompt='No votes received.',
+        )
+
+    weighted_counts: dict[str, float] = defaultdict(float)
+    total_weight = 0.0
+    has_confidence = False
+
+    for vote in votes:
+        if not isinstance(vote, dict):
+            continue
+        vote_value = vote.get('vote', '')
+        confidence = vote.get('confidence')
+
+        if confidence is not None:
+            has_confidence = True
+            # Clamp confidence to valid range
+            try:
+                confidence = max(0.0, min(1.0, float(confidence)))
+            except (TypeError, ValueError):
+                confidence = 0.5
+        else:
+            confidence = 0.5  # Default to neutral
+
+        weighted_counts[vote_value] += confidence
+        total_weight += confidence
+
+    # If no confidences were provided, fall back to unweighted voting
+    if not has_confidence:
+        LOG.debug('No confidence scores in votes, using unweighted tally')
+        return tally_votes(gate_name, votes, options, threshold)
+
+    if total_weight == 0:
+        return tally_votes(gate_name, votes, options, threshold)
+
+    # Find winner based on weighted threshold
+    winner = None
+    for option, weight in sorted(weighted_counts.items(), key=lambda x: -x[1]):
+        if option and weight / total_weight >= threshold:
+            winner = option
+            break
+
+    # Convert to integer counts for compatibility (multiply by 10 for precision)
+    vote_counts = {k: int(v * 10) for k, v in weighted_counts.items() if k}
+
+    if winner:
+        LOG.info(
+            f'Voting gate {gate_name}: Weighted consensus on {winner} '
+            f'({weighted_counts[winner]:.2f}/{total_weight:.2f})'
+        )
+        return VotingOutcome(
+            gate_name=gate_name,
+            consensus=True,
+            winner=winner,
+            vote_counts=vote_counts,
+            votes=votes,
+        )
+
+    # No consensus - need user decision
+    vote_summary = '\n'.join(
+        f'- {opt}: {weight:.2f} weighted score'
+        for opt, weight in sorted(weighted_counts.items(), key=lambda x: -x[1])
+        if opt
+    )
+    reasoning_summary = '\n\n'.join(
+        f'Voter {i + 1} ({v.get("vote", "N/A")}, confidence: {v.get("confidence", "N/A")}): '
+        f'{v.get("reasoning", "No reasoning provided")}'
+        for i, v in enumerate(votes)
+        if isinstance(v, dict)
+    )
+
+    user_prompt = f"""
+No consensus reached on {gate_name} (needed {threshold:.0%} weighted).
+
+Weighted vote scores:
+{vote_summary}
+
+Total weight: {total_weight:.2f}
+
+Voter reasoning:
+{reasoning_summary}
+
+Please choose one of: {', '.join(options)}
+"""
+    LOG.info(
+        f'Voting gate {gate_name}: No weighted consensus, escalating to user'
+    )
+    return VotingOutcome(
+        gate_name=gate_name,
+        consensus=False,
+        winner=None,
+        vote_counts=vote_counts,
+        votes=votes,
+        needs_user_decision=True,
+        user_prompt=user_prompt,
+    )
 
 
 def tally_votes(
@@ -173,8 +342,8 @@ def tally_votes(
             user_prompt='No votes received.',
         )
 
-    # Count votes
-    vote_values = [v.get('vote', '') for v in votes]
+    # Count votes (filter out any non-dict entries defensively)
+    vote_values = [v.get('vote', '') for v in votes if isinstance(v, dict)]
     counts = Counter(vote_values)
 
     # Check for consensus
@@ -205,6 +374,7 @@ def tally_votes(
     reasoning_summary = '\n\n'.join(
         f'Voter {i + 1} ({v.get("vote", "N/A")}): {v.get("reasoning", "No reasoning provided")}'
         for i, v in enumerate(votes)
+        if isinstance(v, dict)
     )
 
     user_prompt = f"""
@@ -239,6 +409,7 @@ def run_voting_gate(
     schema: str = '',
     threshold: float = 0.67,
     voter_agent: str = 'investigator',
+    voter_models: list[str] | None = None,
 ) -> VotingOutcome:
     """Convenience function to run a one-off voting gate.
 
@@ -251,6 +422,9 @@ def run_voting_gate(
         schema: Schema name for structured output
         threshold: Consensus threshold
         voter_agent: Agent type to use for voting
+        voter_models: Optional list of models for each voter (e.g., for using
+                     opus-thinking on critical decisions). If provided, cycles
+                     through models for each voter.
 
     Returns:
         VotingOutcome
@@ -261,6 +435,7 @@ def run_voting_gate(
         num_voters=num_voters,
         consensus_threshold=threshold,
         voter_agent=voter_agent,
+        voter_models=voter_models or [],
         schema=schema,
         options=options,
     )

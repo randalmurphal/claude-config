@@ -64,6 +64,7 @@ statusline-command.sh
 file-history/
 
 settings.json
+env.sh
 debug/
 
 session-env/
@@ -88,3 +89,8 @@ plugins/
 
 # Worktrees for orchestrations (auto-cleaned after use)
 git_worktrees/
+
+
+cache/
+telemetry/
+stats-cache.json

@@ -15,7 +15,57 @@ Blast radius drives investigation depth, not task complexity.
 
 **NO PARTIAL WORK:** Full implementation or explain why blocked. Exception: spec phases.
 
-**FAIL LOUD:** Errors surface with clear messages. Never catch and ignore. Silent failures are bugs.
+**FAIL LOUD:** Errors surface with clear messages. Silent failures are bugs.
+
+---
+
+## Error Handling Philosophy
+
+**The key question:** "Will this reduce quality in the outputs?"
+
+| Scenario | Action | Examples |
+|----------|--------|----------|
+| Would reduce output quality | **Crash** | Missing config, context not passing through, core workflow broken |
+| Should fix but output unaffected | **Error log** | Audit failed after review done, notification service down |
+| Shouldn't happen, fine if not fixed | **Warning** | Display data unavailable, optional feature degraded |
+| Expected/designed behavior | **Debug** | Fallback strategy taken, probe failures during discovery |
+
+### When to Crash
+
+- Config invalid or missing required values
+- Setup/initialization failed (worktree, context gathering)
+- Context not passing through properly
+- Core functionality broken (not supplementary features)
+- Would produce incorrect/incomplete orchestration results
+
+### When to Log Error (Not Crash)
+
+- Supplementary operation failed after primary succeeded (e.g., audit archival after review completed)
+- Non-critical integration failed (e.g., notification service down)
+- Cleanup failed but main work is done
+- Something we definitely want to fix but orchestration output is unaffected
+
+### When to Warn
+
+- Something that shouldn't happen but doesn't degrade output quality
+- Deprecated usage detected
+- Suboptimal configuration (works but could be better)
+- Display/progress tracking unavailable
+- Recoverable issues user should know about
+
+### When to Debug
+
+- Designed fallback strategy activated (JSON parse failed → trying regex)
+- Probing/detection logic (expected failures during discovery)
+- Performance timing, internal state for debugging
+- Verbose tracing that would noise up normal logs
+
+### Anti-Patterns
+
+- **Never**: `except: pass`, `contextlib.suppress(Exception)`, catch-and-ignore
+- **Never**: Debug level for actual failures
+- **Never**: Swallow exceptions just to prevent crashes
+- **Always**: If catching an exception, either handle it meaningfully or re-raise
 
 **NO ASSUMPTIONS:** Tell me if you don't know something, are unsure, or disagree. Don't fill gaps incorrectly.
 
@@ -125,6 +175,15 @@ Review depth scales to blast radius (not file count):
 **Python:** `.claude/scripts/python-code-quality --fix <path>` (ruff, pyright, bandit, semgrep)
 
 Check project config first, fall back to `~/.claude/configs/`
+
+### Code Style is Defined by Config
+
+`ruff.toml` and `pyproject.toml` define the code style - these are not suggestions to run, they ARE the standard:
+
+- **Don't use `--select`** - the config already specifies what rules to enforce
+- **Don't ignore violations** - if ruff/pyright complains, fix it or update the config
+- **Config is authoritative** - line length, import sorting, naming conventions all come from config
+- Run `ruff check --fix` to auto-fix, then address remaining issues manually
 
 ---
 

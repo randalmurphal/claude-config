@@ -1,0 +1,151 @@
+#!/bin/bash
+# Focus Guard - Dynamic focus stealing prevention based on keyboard activity
+# Switches to Extreme prevention while typing, Low when idle
+#
+# Requires: libinput-tools, user in 'input' group
+# Usage: focus-guard [start|stop|status]
+
+PIDFILE="$HOME/.cache/focus-guard.pid"
+LOGFILE="$HOME/.cache/focus-guard.log"
+
+# Settings
+TYPING_LEVEL=4      # Extreme - block everything while typing
+IDLE_LEVEL=1        # Low - allow focus when not typing
+IDLE_TIMEOUT=0.5    # Seconds of no typing before switching to idle mode
+
+start_guard() {
+    if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+        echo "Focus guard already running (PID $(cat "$PIDFILE"))"
+        return 1
+    fi
+
+    # Check if user can access input devices
+    if ! libinput debug-events --help &>/dev/null; then
+        echo "Error: libinput-tools not installed"
+        return 1
+    fi
+
+    if ! ls /dev/input/event* &>/dev/null; then
+        echo "Error: Cannot access /dev/input devices"
+        echo "Make sure you're in the 'input' group: sudo usermod -aG input $USER"
+        return 1
+    fi
+
+    echo "Starting focus guard..."
+
+    # Start the monitor in background
+    (
+        last_key_time=0
+        current_level=$IDLE_LEVEL
+
+        # Set initial level
+        kwriteconfig6 --file kwinrc --group Windows --key FocusStealingPreventionLevel $IDLE_LEVEL
+        qdbus6 org.kde.KWin /KWin reconfigure 2>/dev/null
+
+        # Monitor keyboard events
+        libinput debug-events 2>/dev/null | while read -r line; do
+            if echo "$line" | grep -qE "KEYBOARD_KEY.*pressed"; then
+                now=$(date +%s.%N)
+
+                # Switch to typing mode if not already
+                if [ "$current_level" != "$TYPING_LEVEL" ]; then
+                    kwriteconfig6 --file kwinrc --group Windows --key FocusStealingPreventionLevel $TYPING_LEVEL
+                    qdbus6 org.kde.KWin /KWin reconfigure 2>/dev/null
+                    current_level=$TYPING_LEVEL
+                    echo "$(date): Typing detected - protection EXTREME" >> "$LOGFILE"
+                fi
+
+                last_key_time=$now
+
+                # Schedule return to idle (this runs in background)
+                (
+                    sleep $IDLE_TIMEOUT
+                    # Check if still no new keypress
+                    current=$(date +%s.%N)
+                    elapsed=$(echo "$current - $last_key_time" | bc 2>/dev/null || echo "1")
+                    if [ "$(echo "$elapsed >= $IDLE_TIMEOUT" | bc 2>/dev/null || echo 1)" = "1" ]; then
+                        cur=$(kreadconfig6 --file kwinrc --group Windows --key FocusStealingPreventionLevel)
+                        if [ "$cur" = "$TYPING_LEVEL" ]; then
+                            kwriteconfig6 --file kwinrc --group Windows --key FocusStealingPreventionLevel $IDLE_LEVEL
+                            qdbus6 org.kde.KWin /KWin reconfigure 2>/dev/null
+                            echo "$(date): Idle - protection LOW" >> "$LOGFILE"
+                        fi
+                    fi
+                ) &
+            fi
+        done
+    ) &
+
+    echo $! > "$PIDFILE"
+    echo "Focus guard started (PID $!)"
+    echo "Log: $LOGFILE"
+}
+
+stop_guard() {
+    if [ -f "$PIDFILE" ]; then
+        pid=$(cat "$PIDFILE")
+        if kill -0 "$pid" 2>/dev/null; then
+            # Kill the main process and all children
+            pkill -P "$pid" 2>/dev/null
+            kill "$pid" 2>/dev/null
+            echo "Focus guard stopped"
+        else
+            echo "Focus guard not running"
+        fi
+        rm -f "$PIDFILE"
+    else
+        echo "Focus guard not running"
+    fi
+
+    # Reset to medium level
+    kwriteconfig6 --file kwinrc --group Windows --key FocusStealingPreventionLevel 2
+    qdbus6 org.kde.KWin /KWin reconfigure 2>/dev/null
+    echo "Reset to Medium (2) prevention level"
+}
+
+status_guard() {
+    level=$(kreadconfig6 --file kwinrc --group Windows --key FocusStealingPreventionLevel)
+    level_name="Unknown"
+    case $level in
+        0) level_name="None" ;;
+        1) level_name="Low" ;;
+        2) level_name="Medium" ;;
+        3) level_name="High" ;;
+        4) level_name="Extreme" ;;
+    esac
+
+    echo "Current focus stealing prevention: $level ($level_name)"
+
+    if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+        echo "Focus guard: Running (PID $(cat "$PIDFILE"))"
+    else
+        echo "Focus guard: Not running"
+    fi
+
+    if [ -f "$LOGFILE" ]; then
+        echo ""
+        echo "Recent activity:"
+        tail -5 "$LOGFILE"
+    fi
+}
+
+case "${1:-start}" in
+    start)
+        start_guard
+        ;;
+    stop)
+        stop_guard
+        ;;
+    status)
+        status_guard
+        ;;
+    restart)
+        stop_guard
+        sleep 1
+        start_guard
+        ;;
+    *)
+        echo "Usage: $(basename "$0") [start|stop|status|restart]"
+        exit 1
+        ;;
+esac

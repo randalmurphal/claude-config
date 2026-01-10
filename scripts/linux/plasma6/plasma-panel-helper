@@ -1,0 +1,479 @@
+#!/bin/bash
+# Plasma 6 Panel Configuration Helper
+# Helps with common panel operations like copying configs between monitors
+
+CONFIG_FILE="$HOME/.config/plasma-org.kde.plasma.desktop-appletsrc"
+KSCREEN_OUTPUTS="$HOME/.local/share/kscreen/outputs"
+
+usage() {
+    cat << EOF
+Usage: $(basename "$0") <command> [options]
+
+Commands:
+    list                List all monitors and their panels
+    show <monitor>      Show panel config for a monitor (by name, position, or screen#)
+    copy <from> <to>    Copy ENTIRE top panel config from one monitor to another
+    restart             Safely restart plasmashell
+    backup              Backup current panel config
+    restore <file>      Restore panel config from backup
+
+Monitor identifiers (use any of these):
+    - Brand name: "LG", "ASUS", "HP"
+    - Position: "left", "center", "right"
+    - Screen number: "0", "1", "2"
+    - Output name: "DP-0", "DP-4", "HDMI-0"
+
+Examples:
+    $(basename "$0") list
+    $(basename "$0") show HP
+    $(basename "$0") copy LG ASUS --apply
+    $(basename "$0") copy left right --apply
+    $(basename "$0") restart
+EOF
+}
+
+# Get monitor info from kscreen outputs
+get_monitors() {
+    local monitors=()
+    for f in "$KSCREEN_OUTPUTS"/*; do
+        [ -f "$f" ] || continue
+        local fullname=$(grep -o '"fullname": "[^"]*"' "$f" 2>/dev/null | cut -d'"' -f4)
+        local output=$(grep -o '"name": "[^"]*"' "$f" 2>/dev/null | tail -1 | cut -d'"' -f4)
+        [ -n "$fullname" ] && [ -n "$output" ] && [ "$output" != "None-1" ] && echo "$output|$fullname"
+    done
+}
+
+# Get geometry for an output (returns "X,Y WxH")
+get_geometry() {
+    local output="$1"
+    kscreen-doctor -o 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' | grep -A20 "Output:.*$output " | grep "Geometry:" | head -1 | sed 's/.*Geometry: //' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//'
+}
+
+# Determine position (left/center/right) from geometry
+get_position() {
+    local geom="$1"
+    local x=$(echo "$geom" | cut -d',' -f1)
+    local positions=$(for out in DP-0 DP-4 HDMI-0; do
+        local g=$(get_geometry "$out")
+        [ -n "$g" ] && [ "$g" != "0,0 0x0" ] && echo "$(echo "$g" | cut -d',' -f1)|$out"
+    done | sort -t'|' -k1 -n)
+
+    local count=$(echo "$positions" | grep -c .)
+    local pos=1
+    while IFS='|' read -r px pout; do
+        if [ "$x" = "$px" ]; then
+            if [ $pos -eq 1 ]; then echo "left"
+            elif [ $pos -eq $count ]; then echo "right"
+            else echo "center"
+            fi
+            return
+        fi
+        ((pos++))
+    done <<< "$positions"
+    echo "unknown"
+}
+
+# Get screen index from output name
+get_screen_index() {
+    local output="$1"
+    local idx=0
+    for out in $(for o in DP-0 DP-4 HDMI-0; do
+        local g=$(get_geometry "$o")
+        [ -n "$g" ] && [ "$g" != "0,0 0x0" ] && echo "$(echo "$g" | cut -d',' -f1)|$o"
+    done | sort -t'|' -k1 -n | cut -d'|' -f2); do
+        if [ "$out" = "$output" ]; then
+            echo $idx
+            return
+        fi
+        ((idx++))
+    done
+    echo "-1"
+}
+
+# Resolve monitor identifier to output name
+resolve_monitor() {
+    local id="$1"
+    id_lower=$(echo "$id" | tr '[:upper:]' '[:lower:]')
+
+    if [[ "$id" =~ ^(DP|HDMI)-[0-9]+$ ]]; then
+        echo "$id"
+        return
+    fi
+
+    if [[ "$id" =~ ^[0-9]+$ ]]; then
+        for out in DP-0 DP-4 HDMI-0; do
+            if [ "$(get_screen_index "$out")" = "$id" ]; then
+                echo "$out"
+                return
+            fi
+        done
+    fi
+
+    case "$id_lower" in
+        left|center|right)
+            for out in DP-0 DP-4 HDMI-0; do
+                local geom=$(get_geometry "$out")
+                [ -z "$geom" ] && continue
+                local pos=$(get_position "$geom")
+                if [ "$pos" = "$id_lower" ]; then
+                    echo "$out"
+                    return
+                fi
+            done
+            ;;
+    esac
+
+    while IFS='|' read -r out fullname; do
+        if echo "$fullname" | grep -qi "$id"; then
+            echo "$out"
+            return
+        fi
+    done < <(get_monitors)
+
+    echo ""
+}
+
+# Get panel ID for a screen
+get_panel_id() {
+    local screen="$1"
+    local location="${2:-3}"  # 3=top, 4=bottom
+
+    awk -v screen="$screen" -v loc="$location" '
+        /^\[Containments\]\[[0-9]+\]$/ {
+            section = $0
+            gsub(/[^0-9]/, "", section)
+            current_id = section
+            has_screen = 0
+            has_location = 0
+            is_panel = 0
+        }
+        /^lastScreen=/ { if ($0 == "lastScreen=" screen) has_screen = 1 }
+        /^location=/ { if ($0 == "location=" loc) has_location = 1 }
+        /^plugin=org.kde.panel$/ { is_panel = 1 }
+        /^\[/ && current_id && has_screen && has_location && is_panel {
+            print current_id
+            exit
+        }
+    ' "$CONFIG_FILE"
+}
+
+# Get the highest containment/applet ID in use
+get_max_id() {
+    grep -oE '\[(Containments|Applets)\]\[[0-9]+\]' "$CONFIG_FILE" | grep -oE '[0-9]+' | sort -n | tail -1
+}
+
+list_monitors() {
+    echo "Monitors:"
+    echo "========="
+    printf "%-10s %-8s %-20s %-12s %s\n" "Output" "Screen" "Brand/Model" "Position" "Resolution"
+    printf "%-10s %-8s %-20s %-12s %s\n" "------" "------" "-----------" "--------" "----------"
+
+    while IFS='|' read -r out fullname; do
+        local geom=$(get_geometry "$out")
+        [ -z "$geom" ] && continue
+        local screen=$(get_screen_index "$out")
+        local pos=$(get_position "$geom")
+        local res=$(echo "$geom" | awk '{print $2}')
+        local brand=$(echo "$fullname" | sed 's/xrandr-//' | cut -d'-' -f1)
+        local model=$(echo "$fullname" | sed 's/xrandr-//' | cut -d'-' -f2)
+        printf "%-10s %-8s %-20s %-12s %s\n" "$out" "$screen" "$brand $model" "$pos" "$res"
+    done < <(get_monitors)
+
+    echo ""
+    echo "Panels:"
+    echo "======="
+    printf "%-10s %-8s %-10s %s\n" "Panel ID" "Screen" "Position" "Widgets"
+    printf "%-10s %-8s %-10s %s\n" "--------" "------" "--------" "-------"
+
+    for screen in 0 1 2; do
+        for loc in 3 4; do
+            local panel_id=$(get_panel_id "$screen" "$loc")
+            [ -z "$panel_id" ] && continue
+            local loc_name="top"
+            [ "$loc" = "4" ] && loc_name="bottom"
+            local widgets=$(grep "^\[Containments\]\[$panel_id\]\[Applets\]\[[0-9]*\]$" "$CONFIG_FILE" | wc -l)
+            printf "%-10s %-8s %-10s %s widgets\n" "$panel_id" "$screen" "$loc_name" "$widgets"
+        done
+    done
+}
+
+show_panel() {
+    local monitor="$1"
+    local output=$(resolve_monitor "$monitor")
+
+    if [ -z "$output" ]; then
+        echo "Error: Could not resolve monitor '$monitor'"
+        echo "Use 'list' to see available monitors"
+        exit 1
+    fi
+
+    local screen=$(get_screen_index "$output")
+    local panel_id=$(get_panel_id "$screen" 3)
+
+    echo "Monitor: $output (Screen $screen)"
+    echo "Top Panel ID: $panel_id"
+    echo ""
+    echo "Widgets:"
+    grep -E "^\[Containments\]\[$panel_id\]\[Applets\]\[[0-9]+\]$" "$CONFIG_FILE" | while read -r section; do
+        local widget_id=$(echo "$section" | grep -oE '\[Applets\]\[[0-9]+\]' | grep -oE '[0-9]+')
+        local escaped_section=$(echo "$section" | sed 's/\[/\\[/g' | sed 's/\]/\\]/g')
+        local plugin=$(grep -A5 "^$escaped_section$" "$CONFIG_FILE" | grep "^plugin=" | head -1 | cut -d= -f2)
+        echo "  $widget_id: $plugin"
+    done
+
+    echo ""
+    echo "AppletOrder: $(grep -A1 "^\[Containments\]\[$panel_id\]\[General\]$" "$CONFIG_FILE" | grep AppletOrder= | cut -d= -f2)"
+}
+
+copy_panel() {
+    local from_mon="$1"
+    local to_mon="$2"
+    local apply="${3:-}"
+
+    local from_output=$(resolve_monitor "$from_mon")
+    local to_output=$(resolve_monitor "$to_mon")
+
+    if [ -z "$from_output" ]; then
+        echo "Error: Could not resolve source monitor '$from_mon'"
+        exit 1
+    fi
+
+    if [ -z "$to_output" ]; then
+        echo "Error: Could not resolve target monitor '$to_mon'"
+        exit 1
+    fi
+
+    local from_screen=$(get_screen_index "$from_output")
+    local to_screen=$(get_screen_index "$to_output")
+    local from_panel=$(get_panel_id "$from_screen" 3)
+    local to_panel=$(get_panel_id "$to_screen" 3)
+
+    if [ -z "$from_panel" ]; then
+        echo "Error: No top panel found on source monitor"
+        exit 1
+    fi
+
+    if [ -z "$to_panel" ]; then
+        echo "Error: No top panel found on target monitor"
+        exit 1
+    fi
+
+    echo "Copying ENTIRE top panel config:"
+    echo "  From: $from_output (Screen $from_screen, Panel $from_panel)"
+    echo "  To:   $to_output (Screen $to_screen, Panel $to_panel)"
+    echo ""
+
+    # Show what will be copied
+    echo "Widgets to copy:"
+    grep -E "^\[Containments\]\[$from_panel\]\[Applets\]\[[0-9]+\]$" "$CONFIG_FILE" | while read -r section; do
+        local widget_id=$(echo "$section" | grep -oE '\[Applets\]\[[0-9]+\]' | grep -oE '[0-9]+')
+        local escaped_section=$(echo "$section" | sed 's/\[/\\[/g' | sed 's/\]/\\]/g')
+        local plugin=$(grep -A5 "^$escaped_section$" "$CONFIG_FILE" | grep "^plugin=" | head -1 | cut -d= -f2)
+        echo "  $widget_id: $plugin"
+    done
+
+    if [ "$apply" != "--apply" ]; then
+        echo ""
+        echo "To apply changes, run:"
+        echo "  $(basename "$0") copy $from_mon $to_mon --apply"
+        return
+    fi
+
+    echo ""
+    echo "Applying changes..."
+    backup_config
+
+    # Use Python for safer config manipulation
+    python3 << PYTHON_SCRIPT
+import re
+import sys
+from collections import OrderedDict
+
+config_file = "$CONFIG_FILE"
+from_panel = "$from_panel"
+to_panel = "$to_panel"
+to_screen = "$to_screen"
+
+# Read the config file
+with open(config_file, 'r') as f:
+    content = f.read()
+
+# Parse into sections
+sections = OrderedDict()
+current_section = None
+current_content = []
+
+for line in content.split('\n'):
+    if line.startswith('[') and line.endswith(']'):
+        if current_section:
+            sections[current_section] = '\n'.join(current_content)
+        current_section = line
+        current_content = []
+    else:
+        current_content.append(line)
+
+if current_section:
+    sections[current_section] = '\n'.join(current_content)
+
+# Find all sections belonging to source panel
+source_sections = {}
+source_pattern = re.compile(r'^\[Containments\]\[' + from_panel + r'\]')
+for section, content in sections.items():
+    if source_pattern.match(section):
+        source_sections[section] = content
+
+# Find all sections belonging to target panel (to remove)
+target_pattern = re.compile(r'^\[Containments\]\[' + to_panel + r'\]')
+sections_to_remove = [s for s in sections if target_pattern.match(s)]
+
+# Remove target panel sections
+for section in sections_to_remove:
+    del sections[section]
+
+# Get max ID for new widget IDs
+all_ids = set()
+for section in sections:
+    for match in re.findall(r'\[(?:Containments|Applets)\]\[(\d+)\]', section):
+        all_ids.add(int(match))
+for section in source_sections:
+    for match in re.findall(r'\[(?:Containments|Applets)\]\[(\d+)\]', section):
+        all_ids.add(int(match))
+
+next_id = max(all_ids) + 1 if all_ids else 1
+
+# Build ID mapping for widgets (not the panel itself)
+id_map = {}
+widget_pattern = re.compile(r'\[Applets\]\[(\d+)\]')
+for section in source_sections:
+    for match in widget_pattern.findall(section):
+        old_id = match
+        if old_id not in id_map:
+            id_map[old_id] = str(next_id)
+            next_id += 1
+
+# Transform source sections to target
+new_sections = OrderedDict()
+for section, content in source_sections.items():
+    new_section = section
+    new_content = content
+
+    # Replace panel ID in section header only
+    new_section = new_section.replace(f'[Containments][{from_panel}]', f'[Containments][{to_panel}]')
+
+    # Replace widget IDs in section header only (sorted by length desc to avoid partial matches)
+    for old_id in sorted(id_map.keys(), key=lambda x: -len(x)):
+        new_id = id_map[old_id]
+        new_section = new_section.replace(f'[Applets][{old_id}]', f'[Applets][{new_id}]')
+
+    # Update lastScreen in content
+    new_content = re.sub(r'^lastScreen=\d+', f'lastScreen={to_screen}', new_content, flags=re.MULTILINE)
+
+    # Update AppletOrder in content (need to replace IDs)
+    def replace_applet_order(match):
+        order = match.group(1)
+        for old_id in sorted(id_map.keys(), key=lambda x: -len(x)):
+            new_id = id_map[old_id]
+            # Use word boundary replacement
+            order = re.sub(r'\b' + old_id + r'\b', new_id, order)
+        return f'AppletOrder={order}'
+
+    new_content = re.sub(r'^AppletOrder=(.*)$', replace_applet_order, new_content, flags=re.MULTILINE)
+
+    new_sections[new_section] = new_content
+
+# Add new sections to config
+sections.update(new_sections)
+
+# Write back
+with open(config_file, 'w') as f:
+    for section, content in sections.items():
+        f.write(section + '\n')
+        f.write(content)
+        if not content.endswith('\n'):
+            f.write('\n')
+
+print("Config updated successfully")
+print(f"ID mappings: {id_map}")
+PYTHON_SCRIPT
+
+    if [ $? -ne 0 ]; then
+        echo "Error: Python script failed"
+        echo "Restoring from backup..."
+        restore_config "$(ls -t ~/.config/plasma-appletsrc-backup-* | head -1)"
+        exit 1
+    fi
+
+    # Restart plasmashell
+    echo ""
+    echo "Stopping plasmashell..."
+    pkill plasmashell
+    sleep 2
+    echo "Starting plasmashell..."
+    plasmashell 2>/dev/null &
+    sleep 3
+    echo "Done!"
+}
+
+restart_plasmashell() {
+    echo "Stopping plasmashell..."
+    pkill plasmashell
+    sleep 2
+    echo "Starting plasmashell..."
+    plasmashell 2>/dev/null &
+    echo "Done."
+}
+
+backup_config() {
+    local backup_file="$HOME/.config/plasma-appletsrc-backup-$(date +%Y%m%d-%H%M%S)"
+    cp "$CONFIG_FILE" "$backup_file"
+    echo "Backed up to: $backup_file"
+}
+
+restore_config() {
+    local backup_file="$1"
+    if [ ! -f "$backup_file" ]; then
+        echo "Error: Backup file not found: $backup_file"
+        exit 1
+    fi
+
+    echo "Stopping plasmashell..."
+    pkill plasmashell
+    sleep 2
+
+    cp "$backup_file" "$CONFIG_FILE"
+    echo "Restored from: $backup_file"
+
+    echo "Starting plasmashell..."
+    plasmashell 2>/dev/null &
+    echo "Done."
+}
+
+# Main
+case "${1:-}" in
+    list)
+        list_monitors
+        ;;
+    show)
+        show_panel "$2"
+        ;;
+    copy)
+        copy_panel "$2" "$3" "$4"
+        ;;
+    restart)
+        restart_plasmashell
+        ;;
+    backup)
+        backup_config
+        ;;
+    restore)
+        restore_config "$2"
+        ;;
+    -h|--help|"")
+        usage
+        ;;
+    *)
+        echo "Unknown command: $1"
+        usage
+        exit 1
+        ;;
+esac

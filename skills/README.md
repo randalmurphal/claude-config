@@ -69,7 +69,7 @@ Personal skills organized by category. Skills activate automatically based on th
 
 | Skill | Description | Use When |
 |-------|-------------|----------|
-| **brainstorming** | Collaborative design exploration through focused questioning | Starting non-trivial features, design, behavior changes - before code |
+| **brainstorm** | Collaborative design exploration through focused questioning | Starting non-trivial features, design, behavior changes - before code |
 | **systematic-debugging** | Root cause investigation before any fix attempt | Any failure, bug, unexpected behavior - before attempting fixes |
 | **test-driven-development** | Strict RED-GREEN-REFACTOR enforcement | Implementing features, bug fixes, behavior changes - before writing code |
 | **verification-before-completion** | Fresh evidence required before any completion claim | Before claiming tests pass, builds succeed, or fixes work |
@@ -183,7 +183,7 @@ Automation (2)        Meta (3)              Performance (1)
                       └─ skill-authoring
 
 Discipline (6)        Integration (2)
-├─ brainstorming      ├─ mcp-integration
+├─ brainstorm      ├─ mcp-integration
 ├─ systematic-debug   └─ orchestration-workflow
 ├─ tdd
 ├─ verification

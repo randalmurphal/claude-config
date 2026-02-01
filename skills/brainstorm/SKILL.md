@@ -1,5 +1,5 @@
 ---
-name: brainstorming
+name: brainstorm
 description: Use when starting any non-trivial feature, design, or behavior change - before writing code or creating tasks. Guides collaborative design exploration through focused questioning to produce a validated spec.
 ---
 

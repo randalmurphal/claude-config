@@ -2,7 +2,7 @@
 
 Personal skills organized by category. Skills activate automatically based on their descriptions - no manual invocation needed.
 
-**Total Skills:** 27
+**Total Skills:** 33
 
 ---
 
@@ -65,6 +65,17 @@ Personal skills organized by category. Skills activate automatically based on th
 | **mcp-integration** | MCP server setup (PRISM, Jira, MongoDB, etc.) | Setting up MCP servers, debugging MCP connections |
 | **orchestration-workflow** | /solo, /spec, /conduct command patterns | Planning complex work, orchestrating multi-agent tasks |
 
+## Development Discipline (6 skills, adapted from [superpowers](https://github.com/obra/superpowers))
+
+| Skill | Description | Use When |
+|-------|-------------|----------|
+| **brainstorming** | Collaborative design exploration through focused questioning | Starting non-trivial features, design, behavior changes - before code |
+| **systematic-debugging** | Root cause investigation before any fix attempt | Any failure, bug, unexpected behavior - before attempting fixes |
+| **test-driven-development** | Strict RED-GREEN-REFACTOR enforcement | Implementing features, bug fixes, behavior changes - before writing code |
+| **verification-before-completion** | Fresh evidence required before any completion claim | Before claiming tests pass, builds succeed, or fixes work |
+| **receiving-code-review** | Technical evaluation of feedback, not performative agreement | Receiving review feedback, especially if unclear or questionable |
+| **writing-skills** | TDD methodology applied to skill creation | Creating new skills, editing existing skills |
+
 ## Meta / Framework (3 skills)
 
 | Skill | Description | Use When |
@@ -77,19 +88,32 @@ Personal skills organized by category. Skills activate automatically based on th
 
 ## Skill Synergies (Common Workflows)
 
+### Feature Workflow (Discipline-First)
+1. `brainstorming` → explore design before coding
+2. `test-driven-development` → write tests first, always
+3. `python-style` / language skill → write implementation
+4. `verification-before-completion` → prove it works
+5. `git-workflows` → manage branches
+
 ### Testing Workflow
 1. `testing-standards` → write tests (structure)
 2. `test-driven-development` → follow TDD cycle (workflow)
 3. `mutation-testing` → validate test quality
 4. `python-linting` → check code quality
-5. `debugging-strategies` → debug failing tests
+5. `systematic-debugging` → debug failing tests
 
 ### Code Review Workflow
 1. `gitlab-scripts` → fetch MR comments
 2. `jira-scripts` → fetch requirements
 3. `code-review-patterns` → review process
-4. `code-refactoring` → review complexity
+4. `receiving-code-review` → handle feedback properly
 5. `vulnerability-triage` → security review
+
+### Bug Fix Workflow
+1. `systematic-debugging` → investigate root cause first
+2. `test-driven-development` → write failing test reproducing bug
+3. Implementation → minimal fix
+4. `verification-before-completion` → prove fix works
 
 ### Implementation Workflow
 1. `orchestration-workflow` → plan work (/solo, /spec, /conduct)
@@ -158,12 +182,16 @@ Automation (2)        Meta (3)              Performance (1)
 └─ jira-scripts       ├─ ai-documentation
                       └─ skill-authoring
 
-Integration (2)
-├─ mcp-integration
-└─ orchestration-workflow
+Discipline (6)        Integration (2)
+├─ brainstorming      ├─ mcp-integration
+├─ systematic-debug   └─ orchestration-workflow
+├─ tdd
+├─ verification
+├─ receiving-review
+└─ writing-skills
 ```
 
 ---
 
-**Last Updated:** 2025-10-27
-**Skills Version:** 2.0 (comprehensive 2025 update)
+**Last Updated:** 2026-02-01
+**Skills Version:** 3.0 (added discipline skills from superpowers)

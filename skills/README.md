@@ -2,7 +2,7 @@
 
 Personal skills organized by category. Skills activate automatically based on their descriptions - no manual invocation needed.
 
-**Total Skills:** 33
+**Total Skills:** 34
 
 ---
 
@@ -76,12 +76,13 @@ Personal skills organized by category. Skills activate automatically based on th
 | **receiving-code-review** | Technical evaluation of feedback, not performative agreement | Receiving review feedback, especially if unclear or questionable |
 | **writing-skills** | TDD methodology applied to skill creation | Creating new skills, editing existing skills |
 
-## Meta / Framework (3 skills)
+## Meta / Framework (4 skills)
 
 | Skill | Description | Use When |
 |-------|-------------|----------|
 | **agent-prompting** | Sub-agent delegation, prompt engineering | Spawning sub-agents (MUST USE PROACTIVELY) |
 | **ai-documentation** | CLAUDE.md writing (hierarchical inheritance, 100-200 line rule) | Writing documentation, optimizing existing docs |
+| **ralph-loop** | Autonomous agent execution loop setup (IMPLEMENTATION.md, PROMPTs, cross-validation) | After brainstorm/design is done, setting up ralph loops for autonomous building |
 | **skill-authoring** | Creating/updating skills (YAML frontmatter, <500 lines, progressive disclosure) | Creating new skills, updating existing skills |
 
 ---
@@ -177,9 +178,10 @@ Git (1)               Quality (3)           Frontend (1)
                       ├─ vulnerability-triage
                       └─ code-review-patterns
 
-Automation (2)        Meta (3)              Performance (1)
+Automation (2)        Meta (4)              Performance (1)
 ├─ gitlab-scripts     ├─ agent-prompting    └─ performance-profiling
 └─ jira-scripts       ├─ ai-documentation
+                      ├─ ralph-loop
                       └─ skill-authoring
 
 Discipline (6)        Integration (2)

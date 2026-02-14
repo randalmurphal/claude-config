@@ -85,11 +85,19 @@ AGENT_NAME="${2:-claude}"
 if [ -n "$RALPH_AGENT_CMD" ]; then
   AGENT_CMD="$RALPH_AGENT_CMD"
 elif [ "$AGENT_NAME" = "claude" ]; then
-  AGENT_CMD="$HOME/.claude/local/claude -p --dangerously-skip-permissions"
+  AGENT_CMD="$HOME/.local/bin/claude -p --dangerously-skip-permissions"
 elif [ "$AGENT_NAME" = "codex" ]; then
   AGENT_CMD="codex exec --full-auto -"
 else
   echo "Error: Unknown agent '$AGENT_NAME'. Use 'claude', 'codex', or set RALPH_AGENT_CMD."
+  exit 1
+fi
+
+# Verify the agent binary exists before looping
+AGENT_BIN="${AGENT_CMD%% *}"
+if ! command -v "$AGENT_BIN" &>/dev/null && [ ! -x "$AGENT_BIN" ]; then
+  echo "Error: Agent binary not found: $AGENT_BIN"
+  echo "Install it or set RALPH_AGENT_CMD to the correct path."
   exit 1
 fi
 

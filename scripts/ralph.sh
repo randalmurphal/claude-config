@@ -18,6 +18,53 @@
 #   ./ralph.sh brain codex       # Loop 2 with Codex
 #   RALPH_AGENT_CMD="codex exec --full-auto -" ./ralph.sh core
 #
+show_help() {
+  cat <<'HELP'
+ralph — autonomous agent loop runner
+
+Pipes a PROMPT file into an AI agent repeatedly. Each iteration the agent
+reads the prompt, picks the next work item, implements it, and commits.
+Loop until you Ctrl+C.
+
+USAGE
+  ./ralph.sh [loop_name] [agent]
+  ./ralph.sh -h | --help
+
+ARGUMENTS
+  loop_name   Which PROMPT file to use (default: core)
+              Looks for PROMPT-{loop_name}.md in the current directory.
+              Common values: core, brain, integration
+
+  agent       Which AI CLI to run (default: claude)
+              Built-in options: claude, codex
+              Or set RALPH_AGENT_CMD for custom agents.
+
+ENVIRONMENT
+  RALPH_AGENT_CMD   Override the full agent command.
+                    Example: RALPH_AGENT_CMD="codex exec --full-auto -"
+
+EXAMPLES
+  ./ralph.sh                       # Run PROMPT-core.md with Claude
+  ./ralph.sh brain                 # Run PROMPT-brain.md with Claude
+  ./ralph.sh core codex            # Run PROMPT-core.md with Codex
+  ./ralph.sh integration claude    # Run PROMPT-integration.md with Claude
+
+SIGNALS
+  Ctrl+C once    Let current iteration finish, then stop
+  Ctrl+C twice   Kill immediately
+
+FILES
+  PROMPT-{name}.md    Agent instructions (required, in project root)
+  progress-{name}.md  State tracker (read/written by agent)
+  ralph-{name}.log    Append-only log of all iterations
+
+HELP
+  exit 0
+}
+
+# Handle --help / -h before anything else
+case "${1:-}" in -h|--help) show_help ;; esac
+
 set +e  # don't exit on failures — agent may exit non-zero on API blips, timeouts, etc.
 set -m  # job control: background jobs get their own process group, shielded from Ctrl+C
 

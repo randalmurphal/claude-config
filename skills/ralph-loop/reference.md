@@ -19,6 +19,8 @@ Use this structure for every PROMPT file. Replace `[bracketed]` placeholders wit
 
 These are not repo safety issues. They are disposable artifacts. Move on.
 
+**Pre-existing uncommitted changes are not your problem.** If `git status` shows modified files you did not edit, ignore them. The human may have been editing files between iterations. Only commit files YOU changed. Do not stop, do not ask, do not treat other people's uncommitted work as a blocker. Just commit your own files and move on.
+
 ## Prime Directive
 
 You are building [what this loop builds] for [project name] — [one-sentence project description]. [Dependency statement: "This loop has no dependencies" OR "This loop depends on Loop N ([name]) being complete."] [Key constraint: e.g., "No LLM calls in this loop" or "All LLM responses in tests are MOCKED."]
@@ -142,31 +144,41 @@ When all work items are complete, you enter the Review Phase. This is **NOT** op
 ### Review Iteration Workflow
 
 1. Read `progress-[loop].md` — check "Known Issues" and "Review Log"
-2. If known issues exist, pick the highest-severity unresolved one
-3. If no known issues, perform an adversarial review of ONE category (see below)
-4. Fix the issue: update code, write/fix tests
-5. Run quality gate
-6. Commit fixes with descriptive message
-7. Update `progress-[loop].md`:
+2. If known issues exist, fix ALL known issues (highest severity first)
+3. If no known issues, perform a FULL SWEEP of one category (see below):
+   a. Scan thoroughly — search every relevant file, grep for patterns, compare against spec
+   b. Collect ALL findings for this category before fixing anything
+   c. Fix everything you found
+   d. Write/fix tests for all changes
+4. Run quality gate
+5. Commit all fixes with descriptive message listing what was found and fixed
+6. Update `progress-[loop].md`:
    - Move resolved issues from "Known Issues" to "Resolved Issues"
-   - Add a review log entry: what category, what was checked, what was fixed
+   - Add a review log entry: category, files checked, all findings, all fixes
    - Add any NEW issues discovered during review to "Known Issues"
 
 ### Review Categories (cycle through in order)
 
 1. **Spec Compliance** — Open IMPLEMENTATION.md. For every interface, type, and method signature in the section you're reviewing, compare against the actual code. Every deviation is a bug to fix.
-2. **Error Handling** — Find patterns that swallow errors in production code. Every error must be handled, logged, or documented.
+2. **Error Handling** — Find every discarded error, ignored return value, logged-but-not-returned error, and unchecked error return in production code. Every instance is a defect unless it matches one of these **specific acceptable patterns** (and ONLY these):
+   - **Error unwind**: Already returning a more important error and this is cleanup/rollback
+   - **Standard library idiom**: A well-known language idiom where ignoring the error is the documented correct usage (cite the documentation)
+   - **Best-effort non-critical**: The operation is explicitly designated as non-critical in DESIGN.md or IMPLEMENTATION.md (cite the section)
+   Anything not in this list is a defect. Fix it. "Common pattern" and "defensive code" are not justifications — cite the spec or cite language documentation, or fix the code.
 3. **Test Coverage Gaps** — Find functions below 80% coverage. Write missing tests with specific assertions.
 4. **Code Consistency** — Same patterns across all packages (ID generation, constructors, logging, error types).
-5. **Dead Code & Dead Schema** — Unused exports, dead DB columns, unreferenced types. Remove or wire up.
-6. **Integration Wiring** — Stubs connected to real subsystems, not hardcoded strings.
+5. **Dead Code & Dead Schema** — Unused exports, dead DB columns, unreferenced types. **Remove them.** If code exists that is "for a future loop," it must be referenced by a specific work item number in that loop's PROMPT file. Cite the loop name and item number, or delete the code.
+6. **Integration Wiring** — Every interface must have a real implementation, not just mocks. Every adapter must be instantiated somewhere. If an implementation genuinely cannot exist yet (requires infrastructure from a later loop), add it to Known Issues with the specific loop and work item that will resolve it. "By design" and "deferred" are not valid — name the blocker.
 7. **Security & Data Integrity** — Injection patterns, unsafe fallbacks, data corruption risks.
 
 ### Review Rules
 
-- One category per iteration. Be thorough, not broad.
-- Be adversarial. Compare against the spec.
-- After cycling all 7 categories with zero findings, start over.
+- **One category per iteration, but sweep it completely.** Check every file, every function, every pattern relevant to that category. Don't stop at the first finding.
+- **Be adversarial.** Your job is to find defects, not to confirm the code is fine. If you find zero issues in a sweep, you probably didn't look hard enough.
+- **No rubber stamps.** You do not get to decide something is "INTENTIONAL" or "by design" without citing the specific spec section (DESIGN.md section name or IMPLEMENTATION.md section number) that mandates the pattern. If you can't cite the spec, it's a defect.
+- **No self-referencing.** Each review cycle evaluates the code independently against the spec. Your own previous review findings are not justification. "Same set as prior cycle" is not a valid assessment — re-evaluate each finding against the spec as if seeing it for the first time.
+- **The spec is mandatory.** If the spec says something, the code must do it. The only valid reason to not implement something is that it is literally impossible in this loop (requires infrastructure, services, or code that doesn't exist yet AND is assigned to a specific later loop's work item). "Best practice," "common pattern," and "defensive" are not reasons to deviate from the spec.
+- **After cycling through all 7 categories with zero findings, start over.** Previous fixes may have introduced new issues.
 - **NEVER mark the loop as complete.** The human decides.
 
 ---
@@ -245,7 +257,7 @@ The canonical ralph.sh script lives at `~/.claude/scripts/ralph.sh`. Copy it int
 ```bash
 ./ralph.sh [loop_name] [agent]
 
-# loop_name   Which PROMPT to use: core (default), brain, integration, etc.
+# loop_name   Which PROMPT to use (optional). No arg or "-" = PROMPT.md, with arg = PROMPT-{name}.md
 # agent       Which AI CLI: claude (default), codex
 
 # Environment override:

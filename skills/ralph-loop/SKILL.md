@@ -247,9 +247,10 @@ Reviewer performs cross-loop validation:
 3. Show "how to run" instructions:
 
 ```bash
-./ralph.sh core              # Loop 1 with Claude
-./ralph.sh brain codex       # Loop 2 with Codex
-./ralph.sh core claude       # Explicit agent selection
+./ralph.sh                   # PROMPT.md with Claude
+./ralph.sh - codex           # PROMPT.md with Codex
+./ralph.sh core              # PROMPT-core.md with Claude
+./ralph.sh brain codex       # PROMPT-brain.md with Codex
 RALPH_AGENT_CMD="custom-cli --flags" ./ralph.sh core  # Custom agent
 ```
 
@@ -265,11 +266,13 @@ Every PROMPT file must include a Review Phase section after the Work Items. This
 
 After all work items are done, the agent enters an indefinite review/fix cycle:
 
-1. Check progress file for known issues (fix highest severity first)
-2. If no known issues, adversarially review one category against the spec
-3. Fix problems, run quality gate, commit
+1. Check progress file for known issues — fix ALL of them (highest severity first)
+2. If no known issues, do a FULL SWEEP of one category — scan every relevant file, collect all findings, then fix everything
+3. Run quality gate, commit all fixes together
 4. Update progress file (never write "Loop Complete")
 5. Repeat forever until human Ctrl+C's
+
+The key efficiency gain: each iteration sweeps an entire category instead of finding one issue at a time. One commit per category, not one commit per bug.
 
 ### Review Categories
 
@@ -278,16 +281,19 @@ Every PROMPT's review phase cycles through these categories:
 | # | Category | What to Check |
 |---|----------|---------------|
 | 1 | Spec Compliance | Every interface/type/method matches IMPLEMENTATION.md exactly |
-| 2 | Error Handling | No swallowed errors (`_ = err`) in production code |
+| 2 | Error Handling | Every `_ = err` is a defect unless it matches a closed list of acceptable patterns (error unwind, standard I/O, spec-designated non-critical). Must cite spec section for exceptions. |
 | 3 | Test Coverage | Functions below 80%, missing edge case tests |
 | 4 | Code Consistency | Same patterns across all packages |
-| 5 | Dead Code | Unused exports, dead DB columns, unreferenced types |
-| 6 | Integration Wiring | Stubs connected to real components, not hardcoded |
+| 5 | Dead Code | Unused exports, dead DB columns, unreferenced types. Remove them. "For a future loop" must cite the specific loop name and work item number. |
+| 6 | Integration Wiring | Every interface has a real implementation. "Deferred" must name the specific blocker (loop + work item). |
 | 7 | Security | Data corruption risks, injection patterns, unsafe fallbacks |
 
-### Key Rule
+### Key Rules
 
-The review phase section in the PROMPT MUST include: "You NEVER write 'Loop Complete' or 'Loop Done' in the progress file. The human decides when the loop is done."
+- The review phase section in the PROMPT MUST include: "You NEVER write 'Loop Complete' or 'Loop Done' in the progress file. The human decides when the loop is done."
+- **No rubber stamps.** Agents cannot mark findings as "INTENTIONAL" or "by design" without citing the specific DESIGN.md section or IMPLEMENTATION.md section number. No spec citation = defect to fix.
+- **No self-referencing.** Each review cycle evaluates findings independently against the spec. "Same set as prior cycle" is not a valid assessment.
+- **The spec is 100% mandatory.** The only valid deferral is when something is literally impossible in this loop (requires later loop infrastructure) AND the agent can cite the specific later loop work item.
 
 See `reference.md` for the full review phase template text.
 
@@ -305,6 +311,9 @@ See `reference.md` for the full review phase template text.
 | Auto-progressing loops | User controls loop progression. Always. |
 | PROMPT inventing types | Everything must trace to IMPLEMENTATION.md |
 | No review phase | Agent runs out of work items and stops. Always include review phase. |
+| Rubber-stamp reviews | Agent marks everything "INTENTIONAL" without spec citation. Tighten review category language with closed lists of acceptable patterns. |
+| Self-referencing reviews | Agent says "same as prior cycle" instead of re-evaluating. Each cycle is independent. |
+| Vague deferrals | "Deferred to Loop 3" without citing the specific work item. Require loop name + item number. |
 
 ## Red Flags
 
@@ -315,3 +324,6 @@ See `reference.md` for the full review phase template text.
 - No reviewer offered at checkpoints
 - Agent decides when a loop is "complete"
 - PROMPT has no Review Phase section after work items
+- Review log shows "0 findings" with "INTENTIONAL" items that don't cite spec sections
+- Review log says "same set as prior cycle" — agent is coasting, not reviewing
+- Dead code justified as "for future loop" without citing a specific work item number

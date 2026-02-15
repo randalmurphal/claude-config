@@ -1,6 +1,6 @@
 ---
 name: AI Documentation Standards
-description: Write AI-readable documentation using context engineering principles, Claude Code's documentation hierarchy (.claude/rules/, CLAUDE.md inheritance), structured formats, and the litmus test. Use when writing documentation, updating docs, or optimizing existing docs.
+description: Write AI-readable documentation using context engineering principles, nested AGENTS.md hierarchy (CLAUDE.md is a thin shim), .claude/rules/ with path-scoping, structured formats, and the litmus test. Use when writing documentation, updating docs, or optimizing existing docs.
 allowed-tools: Read, Write, Edit, Grep, Glob
 ---
 
@@ -23,7 +23,7 @@ From Anthropic's official guidance — these principles govern all documentation
 | **Minimize, don't maximize** | Smallest set of high-signal tokens that produce correct behavior | Shorter docs > longer docs. Cut aggressively |
 | **Right altitude** | Specific enough to guide, flexible enough for heuristics | Not brittle hardcoded rules, not vague platitudes |
 | **Examples over rules** | One good example > paragraph of explanation | Point to real code patterns in the codebase |
-| **Just-in-time loading** | Essentials upfront, details on demand | CLAUDE.md = lean pointers. Detailed docs = separate files agents read when needed |
+| **Just-in-time loading** | Essentials upfront, details on demand | Root AGENTS.md = lean pointers. Detailed docs = separate files agents read when needed |
 
 ### Four Context Anti-Patterns
 
@@ -36,35 +36,50 @@ From Anthropic's official guidance — these principles govern all documentation
 
 ### Token Budget Reality
 
-Auto-loaded docs (CLAUDE.md, rules/) consume context before any work begins. A typical project baseline is ~20K tokens. Bloated documentation eats into the agent's working memory for actual tasks.
+Auto-loaded docs (AGENTS.md via CLAUDE.md, rules/) consume context before any work begins. A typical project baseline is ~20K tokens. Bloated documentation eats into the agent's working memory for actual tasks.
 
 ---
 
-## Claude Code Documentation Hierarchy
+## File Convention: AGENTS.md Primary, CLAUDE.md as Shim
 
-Claude Code loads documentation in layers. Understand the hierarchy to put information in the right place.
+All documentation content lives in **AGENTS.md** files. AGENTS.md is a vendor-neutral standard (Linux Foundation, 60K+ repos, 25+ tools including OpenAI Codex, Cursor, Google Jules). This keeps instructions portable across AI tools.
+
+**CLAUDE.md** files exist only as thin shims that import the corresponding AGENTS.md:
+
+```markdown
+<!-- CLAUDE.md — Do not edit. Modify AGENTS.md instead. -->
+@AGENTS.md
+```
+
+This pattern applies at every level: project root, subdirectories, anywhere you need agent documentation. Always edit the AGENTS.md file — never put content directly in CLAUDE.md.
+
+---
+
+## Documentation Hierarchy
+
+Claude Code loads documentation in layers. CLAUDE.md files are the loading mechanism; AGENTS.md files are where content lives.
 
 ### The Layers (Most Global → Most Specific)
 
-| Layer | Location | Scope | Loaded When |
-|-------|----------|-------|-------------|
-| **Managed policy** | `/etc/claude-code/CLAUDE.md` | Organization-wide | Always |
-| **User global** | `~/.claude/CLAUDE.md` | All projects for this user | Always |
-| **Project root** | `./CLAUDE.md` or `./.claude/CLAUDE.md` | Whole project | Always |
-| **Project rules** | `./.claude/rules/*.md` | Topic-specific (can be path-scoped) | Always (filtered by path match) |
-| **Subdirectory** | `subdir/CLAUDE.md` | That subtree only | When agent reads files in subtree |
-| **Local override** | `./CLAUDE.local.md` | Personal, one project | Always (gitignored) |
-| **Auto memory** | `~/.claude/projects/<id>/memory/` | Auto-generated per project | First 200 lines, always |
+| Layer | Files | Loaded When |
+|-------|-------|-------------|
+| **Managed policy** | `/etc/claude-code/CLAUDE.md` | Always |
+| **User global** | `~/.claude/CLAUDE.md` | Always |
+| **Project root** | `./CLAUDE.md` → `@AGENTS.md` | Always |
+| **Project rules** | `./.claude/rules/*.md` | Always (filtered by path match) |
+| **Subdirectory** | `subdir/CLAUDE.md` → `@AGENTS.md` | When agent reads files in subtree |
+| **Local override** | `./CLAUDE.local.md` | Always (gitignored) |
+| **Auto memory** | `~/.claude/projects/<id>/memory/` | First 200 lines, always |
 
 ### Key Mechanisms
 
-**`@import` syntax**: CLAUDE.md can reference other files: `@path/to/file.md`. Resolves relative to the containing file. Max depth 5. Use sparingly — every import adds to always-loaded context. Pitch the agent on *when* to consult a file rather than importing the whole thing:
+**`@import` syntax**: CLAUDE.md can reference other files: `@path/to/file.md`. Resolves relative to the containing file. Max depth 5. The primary use is `@AGENTS.md` in every CLAUDE.md. Beyond that, use sparingly — every import adds to always-loaded context. For on-demand references, use pointers instead of imports:
 
 ```markdown
-# Good: pointer with context
+# Good: pointer the agent follows when needed
 For complex error recovery patterns, see docs/ERROR_PATTERNS.md
 
-# Bad: importing everything into always-loaded context
+# Bad: importing a large file into always-loaded context
 @docs/ERROR_PATTERNS.md
 ```
 
@@ -80,7 +95,7 @@ paths:
 - Use zod schemas for request/response types
 ```
 
-This is the primary mechanism for splitting documentation. Rules only load when the agent works on matching files — zero cost otherwise.
+Rules only load when the agent works on matching files — zero cost otherwise.
 
 **Auto memory**: Claude writes session insights to `~/.claude/projects/<id>/memory/MEMORY.md`. First 200 lines load every session. Use `/memory` or tell Claude "remember that we use pnpm" to persist notes. This replaces manual session knowledge capture for project-specific patterns.
 
@@ -152,72 +167,95 @@ Error handling pattern: see `handleApiError()` in `src/api/client.ts`
 
 ---
 
-## When and How to Split Documentation
+## Nested Documentation
 
-### Decision Framework
+### Core Principle: Information Lives Where It's Relevant
+
+Documentation belongs at the most specific directory level where it applies. Parent docs stay lean and reference children for detail. Children contain the full context for their scope.
+
+**The nesting rule**: If information only matters to files in `backend/api/`, it belongs in `backend/api/AGENTS.md` — not in the root AGENTS.md. The root should only contain what's truly universal.
+
+### How Nesting Works
+
+When Claude works in `backend/api/`, it loads the full chain:
+1. `./CLAUDE.md` → `@AGENTS.md` (project-wide: build commands, git conventions)
+2. `backend/CLAUDE.md` → `@AGENTS.md` (backend-wide: DB patterns, service conventions)
+3. `backend/api/CLAUDE.md` → `@AGENTS.md` (API-specific: endpoint patterns, validation)
+
+More specific instructions take precedence over broader ones. Each level only contains what's unique to that scope.
+
+### Parent References Child Pattern
+
+Parents should summarize and point down. Children contain the detail.
+
+```markdown
+# Root AGENTS.md (project-wide)
+## Architecture
+- `frontend/` — React SPA (see frontend/AGENTS.md for component patterns)
+- `backend/` — Python API (see backend/AGENTS.md for service patterns)
+- `shared/` — Shared types and utilities
+
+# backend/AGENTS.md (backend-specific)
+## Services
+- All services extend `BaseService` in `services/base.py`
+- Database patterns: see `db/AGENTS.md` for query conventions
+- API layer: see `api/AGENTS.md` for endpoint patterns
+
+# backend/api/AGENTS.md (API-specific detail)
+## Endpoint Conventions
+- All endpoints validate input with pydantic models
+- Error responses use `ApiError` class from `errors.py`
+- Auth: see `authenticate()` in `middleware/auth.py`
+```
+
+### When to Create a Nested AGENTS.md
 
 | Signal | Action |
 |--------|--------|
-| CLAUDE.md exceeds ~300 lines | Extract topic-specific content to `.claude/rules/` |
-| Guidance only applies to certain files | Use path-scoped rules in `.claude/rules/` |
-| Detailed reference material (templates, schemas) | Put in `docs/` — agents read on demand |
-| Multiple AI tools need the same instructions | Create `AGENTS.md`, reference from tool-specific files |
+| Subdirectory has conventions distinct from parent | Create `subdir/AGENTS.md` + `subdir/CLAUDE.md` shim |
+| Parent AGENTS.md exceeds ~300 lines | Move subdirectory-specific content down to child docs |
+| Guidance only applies to certain file types | Use path-scoped `.claude/rules/` instead |
+| Detailed reference material (schemas, patterns) | Put in `docs/` — agents read on demand, not auto-loaded |
 | Same information appears in multiple docs | Extract to single source, reference from others |
 
-### The Progressive Disclosure Pattern
+### Progressive Disclosure
 
-Keep auto-loaded docs (CLAUDE.md, rules/) lean with pointers. Detailed docs live in `docs/` or alongside code — agents load them on demand when they read files in those directories.
+Auto-loaded docs (AGENTS.md via CLAUDE.md, rules/) should be lean pointers. Detailed reference docs live in `docs/` — agents load them on demand when they need them.
 
 ```markdown
-# In CLAUDE.md (auto-loaded, keep lean)
+# In AGENTS.md (auto-loaded, keep lean)
 ## Architecture
 Key directories: src/api/, src/services/, src/stores/
 For detailed architecture decisions, see docs/ARCHITECTURE.md
 
-# In docs/ARCHITECTURE.md (loaded on demand)
-[Detailed architecture documentation here — can be comprehensive]
+# In docs/ARCHITECTURE.md (loaded on demand — can be comprehensive)
+[Full architecture documentation here]
 ```
 
 **Rule**: Auto-loaded files should be concise. On-demand files can be thorough.
 
-### Monorepo Pattern
-
-For monorepos, use subdirectory CLAUDE.md files. Running Claude from `foo/bar/` loads both `foo/CLAUDE.md` and `foo/bar/CLAUDE.md`. More specific instructions take precedence.
+### Full Project Structure Example
 
 ```
-monorepo/
-├── CLAUDE.md                    # Universal: build commands, code style, git conventions
+project/
+├── CLAUDE.md                    # Shim: @AGENTS.md
+├── AGENTS.md                    # Project-wide: commands, code style, git conventions
 ├── .claude/rules/
 │   ├── testing.md               # Testing conventions (all files)
 │   └── api-standards.md         # API rules (paths: src/api/**)
 ├── frontend/
-│   └── CLAUDE.md                # React patterns, component conventions
+│   ├── CLAUDE.md                # Shim: @AGENTS.md
+│   └── AGENTS.md                # React patterns, component conventions
 ├── backend/
-│   └── CLAUDE.md                # Service patterns, DB conventions
+│   ├── CLAUDE.md                # Shim: @AGENTS.md
+│   ├── AGENTS.md                # Service patterns, DB conventions
+│   └── api/
+│       ├── CLAUDE.md            # Shim: @AGENTS.md
+│       └── AGENTS.md            # Endpoint patterns, validation rules
 └── docs/                        # On-demand detailed references
     ├── ARCHITECTURE.md
     └── BUSINESS_RULES.md
 ```
-
----
-
-## Cross-Tool Considerations (AGENTS.md)
-
-AGENTS.md is a vendor-neutral standard (Linux Foundation, 60K+ repos, 25+ tools including OpenAI Codex, Cursor, Google Jules).
-
-If your team uses multiple AI coding tools, maintain AGENTS.md as the canonical source:
-
-```markdown
-# In CLAUDE.md
-@AGENTS.md
-# Plus any Claude-specific additions (hooks, skills, slash commands)
-```
-
-| Aspect | CLAUDE.md | AGENTS.md |
-|--------|-----------|-----------|
-| **Audience** | Claude Code specifically | All AI coding tools |
-| **Special features** | `@import`, `.claude/rules/`, path-scoping | Standard markdown, no special syntax |
-| **Recommendation** | Use both if multi-tool team; CLAUDE.md-only if Claude-only |
 
 ---
 
@@ -258,7 +296,7 @@ For detailed examples of each anti-pattern with bad/good comparisons, see refere
 
 Treat docs like code — they need maintenance:
 
-- **When you repeatedly correct the agent on something**, add it to CLAUDE.md or rules/
+- **When you repeatedly correct the agent on something**, add it to the appropriate AGENTS.md or rules/
 - **When the agent follows a rule without being told**, consider removing it (it's wasting tokens)
 - **When code changes**, check if docs reference removed features, old paths, or changed behavior
 - **Version control everything** — docs should go through the same review process as code
@@ -271,9 +309,12 @@ Treat docs like code — they need maintenance:
 Before committing documentation changes:
 
 - [ ] Every line passes the litmus test (removing it would cause mistakes)
+- [ ] Content lives in AGENTS.md; CLAUDE.md is just `@AGENTS.md` shim
+- [ ] Information is at the most specific directory level where it applies
+- [ ] Parent docs summarize and reference children — not duplicate them
 - [ ] No duplication across hierarchy levels
 - [ ] No line number references (use function/class names, file paths)
-- [ ] Auto-loaded files (CLAUDE.md, rules/) are concise
+- [ ] Auto-loaded files (AGENTS.md, rules/) are concise
 - [ ] Detailed content lives in on-demand files (docs/)
 - [ ] Tables and bullets used over prose where possible
 - [ ] Negative constraints include the positive alternative

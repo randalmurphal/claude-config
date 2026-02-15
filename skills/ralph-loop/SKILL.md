@@ -200,6 +200,14 @@ Coverage threshold is a floor, not the goal. If a behavior is in the spec and th
 
 (Populated as iterations discover important patterns.)
 
+## Known Issues
+
+(Issues found during review phase. Highest severity first. Agent resolves these before doing new adversarial reviews.)
+
+## Resolved Issues
+
+(Issues moved here after being fixed and committed.)
+
 ## Completed Work Items
 
 (None yet.)
@@ -207,6 +215,10 @@ Coverage threshold is a floor, not the goal. If a behavior is in the spec and th
 ## Iteration Log
 
 (Entries added after each commit.)
+
+## Review Log
+
+(Entries added during review phase — category reviewed, what was checked, what was fixed.)
 ```
 
 ### Phase 3 Review Focus
@@ -245,6 +257,42 @@ RALPH_AGENT_CMD="custom-cli --flags" ./ralph.sh core  # Custom agent
 
 ---
 
+## Review Phase
+
+Every PROMPT file must include a Review Phase section after the Work Items. This is critical — without it, agents declare "Loop Complete" when work items run out, which violates the manual progression rule.
+
+### What the Review Phase Does
+
+After all work items are done, the agent enters an indefinite review/fix cycle:
+
+1. Check progress file for known issues (fix highest severity first)
+2. If no known issues, adversarially review one category against the spec
+3. Fix problems, run quality gate, commit
+4. Update progress file (never write "Loop Complete")
+5. Repeat forever until human Ctrl+C's
+
+### Review Categories
+
+Every PROMPT's review phase cycles through these categories:
+
+| # | Category | What to Check |
+|---|----------|---------------|
+| 1 | Spec Compliance | Every interface/type/method matches IMPLEMENTATION.md exactly |
+| 2 | Error Handling | No swallowed errors (`_ = err`) in production code |
+| 3 | Test Coverage | Functions below 80%, missing edge case tests |
+| 4 | Code Consistency | Same patterns across all packages |
+| 5 | Dead Code | Unused exports, dead DB columns, unreferenced types |
+| 6 | Integration Wiring | Stubs connected to real components, not hardcoded |
+| 7 | Security | Data corruption risks, injection patterns, unsafe fallbacks |
+
+### Key Rule
+
+The review phase section in the PROMPT MUST include: "You NEVER write 'Loop Complete' or 'Loop Done' in the progress file. The human decides when the loop is done."
+
+See `reference.md` for the full review phase template text.
+
+---
+
 ## Common Mistakes
 
 | Mistake | Fix |
@@ -256,6 +304,7 @@ RALPH_AGENT_CMD="custom-cli --flags" ./ralph.sh core  # Custom agent
 | Skipping cross-validation | The reviewer catches real bugs. Always offer it. |
 | Auto-progressing loops | User controls loop progression. Always. |
 | PROMPT inventing types | Everything must trace to IMPLEMENTATION.md |
+| No review phase | Agent runs out of work items and stops. Always include review phase. |
 
 ## Red Flags
 
@@ -265,3 +314,4 @@ RALPH_AGENT_CMD="custom-cli --flags" ./ralph.sh core  # Custom agent
 - PROMPT defines interfaces not present in IMPLEMENTATION.md
 - No reviewer offered at checkpoints
 - Agent decides when a loop is "complete"
+- PROMPT has no Review Phase section after work items

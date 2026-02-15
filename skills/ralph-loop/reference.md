@@ -83,7 +83,8 @@ If the gate fails, fix the issue before proceeding. Do not commit code that fail
 ## Workflow Per Iteration
 
 1. Read `progress-[loop].md` — understand current state
-2. Pick next incomplete work item (lowest number first)
+2. If work items remain: pick next incomplete work item (lowest number first)
+   If all work items done: enter Review Phase (see below)
 3. Read the referenced DESIGN.md and IMPLEMENTATION.md sections for that item
 4. Implement the work item
 5. Write thorough tests (see test list in work item)
@@ -134,12 +135,49 @@ After completing a work item and committing, update `progress-[loop].md`:
 
 ---
 
+## Review Phase
+
+When all work items are complete, you enter the Review Phase. This is **NOT** optional. You do **NOT** declare the loop complete. You **NEVER** write "Loop Complete" or "Loop Done" in the progress file. The loop continues until the human Ctrl+C's ralph.
+
+### Review Iteration Workflow
+
+1. Read `progress-[loop].md` — check "Known Issues" and "Review Log"
+2. If known issues exist, pick the highest-severity unresolved one
+3. If no known issues, perform an adversarial review of ONE category (see below)
+4. Fix the issue: update code, write/fix tests
+5. Run quality gate
+6. Commit fixes with descriptive message
+7. Update `progress-[loop].md`:
+   - Move resolved issues from "Known Issues" to "Resolved Issues"
+   - Add a review log entry: what category, what was checked, what was fixed
+   - Add any NEW issues discovered during review to "Known Issues"
+
+### Review Categories (cycle through in order)
+
+1. **Spec Compliance** — Open IMPLEMENTATION.md. For every interface, type, and method signature in the section you're reviewing, compare against the actual code. Every deviation is a bug to fix.
+2. **Error Handling** — Find patterns that swallow errors in production code. Every error must be handled, logged, or documented.
+3. **Test Coverage Gaps** — Find functions below 80% coverage. Write missing tests with specific assertions.
+4. **Code Consistency** — Same patterns across all packages (ID generation, constructors, logging, error types).
+5. **Dead Code & Dead Schema** — Unused exports, dead DB columns, unreferenced types. Remove or wire up.
+6. **Integration Wiring** — Stubs connected to real subsystems, not hardcoded strings.
+7. **Security & Data Integrity** — Injection patterns, unsafe fallbacks, data corruption risks.
+
+### Review Rules
+
+- One category per iteration. Be thorough, not broad.
+- Be adversarial. Compare against the spec.
+- After cycling all 7 categories with zero findings, start over.
+- **NEVER mark the loop as complete.** The human decides.
+
+---
+
 ## Reminders
 
 - [5-8 key architectural decisions the agent needs to keep in mind]
 - [Things that are easy to forget or get wrong]
 - [Domain-specific gotchas]
 - **Read progress-[loop].md.** Every iteration. No exceptions.
+- **NEVER write "Loop Complete" in the progress file.** The human decides when the loop is done.
 ```
 
 ---

@@ -59,6 +59,7 @@ Build a **compiling, tested, working** [layer name] where:
 - [List 5-8 prohibited behaviors specific to this loop]
 - **No modifying DESIGN.md or IMPLEMENTATION.md.**
 - **No global mutable state.** Dependency injection only.
+- **No blaming pre-existing issues.** If the quality gate fails, it is your problem. Do not say "not introduced by me", "existing repo issue", "pre-existing failure", "baseline failure", or any variant. Do not annotate failures as someone else's responsibility. Either fix it or explain the specific technical blocker preventing you from fixing it in this iteration. You are not an auditor documenting problems — you are a builder fixing them.
 - [Language-specific: e.g., "No `fmt.Println`. Use zerolog." or "No `print()`. Use logging."]
 
 ## Environment
@@ -80,7 +81,7 @@ Run this after EVERY change, before committing:
 
 [Coverage threshold statement, e.g., "Coverage must be >= 80% and increasing with every iteration."]
 
-If the gate fails, fix the issue before proceeding. Do not commit code that fails the gate.
+**Every command in the gate must succeed.** If any command fails, that is your problem to fix — not a "pre-existing issue" to document and move past. Do not commit code that fails the gate. Do not classify failures as outside your scope.
 
 ## Workflow Per Iteration
 

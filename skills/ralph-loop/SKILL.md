@@ -314,6 +314,7 @@ See `reference.md` for the full review phase template text.
 | Rubber-stamp reviews | Agent marks everything "INTENTIONAL" without spec citation. Tighten review category language with closed lists of acceptable patterns. |
 | Self-referencing reviews | Agent says "same as prior cycle" instead of re-evaluating. Each cycle is independent. |
 | Vague deferrals | "Deferred to Loop 3" without citing the specific work item. Require loop name + item number. |
+| Blaming pre-existing failures | Agent says "not introduced by me" or "existing repo issue" instead of fixing the quality gate failure. The PROMPT must explicitly prohibit blame-shifting — every gate failure is the agent's problem to fix. |
 
 ## Red Flags
 
@@ -327,3 +328,4 @@ See `reference.md` for the full review phase template text.
 - Review log shows "0 findings" with "INTENTIONAL" items that don't cite spec sections
 - Review log says "same set as prior cycle" — agent is coasting, not reviewing
 - Dead code justified as "for future loop" without citing a specific work item number
+- Agent annotates quality gate failures as "pre-existing", "not introduced by [work item]", or "existing repo issue" — agent is blame-shifting instead of fixing

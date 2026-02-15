@@ -1,483 +1,268 @@
 ---
 name: AI Documentation Standards
-description: Write AI-readable documentation following concise-over-comprehensive principle, hierarchical CLAUDE.md/AGENTS.md inheritance (100-200 line rule), structured formats (tables over prose), parallel validation, and session knowledge capture. Use when writing documentation, updating docs, or optimizing existing docs.
+description: Write AI-readable documentation using context engineering principles, Claude Code's documentation hierarchy (.claude/rules/, CLAUDE.md inheritance), structured formats, and the litmus test. Use when writing documentation, updating docs, or optimizing existing docs.
 allowed-tools: Read, Write, Edit, Grep, Glob
 ---
 
 # AI Documentation Standards
 
-**Purpose**: Create documentation optimized for AI code agents in large monorepos and complex systems.
+Documentation is context for AI agents. Every token competes for attention. Write the minimum high-signal content that maximizes correct agent behavior.
 
-**Key Insight**: AI agents need concise, structured, scannable information with clear context boundaries - not comprehensive tutorials. Documentation should be a MAP to the codebase, not a REPLACEMENT for reading code.
-
----
-
-## Core Principles for AI-Readable Docs
-
-### 1. Concise Over Comprehensive
-**AI agents can read code.** Documentation = MAP to codebase, not replacement. Provide structure and location references (file:line), not exhaustive explanations.
-
-### 2. Structure Over Prose
-**Tables, bullets, code snippets >>> Paragraphs.** AI agents parse structured content faster and more accurately.
-
-### 3. Location References Over Explanations
-**Always include file:line_number** for implementation details. AI agents need to know WHERE to look, then they read the code.
-
-### 4. Hierarchical Context Boundaries
-**Create clear "entry points"** for different detail levels:
-- OVERVIEW.md (what/why)
-- architecture/ (how it works)
-- implementation/ (where specific logic lives)
-- guides/ (when to use approaches)
-
-### 5. Searchable Keywords
-**Use consistent terminology.** Include searchable keywords, related components. AI agents use semantic search.
+**The Litmus Test**: For each line, ask: "Would removing this cause the agent to make mistakes?" If not, cut it.
 
 ---
 
-## CLAUDE.md Hierarchical Inheritance
+## Context Engineering Foundation
 
-### The 100-200 Line Rule
+From Anthropic's official guidance — these principles govern all documentation decisions:
 
-**Most CLAUDE.md files should be 100-200 lines.** Exceptions: Complex production systems (300-400 lines max).
+### Core Principles
 
-**WHY**: Claude recursively loads CLAUDE.md from root → current directory. Everything becomes agent context, so verbosity = wasted tokens.
+| Principle | Meaning | Implication |
+|-----------|---------|-------------|
+| **Minimize, don't maximize** | Smallest set of high-signal tokens that produce correct behavior | Shorter docs > longer docs. Cut aggressively |
+| **Right altitude** | Specific enough to guide, flexible enough for heuristics | Not brittle hardcoded rules, not vague platitudes |
+| **Examples over rules** | One good example > paragraph of explanation | Point to real code patterns in the codebase |
+| **Just-in-time loading** | Essentials upfront, details on demand | CLAUDE.md = lean pointers. Detailed docs = separate files agents read when needed |
 
-**Principle**: Child CLAUDE.md files should ONLY contain information unique to their level. Never duplicate parent content.
+### Four Context Anti-Patterns
 
-### Line Count Targets by Level
+| Anti-Pattern | Description | Documentation Impact |
+|---|---|---|
+| **Context Poisoning** | Stale or incorrect information | Outdated file structures, removed features, old commands |
+| **Context Distraction** | Irrelevant information loaded every session | Feature-specific guidance in global docs |
+| **Context Confusion** | Similar but distinct information mixed together | Mixing architecture and implementation detail |
+| **Context Clash** | Contradictory instructions | Duplicated rules that drift apart over time |
 
-| Level | Lines | Focus | What to Include | What to Exclude |
-|-------|-------|-------|-----------------|-----------------|
-| **Global** (`~/.claude/CLAUDE.md`) | 100-120 | Decision framework, workflow modes | Thinking budget, core principles, parallel execution, git safety | Tool-specific commands, project patterns, testing details |
-| **Project** (e.g., `project/CLAUDE.md`) | 150-180 | Project standards, tool configs | Linting commands, testing structure, code style | Core principles (in global), subsystem details |
-| **Subsystem** (e.g., `subsystem/CLAUDE.md`) | 120-150 | Architecture overview, design patterns | System architecture, data flow, major components | Testing patterns (in project), code style (in project) |
-| **Framework** (e.g., `imports/CLAUDE.md`) | 100-120 | Framework patterns, conventions | Three-phase pattern, base classes, directory structure | Subscription handling (in parent), testing (in project) |
-| **Simple Tool** | 200-250 | Purpose, architecture | Tool-specific logic, configuration, gotchas | Code quality (in project), testing (in project) |
-| **Complex Tool** | 300-400 | Architecture, business logic | Critical business logic, patterns, gotchas | Code standards, testing strategy, base patterns |
+### Token Budget Reality
 
-### What NOT to Duplicate Across Hierarchy
-
-**Never duplicate across hierarchy levels:**
-
-1. **Core Principles** (global only) - NO PARTIAL WORK, FAIL LOUD, parallel execution, decision framework
-2. **Testing Patterns** (project only) - Coverage requirements, test organization, location conventions
-3. **Code Style** (project only) - Line length, type hints, naming conventions, documentation rules
-4. **Tool Configurations** (project only) - Linting command paths, formatter configs, build settings
-5. **Error Handling Philosophy** (global only) - CRASH/RETRY/SKIP/WARN strategies, try/except usage
-6. **Subsystem Patterns** (subsystem only) - Multi-tenancy, database operations, caching strategies
-
-### Hierarchical Inheritance Example
-
-**Bad**: Testing standards repeated in global, project, and tool CLAUDE.md (3x duplication)
-
-**Good**: Define once in global, reference in project ("See global CLAUDE.md for coverage requirements"), reference in tool ("See project CLAUDE.md for structure")
-
-**Result**: 50% reduction in duplication
-
-**For full examples:** See reference.md
+Auto-loaded docs (CLAUDE.md, rules/) consume context before any work begins. A typical project baseline is ~20K tokens. Bloated documentation eats into the agent's working memory for actual tasks.
 
 ---
 
-## When to Extract to QUICKREF.md
+## Claude Code Documentation Hierarchy
 
-### Triggers (any one means extract)
-1. CLAUDE.md exceeds 400 lines
-2. More than 5 code examples with before/after patterns
-3. Detailed implementation walkthroughs (>50 lines per pattern)
-4. Comprehensive testing strategies with mock examples
-5. Refactoring guides with line-by-line explanations
+Claude Code loads documentation in layers. Understand the hierarchy to put information in the right place.
 
-### What Goes Where
+### The Layers (Most Global → Most Specific)
 
-**QUICKREF.md (deep-dive)**: Full code examples, detailed patterns, testing strategies with mocks, performance optimization, debugging strategies, architecture deep dives
+| Layer | Location | Scope | Loaded When |
+|-------|----------|-------|-------------|
+| **Managed policy** | `/etc/claude-code/CLAUDE.md` | Organization-wide | Always |
+| **User global** | `~/.claude/CLAUDE.md` | All projects for this user | Always |
+| **Project root** | `./CLAUDE.md` or `./.claude/CLAUDE.md` | Whole project | Always |
+| **Project rules** | `./.claude/rules/*.md` | Topic-specific (can be path-scoped) | Always (filtered by path match) |
+| **Subdirectory** | `subdir/CLAUDE.md` | That subtree only | When agent reads files in subtree |
+| **Local override** | `./CLAUDE.local.md` | Personal, one project | Always (gitignored) |
+| **Auto memory** | `~/.claude/projects/<id>/memory/` | Auto-generated per project | First 200 lines, always |
 
-**CLAUDE.md (quick reference)**: Critical business logic (table format), architecture overview (bullets), common gotchas (condensed with file:line), key constants, "See QUICKREF.md for details"
+### Key Mechanisms
+
+**`@import` syntax**: CLAUDE.md can reference other files: `@path/to/file.md`. Resolves relative to the containing file. Max depth 5. Use sparingly — every import adds to always-loaded context. Pitch the agent on *when* to consult a file rather than importing the whole thing:
+
+```markdown
+# Good: pointer with context
+For complex error recovery patterns, see docs/ERROR_PATTERNS.md
+
+# Bad: importing everything into always-loaded context
+@docs/ERROR_PATTERNS.md
+```
+
+**Path-scoped rules**: Files in `.claude/rules/` support frontmatter that activates them only for matching files:
+
+```markdown
+---
+paths:
+  - "src/api/**/*.ts"
+---
+# API Development Rules
+- All endpoints must include input validation
+- Use zod schemas for request/response types
+```
+
+This is the primary mechanism for splitting documentation. Rules only load when the agent works on matching files — zero cost otherwise.
+
+**Auto memory**: Claude writes session insights to `~/.claude/projects/<id>/memory/MEMORY.md`. First 200 lines load every session. Use `/memory` or tell Claude "remember that we use pnpm" to persist notes. This replaces manual session knowledge capture for project-specific patterns.
 
 ---
 
-## AI-Specific Documentation Types
+## What to Document (and What Not To)
 
-**For full templates:** See reference.md
+### Include
 
-### Quick Reference
+- Commands the agent cannot guess (build, test, lint with project-specific flags)
+- Code style rules that **differ from language defaults**
+- Architecture decisions specific to your project
+- Common gotchas and non-obvious behaviors
+- Boundaries: what the agent should never touch
 
-**Type 1: OVERVIEW.md** (100-200 lines)
-- Purpose + Performance metrics
-- Key components table
-- Data flow (bullet points)
-- Critical decisions table
-- Common gotchas (numbered)
+### Exclude
 
-**Type 2: BUSINESS_RULES.md** (300-800 lines)
-- Rules index for quick navigation
-- Rule definitions table: # | Rule | Condition | Behavior | WHY | Implementation
-- Detailed section per rule with test coverage and edge cases
+- Anything the agent can figure out by reading code
+- Standard language conventions (the agent already knows these)
+- Long explanations or tutorials (provide checklists instead)
+- Information that changes frequently (it will become stale context poison)
+- File-by-file descriptions (the agent has `grep` and `glob`)
 
-**Type 3: ARCHITECTURE.md** (200-400 lines)
-- Design principles (bullet points)
-- Processing pipeline (phases with file:line refs)
-- Key patterns with examples
-- Integration points + performance characteristics
+### Hooks for Enforcement, Docs for Guidance
 
-**Type 4: API_REFERENCE.md** (200-600 lines)
-- Public functions table: Function | Purpose | Input | Output | Location
-- Detailed signature per function with examples
-- Internal functions reference (condensed)
-
-**Type 5: TROUBLESHOOTING.md** (150-300 lines)
-- Quick diagnosis table: Symptom | Likely Cause | Fix
-- Problem/Solution pairs with validation steps
-- Debug workflows (numbered steps)
-- Log analysis patterns
+If something **must** happen every time (formatting, linting, test execution), use a hook — deterministic enforcement. If something is **advisory** (architecture preferences, patterns to prefer), use documentation. Don't ask documentation to do a linter's job.
 
 ---
 
-## Monorepo Documentation Patterns
+## Formatting Principles
 
-**The document type templates (OVERVIEW.md, BUSINESS_RULES.md, etc.) are for single tools/components.** For large monorepos (>50k lines, multiple tools), use domain-based organization instead.
+### Structure Over Prose
 
-### Monorepo Structure
+AI agents parse structured content faster. Prefer in this order:
+
+1. **Tables** — for any information with consistent columns (rules, mappings, decisions)
+2. **Bullet points** — for lists, steps, options
+3. **Code snippets** — for patterns and examples
+4. **Short paragraphs** — only when narrative context is truly needed
+
+### Never Use Line Numbers as References
+
+Line numbers become stale immediately when code changes. This is context poisoning.
+
+```markdown
+# Bad: becomes wrong after any edit to the file
+See `auth.py:147` for the session validation logic
+
+# Good: stable reference the agent can find
+See `validate_session()` in `src/auth/session.py`
+
+# Good: pattern reference
+Follow the error handling pattern in `UserService`
+```
+
+Reference **files**, **function/class names**, **directories**, and **patterns** — never line numbers.
+
+### Examples Over Rules
+
+One concrete example from the actual codebase is worth more than a paragraph of rules:
+
+```markdown
+# Bad: abstract rule
+Use consistent error handling with proper logging and user-facing messages.
+
+# Good: point to a real example
+Error handling pattern: see `handleApiError()` in `src/api/client.ts`
+```
+
+---
+
+## When and How to Split Documentation
+
+### Decision Framework
+
+| Signal | Action |
+|--------|--------|
+| CLAUDE.md exceeds ~300 lines | Extract topic-specific content to `.claude/rules/` |
+| Guidance only applies to certain files | Use path-scoped rules in `.claude/rules/` |
+| Detailed reference material (templates, schemas) | Put in `docs/` — agents read on demand |
+| Multiple AI tools need the same instructions | Create `AGENTS.md`, reference from tool-specific files |
+| Same information appears in multiple docs | Extract to single source, reference from others |
+
+### The Progressive Disclosure Pattern
+
+Keep auto-loaded docs (CLAUDE.md, rules/) lean with pointers. Detailed docs live in `docs/` or alongside code — agents load them on demand when they read files in those directories.
+
+```markdown
+# In CLAUDE.md (auto-loaded, keep lean)
+## Architecture
+Key directories: src/api/, src/services/, src/stores/
+For detailed architecture decisions, see docs/ARCHITECTURE.md
+
+# In docs/ARCHITECTURE.md (loaded on demand)
+[Detailed architecture documentation here — can be comprehensive]
+```
+
+**Rule**: Auto-loaded files should be concise. On-demand files can be thorough.
+
+### Monorepo Pattern
+
+For monorepos, use subdirectory CLAUDE.md files. Running Claude from `foo/bar/` loads both `foo/CLAUDE.md` and `foo/bar/CLAUDE.md`. More specific instructions take precedence.
 
 ```
 monorepo/
-├── AGENTS.md              # Navigation hub (300-500 lines OK)
-├── CLAUDE.md              # Can be @AGENTS.md include
-├── docs/                  # Domain-organized reference docs
-│   ├── MONGO_PATTERNS.md  # Large reference OK (500+ lines)
-│   ├── TESTING_PATTERNS.md
-│   ├── business_objects/  # Domain folder with README + details
-│   ├── collections/
-│   └── imports/
-├── tool_a/
-│   └── AGENTS.md          # Tool-specific context
-└── tool_b/
-    └── AGENTS.md
+├── CLAUDE.md                    # Universal: build commands, code style, git conventions
+├── .claude/rules/
+│   ├── testing.md               # Testing conventions (all files)
+│   └── api-standards.md         # API rules (paths: src/api/**)
+├── frontend/
+│   └── CLAUDE.md                # React patterns, component conventions
+├── backend/
+│   └── CLAUDE.md                # Service patterns, DB conventions
+└── docs/                        # On-demand detailed references
+    ├── ARCHITECTURE.md
+    └── BUSINESS_RULES.md
 ```
 
-### Root AGENTS.md for Monorepos
+---
 
-**Purpose**: Navigation hub + universal patterns (NOT comprehensive docs)
+## Cross-Tool Considerations (AGENTS.md)
 
-**Structure** (300-500 lines):
-1. **Quick Navigation table** - "Need to... | Go to..."
-2. **Project Structure** - Condensed tree with line counts
-3. **Core Patterns** - Universal rules (DB operations, date handling, logging)
-4. **Common Utilities table** - Top 10 with import counts
-5. **Testing Standards** - Commands and conventions
-6. **Common Gotchas** - Numbered, cross-tool issues
-7. **Related Documentation** - Links to docs/ files
+AGENTS.md is a vendor-neutral standard (Linux Foundation, 60K+ repos, 25+ tools including OpenAI Codex, Cursor, Google Jules).
 
-### When Large Files ARE Appropriate
-
-**Reference docs in docs/ don't follow the 100-200 line rule:**
-
-| Location | Line Limit | Why |
-|----------|-----------|-----|
-| CLAUDE.md / AGENTS.md | 100-400 | Context-loaded every session |
-| docs/PATTERNS.md | 500-1000+ | Loaded on-demand, not auto-context |
-| docs/TESTING_PATTERNS.md | 500-1000+ | Comprehensive reference |
-| docs/collections/*.md | Variable | Deep-dive per topic |
-
-**Rule**: Files that are **auto-loaded into context** should be concise. Files in **docs/** that agents fetch on-demand can be comprehensive.
-
-### The @include Pattern
-
-**Use `@FILENAME` to include another file's content:**
+If your team uses multiple AI coding tools, maintain AGENTS.md as the canonical source:
 
 ```markdown
-# CLAUDE.md
+# In CLAUDE.md
 @AGENTS.md
+# Plus any Claude-specific additions (hooks, skills, slash commands)
 ```
 
-**Benefits**:
-- Single source of truth (AGENTS.md)
-- Works with both Claude and other AI tools
-- CLAUDE.md stays tiny, AGENTS.md has content
-
----
-
-## llms.txt Pattern
-
-### For Public Websites (Formal Spec)
-
-**Location**: `https://example.com/llms.txt`
-
-**Format** (per [llmstxt.org](https://llmstxt.org) spec):
-```markdown
-# Project Name
-
-> Brief summary for LLMs
-
-## Section
-- [Doc Name](https://url): Description
-- [Another Doc](https://url): Description
-
-## Optional
-[URLs here can be skipped for shorter context]
-```
-
-**llms-full.txt**: Companion file with ALL content inlined for single-fetch RAG systems.
-
-### For Local Repos (Index Pattern)
-
-**For local monorepos, formal spec is overkill.** Use simple navigation index:
-
-```markdown
-# llms.txt - Documentation Index
-
-## Quick Start
-- docs/OVERVIEW.md (150 lines) - System architecture
-- docs/QUICK_REF.md (300 lines) - Common tasks
-
-## By Domain
-- docs/business_objects/ - 30 BO type docs
-- docs/collections/ - 14 collection docs
-```
-
-**When to create**: >10 doc files, multiple subsystems, agents struggling to find docs.
-
----
-
-## AGENTS.md Standard
-
-**AGENTS.md is now an industry standard** (OpenAI, Cursor, Google Jules, 20k+ repos). It's operational documentation for AI coding agents.
-
-### Six Core Areas (Best Practice)
-
-| Area | What to Include | Example |
-|------|-----------------|---------|
-| **Commands** | Build, test, lint with flags | `pytest -vs tests/ --fis-config=...` |
-| **Testing** | How to run, conventions, markers | `@pytest.mark.system` for integration |
-| **Project Structure** | Directory layout with purposes | Condensed tree, file counts |
-| **Code Style** | Patterns, conventions, anti-patterns | "Use retry_run() for all mongo writes" |
-| **Git Workflow** | Branch naming, commit format, PR process | "INT-XXXX: description" |
-| **Boundaries** | What agent should never touch | Secrets, production configs, vendor dirs |
-
-### Three-Tier Boundaries
-
-```markdown
-## Boundaries
-
-**Always do:**
-- Run tests before committing
-- Use retry_run() for MongoDB writes
-- Include ticket number in commits
-
-**Ask first:**
-- Schema changes to businessObjects
-- Changes to shared utilities (50+ importers)
-- API response format changes
-
-**Never do:**
-- Commit secrets or credentials
-- Modify production config files
-- Delete test files without discussion
-```
-
-### AGENTS.md vs CLAUDE.md
-
-| Aspect | AGENTS.md | CLAUDE.md |
+| Aspect | CLAUDE.md | AGENTS.md |
 |--------|-----------|-----------|
-| **Focus** | Operational (commands, boundaries) | Philosophical (principles, decisions) |
-| **Audience** | All AI coding tools | Claude specifically |
-| **Content** | How to execute | How to think |
-| **Updates** | When workflows change | When principles change |
-
-**Recommendation**: Use AGENTS.md as primary, `@AGENTS.md` in CLAUDE.md. Add Claude-specific content to CLAUDE.md only if needed (hooks, slash commands).
-
----
-
-## Session Knowledge Capture
-
-**Purpose**: Extract and preserve insights learned during work sessions
-
-**Categories**:
-1. **Gotchas**: Edge cases, non-obvious behavior, timing requirements
-2. **Decisions**: Design choices with rationale and trade-offs
-3. **Performance**: Metrics, optimal values, bottlenecks
-4. **Business Rules**: Logic discovered not previously documented
-5. **Patterns**: Reusable approaches discovered
-
-**Scoping**:
-- `project_local`: Specific project/tool only → $WORK_DIR/main doc
-- `parent_scope`: Parent directory (framework/subsystem) → parent doc
-- `repo_scope`: Entire repository → repo docs or skills
-
-**Integration**:
-- Gotchas → Main doc "Common Gotchas"
-- Decisions → ARCHITECTURE.md or QUICKREF.md
-- Performance → QUICKREF.md or HOW_TO.md
-- Business rules → BUSINESS_RULES.md
-- Patterns → ARCHITECTURE.md or skills (if reusable)
-
-**Smart Placement**:
-```python
-if scope == "project_local":
-    location = "$WORK_DIR/CLAUDE.md or AGENTS.md"
-elif scope == "parent_scope":
-    location = find_parent_doc($WORK_DIR)
-elif scope == "repo_scope":
-    location = "$REPO_ROOT/docs/PATTERNS.md or skills/"
-```
-
----
-
-## Parallel Validation Strategy
-
-**Complexity Metrics**:
-```python
-components = modules + standalone_files
-doc_lines = sum(count_lines(md_files))
-rules = count_rule_rows("BUSINESS_RULES.md")
-score = (components * 100) + (doc_lines / 10) + (rules * 50)
-```
-
-**Reviewer Count**:
-- <1000: 1 reviewer
-- 1000-3000: 2 reviewers
-- 3000-6000: 4 reviewers
-- >6000: 6 reviewers
-
-**Grouping**:
-- Related components together
-- Main doc hierarchy in single reviewer
-- Balance lines (~2000 per reviewer)
-- Dedicated hierarchy reviewer if >3 levels
-
-**Example**:
-```python
-# 15 components, 4 reviewers
-Group 1: processors/ (7 files) + main doc sections
-Group 2: cache/ + api/ + main doc sections
-Group 3: docs/ (OVERVIEW, BUSINESS_RULES, ARCHITECTURE)
-Group 4: Hierarchy integrity (all main docs)
-```
-
----
-
-## Smart Documentation Placement
-
-**Placement Algorithm**:
-1. Analyze scope (project_local, parent_scope, repo_scope)
-2. Walk hierarchy ($WORK_DIR → repo root)
-3. Detect format (CLAUDE.md or AGENTS.md - maintain consistency)
-4. Check organization (docs/<sub-component>/ structure exists?)
-
-**Decision Tree**:
-```python
-if scope == "project_local":
-    if not exists("$WORK_DIR/docs/"):
-        create_docs_structure($WORK_DIR)
-
-    if topic in ["gotchas", "overview"]:
-        location = "$WORK_DIR/main doc"
-    elif topic == "business_rules":
-        location = "$WORK_DIR/docs/BUSINESS_RULES.md"
-    elif topic == "architecture":
-        location = "$WORK_DIR/docs/ARCHITECTURE.md"
-    elif topic == "api":
-        location = "$WORK_DIR/docs/API_REFERENCE.md"
-
-elif scope == "parent_scope":
-    parent = find_parent_with_docs($WORK_DIR)
-    location = f"{parent}/docs/{topic}.md"
-
-elif scope == "repo_scope":
-    root = find_repo_root($WORK_DIR)
-    if exists(f"{root}/docs/"):
-        location = f"{root}/docs/PATTERNS.md"
-    else:
-        location = f"{root}/.claude/skills/{category}/"
-```
-
-**Proper Organization**:
-```
-$WORK_DIR/docs/
-├── llms.txt
-├── OVERVIEW.md
-├── API_REFERENCE.md
-├── ARCHITECTURE.md
-├── BUSINESS_RULES.md
-├── HOW_TO.md
-├── TROUBLESHOOTING.md
-└── <sub-component>/
-    ├── COMPONENT_OVERVIEW.md
-    └── COMPONENT_DETAILS.md
-```
+| **Audience** | Claude Code specifically | All AI coding tools |
+| **Special features** | `@import`, `.claude/rules/`, path-scoping | Standard markdown, no special syntax |
+| **Recommendation** | Use both if multi-tool team; CLAUDE.md-only if Claude-only |
 
 ---
 
 ## Content Optimization Strategies
 
-**For full examples with before/after:** See reference.md
+When documentation is too long, apply these in order:
 
-### Quick Reference
+| Strategy | When to Use | Typical Savings |
+|----------|-------------|-----------------|
+| **Table-ify prose** | Paragraphs explaining logic with consistent structure | 70-85% |
+| **Bullet points over paragraphs** | Narrative descriptions of features or benefits | 60-75% |
+| **Condense file trees** | Full directory listings with every file | 50-67% |
+| **Extract-consolidate-reference** | Same information duplicated across files | Variable (eliminates duplication) |
+| **Split large monoliths** | Single file >500 lines with distinct sections | Better navigation, not fewer lines |
 
-**1. Extract-Consolidate-Reference (ECR)**
-- Problem: Duplicate information across files
-- Solution: Single source of truth, reference from other docs
-- Example savings: 1,500 lines across 4 files
-
-**2. Split Large Monoliths (SLM)**
-- Problem: Single file >1,000 lines
-- Solution: Split by responsibility (OVERVIEW, PIPELINE, BUSINESS_LOGIC, etc.)
-- Benefit: Each file fits on one screen
-
-**3. Table-ify Prose (T2T)**
-- Problem: Long paragraphs explaining logic
-- Solution: Convert to tables with What/When/Why/Where columns
-- Example savings: 85% reduction (200 lines → 30 lines)
-
-**4. Add llms.txt Index**
-- Problem: AI agents can't find relevant docs
-- Solution: Create index with doc summaries and task-specific navigation
-
-**5. Condense File Structure Trees**
-- Show only key files, collapse similar items with [N more files]
-- Example savings: 67% reduction (60 lines → 20 lines)
-
-**6. Bullet Points Over Paragraphs**
-- Convert prose to dense bullet points or single-sentence summaries
-- Example savings: 75% reduction (4 lines → 1 line)
+For before/after examples of each strategy, see reference.md.
 
 ---
 
-## Anti-Patterns to Avoid
+## Anti-Patterns
 
-**For detailed examples:** See reference.md
+| Anti-Pattern | Why It's Bad | Do This Instead |
+|---|---|---|
+| **Tutorials and walkthroughs** | Agents need reference, not teaching | Checklists with pattern references |
+| **Explaining obvious code** | Agents can read code directly | Document the WHY, point to the WHERE |
+| **Mixing abstraction levels** | Architecture overview with implementation details | Separate files: OVERVIEW vs detailed docs |
+| **Deep directory nesting** | Agents struggle past 3 levels | Max 2-3 levels for doc directories |
+| **Duplicating across hierarchy** | Wastes tokens, causes drift when copies diverge | Define once, reference elsewhere |
+| **Negative-only constraints** | "Never use X" without alternative confuses agents | Always provide what TO do alongside what not to |
+| **`@`-importing everything** | Bloats always-loaded context | Pointer with context on *when* to consult |
+| **Documenting for linters** | Formatting rules the agent can't enforce | Use hooks and CI for enforcement |
 
-### Quick Reference
+For detailed examples of each anti-pattern with bad/good comparisons, see reference.md.
 
-**1. Don't Write Tutorials**
-- Why: AI agents need REFERENCE, not teaching
-- Bad: Step-by-step walkthroughs explaining every detail
-- Good: Checklist with base class, required methods, file:line references
+---
 
-**2. Don't Explain Obvious Code**
-- Why: AI can read code directly
-- Bad: Line-by-line prose restating code logic
-- Good: One-line summary with file:line reference + WHY
+## Living Documentation
 
-**3. Don't Mix Abstraction Levels**
-- Why: Confuses readers, mixes strategic and tactical
-- Bad: OVERVIEW.md with implementation details (asyncio.gather, table indexes)
-- Good: OVERVIEW.md stays high-level, links to detailed architecture docs
+Treat docs like code — they need maintenance:
 
-**4. Don't Create Deep Directory Nesting**
-- Why: AI agents struggle with deep hierarchies
-- Bad: 7+ levels of nested directories
-- Good: 2-3 levels max (docs/architecture/COMPONENT.md)
-
-**5. Don't Use Relative Paths Without Context**
-- Why: AI can't resolve without knowing current location
-- Bad: `../processors/base.py`
-- Good: `processors/base_processor.py` or absolute path
-
-**6. Don't Duplicate Content Across Hierarchy**
-- Why: Wastes context tokens, creates maintenance burden
-- Bad: Testing standards repeated in global, project, and tool CLAUDE.md
-- Good: Define once (global), reference elsewhere (project, tool)
+- **When you repeatedly correct the agent on something**, add it to CLAUDE.md or rules/
+- **When the agent follows a rule without being told**, consider removing it (it's wasting tokens)
+- **When code changes**, check if docs reference removed features, old paths, or changed behavior
+- **Version control everything** — docs should go through the same review process as code
+- **Audit regularly** — stale docs actively poison agent reasoning
 
 ---
 
@@ -485,137 +270,16 @@ $WORK_DIR/docs/
 
 Before committing documentation changes:
 
-### Duplication Check
-- [ ] No duplicate core principles (defined in global only)
-- [ ] No duplicate testing patterns (defined in project only)
-- [ ] No duplicate code style rules (defined in project only)
-- [ ] No duplicate subsystem patterns (defined in parent subsystem only)
-
-### Content Optimization
-- [ ] Business logic in table format (not prose)
-- [ ] Decision matrices for strategies (not paragraphs)
-- [ ] File structure condensed (not full tree)
-- [ ] Bullet points over paragraphs where possible
-- [ ] Location references include file:line when relevant
-
-### Line Count Targets (Context-Loaded Files)
-- [ ] Global CLAUDE.md: 100-120 lines
-- [ ] Project CLAUDE.md: 150-180 lines
-- [ ] Subsystem CLAUDE.md: 120-150 lines
-- [ ] Framework CLAUDE.md: 100-120 lines
-- [ ] Simple Tool CLAUDE.md: 200-250 lines
-- [ ] Complex Tool CLAUDE.md: 300-400 lines max
-- [ ] Monorepo root AGENTS.md: 300-500 lines (navigation hub)
-- [ ] **Exception**: docs/*.md reference files can be 500-1000+ lines
-
-### Deep-Dive Extraction
-- [ ] If CLAUDE.md > 400 lines, extract to QUICKREF.md
-- [ ] Code examples with before/after → QUICKREF.md
-- [ ] Detailed implementations → QUICKREF.md
-- [ ] Keep quick reference + "See QUICKREF for details"
-
-### Hierarchy Integrity
-- [ ] Child files reference parent files (not duplicate)
-- [ ] Each level focuses on unique information
-- [ ] Clear separation of concerns across levels
-
-### AI-Readability
-- [ ] Can AI find relevant doc in <30 seconds via llms.txt?
-- [ ] Can AI understand component in <5 min reading OVERVIEW?
-- [ ] Can AI find specific function via API_REFERENCE?
-- [ ] Can AI debug issue via TROUBLESHOOTING?
-
-### Structure
-- [ ] llms.txt index exists and is accurate (if needed)
-- [ ] Context-loaded files (CLAUDE.md, AGENTS.md) ≤500 lines
-- [ ] Reference docs (docs/*.md) can exceed 500 lines if comprehensive
-- [ ] Directory depth ≤3 levels
-- [ ] No duplicate files
-
-### Maintenance
-- [ ] Single source of truth for business rules
-- [ ] No scattered duplicates
-- [ ] Archive clearly marked as historical (if applicable)
-- [ ] Cross-references use file paths, not relative links
+- [ ] Every line passes the litmus test (removing it would cause mistakes)
+- [ ] No duplication across hierarchy levels
+- [ ] No line number references (use function/class names, file paths)
+- [ ] Auto-loaded files (CLAUDE.md, rules/) are concise
+- [ ] Detailed content lives in on-demand files (docs/)
+- [ ] Tables and bullets used over prose where possible
+- [ ] Negative constraints include the positive alternative
+- [ ] No stale references (removed features, old paths, changed commands)
+- [ ] Path-scoped rules used for file-type-specific guidance
 
 ---
 
-## Templates
-
-### Template: Simple Tool CLAUDE.md (200-250 lines)
-
-```markdown
-# [Tool Name] Import
-
-**Purpose**: [One sentence describing what this import does]
-
-**Key Patterns**:
-- Extends framework base classes (see `framework/CLAUDE.md`)
-- [Tool-specific pattern 1]
-- [Tool-specific pattern 2]
-
-**Configuration**:
-- Config location: `/path/to/config.json` → `[tool_name]` section
-- Required keys: [list required config keys]
-
-**Critical Logic**:
-[Only if tool has unique business logic - DELETE section if not applicable]
-
-**Common Gotchas**:
-[Only if tool has known edge cases - DELETE section if not applicable]
-
-**Testing**:
-- Unit tests: `tests/test_[tool_name]/unit_tests/`
-- Integration tests: `tests/test_[tool_name]/integration_tests/`
-- See project CLAUDE.md for testing standards
-
-**References**:
-- Framework: `framework/CLAUDE.md`
-- Testing standards: Project CLAUDE.md
-```
-
-### Template: Complex Tool CLAUDE.md (300-400 lines)
-
-**Structure**:
-1. **Purpose + Performance Metrics** (5-10 lines)
-2. **Architecture Overview** (40-60 lines) - Core design, storage architecture table, processing pipeline
-3. **File Structure** (20-40 lines, condensed tree)
-4. **Critical Business Logic** (60-80 lines, table format)
-5. **Key Architecture Patterns** (60-80 lines) - Pattern name, summary, benefits, "See QUICKREF.md"
-6. **Common Gotchas** (40-60 lines, 8-10 condensed subsections)
-7. **Key Constants** (10-20 lines, bullet list)
-8. **When in Doubt** (10-15 lines, numbered list with references)
-
-**Total**: 300-400 lines max
-
-**For full example structure:** See reference.md
-
----
-
-## Summary
-
-### The Golden Rules
-
-1. **Hierarchical Inheritance** - Never duplicate parent content, always reference
-2. **Context-Loaded = Concise** - CLAUDE.md/AGENTS.md: 100-400 lines. docs/*.md reference files can be longer
-3. **Tables Over Prose** - Business logic, gotchas, decisions all in table format
-4. **Extract Deep-Dive** - Code examples and detailed implementations → QUICKREF.md or docs/
-5. **Define Once** - Testing, code style, core principles defined once at appropriate level
-6. **Location References** - Always include file:line for implementation details
-7. **Concise Over Comprehensive** - Documentation is a MAP, not a TUTORIAL
-8. **Monorepos: Domain Organization** - Use docs/ folders by domain, not document-type files
-9. **AGENTS.md Six Areas** - Commands, testing, structure, style, git workflow, boundaries
-
-### The Test
-
-Can you scan the documentation in 30 seconds and find critical information? If not, it's too verbose.
-
-### The Goal
-
-Minimize agent context, maximize information utility, maintain hierarchical clarity.
-
-**Remember**: Less is more. Every line consumes agent context. Make every line count.
-
----
-
-**For comprehensive templates and examples:** See reference.md
+For templates and detailed examples: see reference.md

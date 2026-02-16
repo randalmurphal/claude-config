@@ -38,3 +38,25 @@ Ask when it matters. Ambiguous requirements, multiple valid approaches, destruct
 Thoroughness first. Better to hit token limits mid-excellence than finish early with half-assed work. If a task needs deep investigation, investigate deeply.
 
 One working solution > multiple partial attempts. Get it right, don't iterate toward right.
+
+## Tools
+
+### ascii-fix
+
+CLI tool for fixing alignment in ASCII art diagrams within markdown files. Installed in the Python venv at `~/.claude/scripts/ascii-fix/`.
+
+```bash
+# Preview changes (no modification)
+ascii-fix --diff file.md
+
+# Check if fixes needed (exit code 1 = yes)
+ascii-fix --check file.md
+
+# Apply fixes (creates .bak backup automatically)
+ascii-fix file.md
+
+# Apply without backup
+ascii-fix --no-backup file.md
+```
+
+Fixes: box border width consistency, body line padding within boxes, markdown table column alignment, trailing whitespace. Handles nested and side-by-side boxes via multi-pass processing (innermost first) with content-aware target widths. Run this after generating or editing ASCII art diagrams.

@@ -1,0 +1,7 @@
+ascii_fix.py
+pyproject.toml
+ascii_fix.egg-info/PKG-INFO
+ascii_fix.egg-info/SOURCES.txt
+ascii_fix.egg-info/dependency_links.txt
+ascii_fix.egg-info/entry_points.txt
+ascii_fix.egg-info/top_level.txt

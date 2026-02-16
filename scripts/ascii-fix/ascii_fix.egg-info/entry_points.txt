@@ -1,0 +1,2 @@
+[console_scripts]
+ascii-fix = ascii_fix:main

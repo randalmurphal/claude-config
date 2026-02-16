@@ -5,18 +5,20 @@
 # Ctrl+C to stop
 #
 # Usage:
-#   ./ralph.sh [loop_name] [agent]
+#   ./ralph.sh [loop_name] [agent] [model]
 #
-#   loop_name   Which PROMPT to use: core (default), brain, integration, etc.
+#   loop_name   Which PROMPT to use (optional). No arg or "-" = PROMPT.md, with arg = PROMPT-{name}.md
 #   agent       Which AI CLI to use: claude (default), codex
+#   model       Model override (e.g. spark, o3, sonnet). Passed as -m/--model to the agent.
 #
 # Environment overrides:
-#   RALPH_AGENT_CMD   Full command override (e.g. "codex exec --full-auto -")
+#   RALPH_AGENT_CMD   Full command override (e.g. "codex exec --yolo -")
 #
 # Examples:
-#   ./ralph.sh core              # Loop 1 with Claude
-#   ./ralph.sh brain codex       # Loop 2 with Codex
-#   RALPH_AGENT_CMD="codex exec --full-auto -" ./ralph.sh core
+#   ./ralph.sh                        # PROMPT.md with Claude
+#   ./ralph.sh core                   # PROMPT-core.md with Claude
+#   ./ralph.sh core codex spark       # PROMPT-core.md with Codex using spark model
+#   ./ralph.sh - codex spark          # PROMPT.md with Codex using spark model
 #
 show_help() {
   cat <<'HELP'
@@ -27,27 +29,32 @@ reads the prompt, picks the next work item, implements it, and commits.
 Loop until you Ctrl+C.
 
 USAGE
-  ./ralph.sh [loop_name] [agent]
+  ./ralph.sh [loop_name] [agent] [model]
   ./ralph.sh -h | --help
 
 ARGUMENTS
-  loop_name   Which PROMPT file to use (default: core)
-              Looks for PROMPT-{loop_name}.md in the current directory.
+  loop_name   Which PROMPT file to use (optional)
+              No arg or "-" → PROMPT.md, with arg → PROMPT-{loop_name}.md
               Common values: core, brain, integration
 
   agent       Which AI CLI to run (default: claude)
               Built-in options: claude, codex
               Or set RALPH_AGENT_CMD for custom agents.
 
+  model       Model override (optional)
+              Passed as -m/--model to the agent CLI.
+              Examples: spark, o3, sonnet, opus
+
 ENVIRONMENT
   RALPH_AGENT_CMD   Override the full agent command.
-                    Example: RALPH_AGENT_CMD="codex exec --full-auto -"
+                    Example: RALPH_AGENT_CMD="codex exec --yolo -"
 
 EXAMPLES
-  ./ralph.sh                       # Run PROMPT-core.md with Claude
-  ./ralph.sh brain                 # Run PROMPT-brain.md with Claude
-  ./ralph.sh core codex            # Run PROMPT-core.md with Codex
-  ./ralph.sh integration claude    # Run PROMPT-integration.md with Claude
+  ./ralph.sh                       # Run PROMPT.md with Claude
+  ./ralph.sh - codex               # Run PROMPT.md with Codex
+  ./ralph.sh core codex spark      # Run PROMPT-core.md with Codex (spark model)
+  ./ralph.sh - codex spark         # Run PROMPT.md with Codex (spark model)
+  ./ralph.sh core claude sonnet    # Run PROMPT-core.md with Claude (sonnet model)
 
 SIGNALS
   Ctrl+C once    Let current iteration finish, then stop
@@ -70,9 +77,15 @@ set -m  # job control: background jobs get their own process group, shielded fro
 
 cd "$(dirname "$0")"
 
-# Determine which PROMPT file to use: first argument or default to core
-LOOP_NAME="${1:-core}"
-PROMPT_FILE="PROMPT-${LOOP_NAME}.md"
+# Determine which PROMPT file to use
+# No arg or "-" → PROMPT.md, with arg → PROMPT-{arg}.md
+LOOP_NAME="${1:-}"
+if [ -z "$LOOP_NAME" ] || [ "$LOOP_NAME" = "-" ]; then
+  PROMPT_FILE="PROMPT.md"
+  LOOP_NAME="default"
+else
+  PROMPT_FILE="PROMPT-${LOOP_NAME}.md"
+fi
 
 # Verify PROMPT file exists
 if [ ! -f "$PROMPT_FILE" ]; then
@@ -82,15 +95,21 @@ fi
 
 # Agent selection: explicit env var > second arg > default (claude)
 AGENT_NAME="${2:-claude}"
+MODEL="${3:-}"
 if [ -n "$RALPH_AGENT_CMD" ]; then
   AGENT_CMD="$RALPH_AGENT_CMD"
 elif [ "$AGENT_NAME" = "claude" ]; then
   AGENT_CMD="$HOME/.local/bin/claude -p --dangerously-skip-permissions"
 elif [ "$AGENT_NAME" = "codex" ]; then
-  AGENT_CMD="codex exec --full-auto -"
+  AGENT_CMD="codex exec --yolo"
 else
   echo "Error: Unknown agent '$AGENT_NAME'. Use 'claude', 'codex', or set RALPH_AGENT_CMD."
   exit 1
+fi
+
+# Append model flag if specified
+if [ -n "$MODEL" ] && [ -z "$RALPH_AGENT_CMD" ]; then
+  AGENT_CMD="$AGENT_CMD -m $MODEL"
 fi
 
 # Verify the agent binary exists before looping
@@ -133,6 +152,7 @@ ITERATION=0
 
 echo "Starting ralph loop for $LOOP_NAME using $PROMPT_FILE..."
 echo "Agent: $AGENT_CMD"
+echo "Model: ${MODEL:-default}"
 echo "Press Ctrl+C to stop (once = after iteration, twice = immediate)."
 echo "---"
 
@@ -148,8 +168,16 @@ while :; do
 
   # Run in background process group so Ctrl+C doesn't kill the agent.
   # stdin redirected from /dev/null to prevent SIGTTIN (background read from terminal).
-  # Pipe PROMPT through the agent, capture output via script+tee.
-  (script -qec "cat $PROMPT_FILE | $AGENT_CMD" /dev/null < /dev/null 2>&1 | tee -a "$LOGFILE") &
+  if [ "$AGENT_NAME" = "codex" ]; then
+    # Codex dumps verbose output (thinking, tool calls, input echo) to stdout.
+    # Suppress script output entirely, use -o to capture only the final clean
+    # response, then cat that into the log.
+    CODEX_OUT=$(mktemp /tmp/ralph-codex-XXXXXX.txt)
+    (script -qec "cat $PROMPT_FILE | $AGENT_CMD -o $CODEX_OUT -" /dev/null < /dev/null > /dev/null 2>&1; cat "$CODEX_OUT" | tee -a "$LOGFILE"; rm -f "$CODEX_OUT") &
+  else
+    # Claude: pipe script output through tee into the log.
+    (script -qec "cat $PROMPT_FILE | $AGENT_CMD" /dev/null < /dev/null 2>&1 | tee -a "$LOGFILE") &
+  fi
   CHILD_PID=$!
 
   # Wait for child to finish. Re-wait if interrupted by signal (Ctrl+C)

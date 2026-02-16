@@ -97,6 +97,18 @@ After validation, produce a clean design document:
 ## Constraints
 - [Hard requirement]
 
+## Migration/Removal (if replacing existing code)
+| Old Code | New Code | Action |
+|----------|----------|--------|
+| [existing file/system] | [replacement] | DELETE / KEEP / MIGRATE |
+
+**Rules:**
+- DELETE = remove entirely, no fallback
+- KEEP = explicitly needed for compatibility (state why)
+- MIGRATE = data migration required before deletion
+
+**No hedging.** "Deprecate or migrate" is not an action. Pick one.
+
 ## Testing Strategy
 - [How we verify this works]
 ```
@@ -119,6 +131,8 @@ After validation, produce a clean design document:
 - Add "nice to have" features unprompted
 - Present design without getting approach agreement first
 - Skip the chunked presentation (giant dumps get skimmed, not read)
+- Use hedging language for code removal ("deprecate or migrate", "keep for compatibility")
+- Leave old code fate ambiguous — DELETE or KEEP with explicit rationale
 
 **Always:**
 - One question at a time

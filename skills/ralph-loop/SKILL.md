@@ -284,16 +284,20 @@ Every PROMPT's review phase cycles through these categories:
 | 2 | Error Handling | Every `_ = err` is a defect unless it matches a closed list of acceptable patterns (error unwind, standard I/O, spec-designated non-critical). Must cite spec section for exceptions. |
 | 3 | Test Coverage | Functions below 80%, missing edge case tests |
 | 4 | Code Consistency | Same patterns across all packages |
-| 5 | Dead Code | Unused exports, dead DB columns, unreferenced types. Remove them. "For a future loop" must cite the specific loop name and work item number. |
-| 6 | Integration Wiring | Every interface has a real implementation. "Deferred" must name the specific blocker (loop + work item). |
+| 5 | Dead Code | Unused exports, dead DB columns, unreferenced types, **implemented-but-unwired components**. Remove or wire them. "For a future loop" must cite the specific loop name and work item number. Components with tests but no startup/registration are the most deceptive form of dead code. |
+| 6 | Integration Wiring | Every interface has a real implementation. Every implemented component must be started/registered/connected in the running system. `_ = result` on freshly created objects is a wiring gap. "Deferred" must name the specific blocker (loop + work item). |
 | 7 | Security | Data corruption risks, injection patterns, unsafe fallbacks |
 
 ### Key Rules
 
 - The review phase section in the PROMPT MUST include: "You NEVER write 'Loop Complete' or 'Loop Done' in the progress file. The human decides when the loop is done."
+- **Known Issues are #1 priority.** Before any category sweep, fix all Known Issues (highest severity first). The human or external reviewers may add Known Issues between iterations — they take precedence over category sweeps.
 - **No rubber stamps.** Agents cannot mark findings as "INTENTIONAL" or "by design" without citing the specific DESIGN.md section or IMPLEMENTATION.md section number. No spec citation = defect to fix.
+- **"Noted but not fixed" IS a defect.** If the agent finds something wrong, the agent must fix it. Logging a finding and moving on is not acceptable. "Acceptable for [reason]" without a spec citation is not acceptable. Fix or cite.
+- **Dead code is a defect.** If a component is implemented but not wired into the running system (not started, not registered, not connected), it's dead code. The review must catch and wire these.
 - **No self-referencing.** Each review cycle evaluates findings independently against the spec. "Same set as prior cycle" is not a valid assessment.
 - **The spec is 100% mandatory.** The only valid deferral is when something is literally impossible in this loop (requires later loop infrastructure) AND the agent can cite the specific later loop work item.
+- **Every sub-requirement counts.** A work item is NOT complete if any of its listed requirements were "deferred." If the PROMPT says an item must do X, Y, and Z, all three must be done before marking complete.
 
 See `reference.md` for the full review phase template text.
 
@@ -315,6 +319,11 @@ See `reference.md` for the full review phase template text.
 | Self-referencing reviews | Agent says "same as prior cycle" instead of re-evaluating. Each cycle is independent. |
 | Vague deferrals | "Deferred to Loop 3" without citing the specific work item. Require loop name + item number. |
 | Blaming pre-existing failures | Agent says "not introduced by me" or "existing repo issue" instead of fixing the quality gate failure. The PROMPT must explicitly prohibit blame-shifting — every gate failure is the agent's problem to fix. |
+| Building without wiring | Agent implements a component (tests pass) but never starts/registers/connects it in the running system. `_ = result` on freshly created objects. PROMPT must prohibit dead code explicitly. |
+| "Noted but not fixed" | Agent logs a finding during review, rationalizes it as "acceptable" or "by design" without spec citation, then moves on. PROMPT must state: if you find it, fix it. |
+| Unverified test assertions | Agent sets up mock servers, call recorders, or spies, then discards them with `_ = recorder`. Test appears to pass but verifies nothing. PROMPT must prohibit unused test infrastructure. |
+| Partial item completion | Agent marks work item complete when only some requirements are met (e.g., "shared behavioral tests deferred"). PROMPT must enforce all sub-requirements before marking done. |
+| Scope-limiting rationalizations | Agent says "beyond minimal wiring," "to keep scope manageable," "available for future wiring" to avoid work. PROMPT must ban these phrases and require immediate completion. |
 
 ## Red Flags
 
@@ -329,3 +338,9 @@ See `reference.md` for the full review phase template text.
 - Review log says "same set as prior cycle" — agent is coasting, not reviewing
 - Dead code justified as "for future loop" without citing a specific work item number
 - Agent annotates quality gate failures as "pre-existing", "not introduced by [work item]", or "existing repo issue" — agent is blame-shifting instead of fixing
+- `_ = result` on a freshly created component — agent built it then threw it away (dead code)
+- Progress tracker says "deferred to keep scope manageable" — agent is avoiding work
+- Test file creates mock server or recorder then does `_ = mockCalls` — unverified test assertion
+- Review finding logged as "noted but not fixed" or "acceptable for [reason]" — agent is rationalizing instead of fixing
+- Work item marked complete but sub-requirements explicitly listed as "can be added later" — partial completion disguised as done
+- Components implemented and tested but never started/registered in the server — dead code with test coverage (the most deceptive kind)

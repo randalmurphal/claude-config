@@ -57,9 +57,13 @@ Build a **compiling, tested, working** [layer name] where:
 ### Prohibited
 
 - [List 5-8 prohibited behaviors specific to this loop]
-- **No modifying DESIGN.md or IMPLEMENTATION.md.**
+- **No modifying DESIGN.md or IMPLEMENTATION.md** (except during Spec Compliance review sweeps where code is better than spec).
 - **No global mutable state.** Dependency injection only.
 - **No blaming pre-existing issues.** If the quality gate fails, it is your problem. Do not say "not introduced by me", "existing repo issue", "pre-existing failure", "baseline failure", or any variant. Do not annotate failures as someone else's responsibility. Either fix it or explain the specific technical blocker preventing you from fixing it in this iteration. You are not an auditor documenting problems — you are a builder fixing them.
+- **No dead code.** If you build something, wire it. If you create clients/components/adapters, use them. `_ = result` on something you just built is dead code — either wire it into the system or don't create it. A component that is implemented but not started/registered/connected in the running system does not exist.
+- **No deferrals.** "Deferred to keep scope manageable," "available for future wiring," "can be added in a review iteration" — these phrases are PROHIBITED. If the PROMPT says to do it, do it NOW. If you discover something that needs doing, do it NOW. There is no future iteration — every iteration could be the last.
+- **No rationalizing away findings.** "Beyond minimal wiring," "acceptable for [reason]," "by design per item X scope" — if the spec says to do something and it's not done, it's a defect. Fix it. The ONLY valid reason to skip something is that it requires infrastructure that literally does not exist yet AND is assigned to a specific later loop's work item (cite the loop and item number).
+- **No unverified test assertions.** If a test sets up a mock server, recorder, spy, or call counter, it MUST assert on the results. `_ = recorder` or `_ = callCount` is a defect. Every test setup must have corresponding assertions. A test that creates verification infrastructure and then ignores it is worse than no test — it creates false confidence.
 - [Language-specific: e.g., "No `fmt.Println`. Use zerolog." or "No `print()`. Use logging."]
 
 ## Environment
@@ -168,15 +172,18 @@ When all work items are complete, you enter the Review Phase. This is **NOT** op
    Anything not in this list is a defect. Fix it. "Common pattern" and "defensive code" are not justifications — cite the spec or cite language documentation, or fix the code.
 3. **Test Coverage Gaps** — Find functions below 80% coverage. Write missing tests with specific assertions.
 4. **Code Consistency** — Same patterns across all packages (ID generation, constructors, logging, error types).
-5. **Dead Code & Dead Schema** — Unused exports, dead DB columns, unreferenced types. **Remove them.** If code exists that is "for a future loop," it must be referenced by a specific work item number in that loop's PROMPT file. Cite the loop name and item number, or delete the code.
-6. **Integration Wiring** — Every interface must have a real implementation, not just mocks. Every adapter must be instantiated somewhere. If an implementation genuinely cannot exist yet (requires infrastructure from a later loop), add it to Known Issues with the specific loop and work item that will resolve it. "By design" and "deferred" are not valid — name the blocker.
+5. **Dead Code & Dead Schema** — Unused exports, dead DB columns, unreferenced types, **implemented-but-unwired components**. **Remove or wire them.** If code exists that is "for a future loop," it must be referenced by a specific work item number in that loop's PROMPT file. Cite the loop name and item number, or delete the code. **Components that have implementations and tests but are never started/registered/connected in the running system are the most deceptive form of dead code** — they pass quality gates while providing zero runtime value. `_ = result` on a freshly created object is a dead code signal.
+6. **Integration Wiring** — Every interface must have a real implementation, not just mocks. Every implemented component must be started, registered, or connected in the running system. Every adapter must be instantiated somewhere. If an implementation genuinely cannot exist yet (requires infrastructure from a later loop), add it to Known Issues with the specific loop and work item that will resolve it. "By design" and "deferred" are not valid — name the blocker.
 7. **Security & Data Integrity** — Injection patterns, unsafe fallbacks, data corruption risks.
 
 ### Review Rules
 
+- **Known Issues come first.** Before any category sweep, check `progress-[loop].md` Known Issues. If ANY exist, fix them (highest severity first) before doing category sweeps. Each fix is one iteration.
 - **One category per iteration, but sweep it completely.** Check every file, every function, every pattern relevant to that category. Don't stop at the first finding.
 - **Be adversarial.** Your job is to find defects, not to confirm the code is fine. If you find zero issues in a sweep, you probably didn't look hard enough.
 - **No rubber stamps.** You do not get to decide something is "INTENTIONAL" or "by design" without citing the specific spec section (DESIGN.md section name or IMPLEMENTATION.md section number) that mandates the pattern. If you can't cite the spec, it's a defect.
+- **"Noted but not fixed" IS a defect.** If you find something wrong, fix it. Do not log it as "noted" and move on. Do not rationalize it as "acceptable" unless the specific spec section says it's optional. Everything that can and should be done, MUST be done.
+- **Dead code is a defect.** Building something and not wiring it is the same as not building it. If a component is implemented, it must be started/registered/connected in the running system.
 - **No self-referencing.** Each review cycle evaluates the code independently against the spec. Your own previous review findings are not justification. "Same set as prior cycle" is not a valid assessment — re-evaluate each finding against the spec as if seeing it for the first time.
 - **The spec is mandatory.** If the spec says something, the code must do it. The only valid reason to not implement something is that it is literally impossible in this loop (requires infrastructure, services, or code that doesn't exist yet AND is assigned to a specific later loop's work item). "Best practice," "common pattern," and "defensive" are not reasons to deviate from the spec.
 - **After cycling through all 7 categories with zero findings, start over.** Previous fixes may have introduced new issues.
@@ -190,6 +197,9 @@ When all work items are complete, you enter the Review Phase. This is **NOT** op
 - [Things that are easy to forget or get wrong]
 - [Domain-specific gotchas]
 - **Read progress-[loop].md.** Every iteration. No exceptions.
+- **Known Issues in progress-[loop].md are your #1 priority.** Fix them before doing category sweeps. Each Known Issue fix is one iteration. Move fixed issues to Resolved Issues.
+- **If you build it, wire it.** Every component you implement must be started, registered, or connected in the running system. An implemented-but-unwired component is dead code.
+- **100% completion means 100%.** Not "mostly done with some noted items." Not "complete except for deferrals." Every requirement fulfilled, every component wired, every test asserting real behavior. If it can and should be done, it MUST be done.
 - **NEVER write "Loop Complete" in the progress file.** The human decides when the loop is done.
 ```
 

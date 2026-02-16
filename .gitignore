@@ -94,3 +94,8 @@ git_worktrees/
 cache/
 telemetry/
 stats-cache.json
+
+keybindings.json
+paste-cache/
+tasks/
+usage-data/

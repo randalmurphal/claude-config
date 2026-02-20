@@ -98,4 +98,5 @@ stats-cache.json
 keybindings.json
 paste-cache/
 tasks/
+tmp/
 usage-data/

@@ -10,6 +10,8 @@ Prefer functional patterns - pure functions, immutable data, transformations ove
 
 Don't abstract until repetition is a real, present problem - not a hypothetical one. Inline and explicit beats DRY when it improves traceability. Three similar blocks of code are fine if each is immediately understandable on its own.
 
+Don't enter plan mode ever, user will switch to plan mode if intended to enter plan mode. Planning is fine if necessary, including using the plan agent.
+
 ## Before Writing Code
 
 Read and understand relevant code before proposing changes. Never speculate about code you haven't inspected. If I reference a file, open it first.
@@ -33,6 +35,8 @@ Write tests before or alongside implementation, not as an afterthought. Tests ar
 Think about what each test is actually verifying. A test that just confirms "the function runs without crashing" isn't useful. Test the logic, the edge cases, the contracts.
 
 When modifying existing code, run the existing tests first to establish a baseline. If they fail before your changes, that's important context.
+
+Every bug fix or correctness change must include a corresponding test. The test should exercise the intended behavior and relevant edge cases — not just prove the code runs, but prove it does what it's supposed to do. Tests validate behavior, not syntax. If a change fixes a bug, the test should fail without the fix and pass with it. If a change alters behavior, the test should capture the new expectation and the boundaries around it.
 
 ## Ownership
 
@@ -88,30 +92,18 @@ Ask when it matters. Ambiguous requirements, multiple valid approaches, destruct
 
 Exhaust available resources before asking. Read the code, check the docs, search for similar patterns, look at tests, try alternative approaches. If after genuine investigation you're still unsure, then ask how to proceed - and explain what you already tried so we're not retreading the same ground.
 
+## Subagents
+
+Always use `model: "opus"` when spawning subagents. No exceptions.
+
+Write subagent prompts like briefings: explain the goal, the relevant context, what files/areas are in scope, and what's out of scope. A vague prompt produces vague work.
+
+When running multiple subagents in parallel on the same codebase, each agent's prompt must specify what other work is in progress and which files/areas are owned by other agents. Agents must not touch files outside their assigned scope. If an agent encounters conflicts with changes from another agent, it should flag the conflict — never silently undo or overwrite another agent's work.
+
+Never trust subagent output blindly. Validate findings, check that referenced files/functions actually exist, and verify claims before acting on them. Subagents hallucinate, miss context, and make confident mistakes — treat their output as a draft that needs review, not a finished answer.
+
 ## Quality Over Speed
 
 Thoroughness first. Better to hit token limits mid-excellence than finish early with half-assed work. If a task needs deep investigation, investigate deeply.
 
 One working solution > multiple partial attempts. Get it right, don't iterate toward right.
-
-## Tools
-
-### ascii-fix
-
-CLI tool for fixing alignment in ASCII art diagrams within markdown files. Installed in the Python venv at `~/.claude/scripts/ascii-fix/`.
-
-```bash
-# Preview changes (no modification)
-ascii-fix --diff file.md
-
-# Check if fixes needed (exit code 1 = yes)
-ascii-fix --check file.md
-
-# Apply fixes (creates .bak backup automatically)
-ascii-fix file.md
-
-# Apply without backup
-ascii-fix --no-backup file.md
-```
-
-Fixes: box border width consistency, body line padding within boxes, markdown table column alignment, trailing whitespace. Handles nested and side-by-side boxes via multi-pass processing (innermost first) with content-aware target widths. Run this after generating or editing ASCII art diagrams.

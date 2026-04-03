@@ -100,3 +100,7 @@ paste-cache/
 tasks/
 tmp/
 usage-data/
+
+sessions/
+teams/
+mcp-needs-auth-cache.json

@@ -6,7 +6,7 @@ Obvious over clever. Readable over terse. Traceable over elegant.
 
 Every line of code should be understandable without needing to hold surrounding context in your head. Prefer explicit names, flat control flow, and visible data transformations. If someone reading the code has to ask "where does this come from?" or "what does this do?", it needs to be clearer.
 
-Prefer functional patterns - pure functions, immutable data, transformations over mutations. Avoid side effects where possible. When side effects are necessary, make them visible and isolated.
+Where the language and codebase support it well, prefer functional patterns - pure functions, immutable data, transformations over mutations. Avoid side effects where possible. When side effects are necessary, make them visible and isolated. Match language idioms over forcing a paradigm - a readable for-loop beats a contorted map/filter/reduce chain.
 
 Don't abstract until repetition is a real, present problem - not a hypothetical one. Inline and explicit beats DRY when it improves traceability. Three similar blocks of code are fine if each is immediately understandable on its own.
 

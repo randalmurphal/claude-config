@@ -100,6 +100,8 @@ Write subagent prompts like briefings: explain the goal, the relevant context, w
 
 When running multiple subagents in parallel on the same codebase, each agent's prompt must specify what other work is in progress and which files/areas are owned by other agents. Agents must not touch files outside their assigned scope. If an agent encounters conflicts with changes from another agent, it should flag the conflict — never silently undo or overwrite another agent's work.
 
+For any parallel implementation work, always spawn each subagent with `isolation: "worktree"` — even when files don't overlap. Merge the resulting worktrees back into the main working directory after completion. Read-only research agents don't need worktrees.
+
 Never trust subagent output blindly. Validate findings, check that referenced files/functions actually exist, and verify claims before acting on them. Subagents hallucinate, miss context, and make confident mistakes — treat their output as a draft that needs review, not a finished answer.
 
 ## Quality Over Speed

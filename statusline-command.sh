@@ -36,27 +36,23 @@ fi
 # Cost
 COST_USD=$(echo "$input" | jq -r '.cost.total_cost_usd // 0')
 COST_FMT=$(printf "%.4f" "$COST_USD")
-LINES_ADDED=$(echo "$input" | jq -r '.cost.total_lines_added // 0')
-LINES_REMOVED=$(echo "$input" | jq -r '.cost.total_lines_removed // 0')
 
-# Context
-CTX_SIZE=$(echo "$input" | jq -r '.context_window.context_window_size // 200000')
-TOTAL_IN=$(echo "$input" | jq -r '.context_window.total_input_tokens // 0')
-TOTAL_OUT=$(echo "$input" | jq -r '.context_window.total_output_tokens // 0')
-CTX_USED=$((TOTAL_IN + TOTAL_OUT))
-[ "$CTX_SIZE" -gt 0 ] && CTX_PERCENT=$((CTX_USED * 100 / CTX_SIZE)) || CTX_PERCENT=0
+# Context (pre-calculated percentage from Claude Code)
+CTX_PERCENT=$(echo "$input" | jq -r '.context_window.used_percentage // 0 | floor')
 
-# Format tokens
-format_k() {
-    local n=$1
-    if [ "$n" -ge 1000 ]; then
-        echo "$(echo "scale=1; $n / 1000" | bc)k"
-    else
-        echo "$n"
-    fi
-}
-TOTAL_IN_FMT=$(format_k "$TOTAL_IN")
-TOTAL_OUT_FMT=$(format_k "$TOTAL_OUT")
+# Rate limits (Pro/Max only; absent before first API response of session)
+RAW_5HR=$(echo "$input" | jq -r '.rate_limits.five_hour.used_percentage // empty')
+RAW_7D=$(echo "$input" | jq -r '.rate_limits.seven_day.used_percentage // empty')
+if [ -n "$RAW_5HR" ]; then
+    RATE_5HR=$(printf "%.0f%%" "$RAW_5HR")
+else
+    RATE_5HR="-"
+fi
+if [ -n "$RAW_7D" ]; then
+    RATE_7D=$(printf "%.0f%%" "$RAW_7D")
+else
+    RATE_7D="-"
+fi
 
 # Context color based on usage
 if [ "$CTX_PERCENT" -lt 50 ]; then
@@ -69,19 +65,20 @@ fi
 
 # Separators
 SEP="${C_DARK_GREEN}◇${C_RESET}"
-STAR="${C_DIM}*${C_RESET}"
 
-# Build sections (all gray, charcoal * separators)
-S="${C_CHARCOAL}*${C_DIM}"  # charcoal star then back to gray
+# Build sections
 SEC_WORKSPACE="${C_DIM}${CURRENT_DIR}${C_RESET}"
+SEC_MODEL="${C_DIM}${MODEL}${C_RESET}"
+SEC_VERSION="${C_DIM}v${VERSION}${C_RESET}"
 SEC_CONTEXT="${C_DIM}▤ ${CTX_PERCENT}%${C_RESET}"
-SEC_META="${C_DIM}${MODEL} ${S} v${VERSION}${C_RESET}"
-SEC_COST="${C_DIM}+${LINES_ADDED}/-${LINES_REMOVED} ${S} \$${COST_FMT}${C_RESET}"
+SEC_5HR="${C_DIM}5h ${RATE_5HR}${C_RESET}"
+SEC_7D="${C_DIM}7d ${RATE_7D}${C_RESET}"
+SEC_COST="${C_DIM}\$${COST_FMT}${C_RESET}"
 
-# Build git section (only if branch exists)
+# Build output (with or without git)
 if [ -n "$GIT_BRANCH" ]; then
     SEC_GIT="${C_DIM}${GIT_BRANCH}${C_RESET}"
-    printf "%s" "${C_DARK_GREEN}«${C_RESET} ${SEC_WORKSPACE} ${SEP} ${SEC_GIT} ${SEP} ${SEC_CONTEXT} ${SEP} ${SEC_META} ${SEP} ${SEC_COST} ${C_DARK_GREEN}»${C_RESET}"
+    printf "%s" "${C_DARK_GREEN}«${C_RESET} ${SEC_WORKSPACE} ${SEP} ${SEC_GIT} ${SEP} ${SEC_MODEL} ${SEP} ${SEC_VERSION} ${SEP} ${SEC_CONTEXT} ${SEP} ${SEC_5HR} ${SEP} ${SEC_7D} ${SEP} ${SEC_COST} ${C_DARK_GREEN}»${C_RESET}"
 else
-    printf "%s" "${C_DARK_GREEN}«${C_RESET} ${SEC_WORKSPACE} ${SEP} ${SEC_CONTEXT} ${SEP} ${SEC_META} ${SEP} ${SEC_COST} ${C_DARK_GREEN}»${C_RESET}"
+    printf "%s" "${C_DARK_GREEN}«${C_RESET} ${SEC_WORKSPACE} ${SEP} ${SEC_MODEL} ${SEP} ${SEC_VERSION} ${SEP} ${SEC_CONTEXT} ${SEP} ${SEC_5HR} ${SEP} ${SEC_7D} ${SEP} ${SEC_COST} ${C_DARK_GREEN}»${C_RESET}"
 fi

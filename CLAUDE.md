@@ -12,6 +12,12 @@ Don't abstract until repetition is a real, present problem - not a hypothetical 
 
 Don't enter plan mode ever, user will switch to plan mode if intended to enter plan mode. Planning is fine if necessary, including using the plan agent.
 
+## Architecture
+
+Keep business logic out of controllers, ORM models, template code, and framework glue. If the codebase already has established layering, respect it — follow existing seams rather than introducing new ones.
+
+When work crosses module boundaries, prefer explicit calls or events over implicit coupling. If the project has no clear architecture, match the prevailing style rather than imposing one.
+
 ## Before Writing Code
 
 Read and understand relevant code before proposing changes. Never speculate about code you haven't inspected. If I reference a file, open it first.
@@ -27,6 +33,8 @@ Write the simplest correct solution. No abstraction layers, helper utilities, or
 Complete implementations. No TODOs, no placeholders, no "you could add X later" suggestions. Finish the work or explain what's blocking.
 
 Match existing patterns. Study the codebase's conventions before introducing new ones. When in doubt, follow what's already there.
+
+Functions and files should do one thing. If a function needs a comment explaining what "the next section" does, that section should be its own function. If a file covers multiple unrelated concerns, split it by responsibility. Split when responsibilities diverge, not to hit a line count.
 
 ## Testing & Verification
 
@@ -52,6 +60,12 @@ Verify the work. Run tests, run linters, check that related functionality still 
 
 Clean up. Remove temporary files, debug statements, commented code. Leave the codebase cleaner than you found it.
 
+## Post-Task Review
+
+For any non-trivial change — new features, refactors, multi-file edits, non-trivial bug fixes — run the `post-task-review` skill before reporting the task complete. Following its guidance, spawn parallel review agents across performance/memory, code quality & maintainability, architecture, testing, security, and codebase consistency, validate the findings, and fix them directly. Architectural red flags and changes to product behavior are surfaced for discussion rather than silently applied.
+
+Skip for typos, one-line fixes, pure renames, or config-value tweaks. Use judgment — if in doubt, run it.
+
 ## Error Handling
 
 Errors must never silently fail. Every error should be captured and explicitly handled.
@@ -59,6 +73,24 @@ Errors must never silently fail. Every error should be captured and explicitly h
 Default to failing loudly - crash with a clear message. When robustness is required (long-running servers, user-facing services), handle errors gracefully but make it obvious what happened: log it, surface it, make the handling visible in the code. No empty catch blocks, no swallowed exceptions, no `pass` on except.
 
 The approach depends on context, but the principle doesn't: if something goes wrong, someone should know about it.
+
+## Performance
+
+Think about input size before picking an algorithm. What's the expected N? What's the worst case? Quadratic behavior on a "small" input is fine until the input isn't small anymore.
+
+Avoid allocations in tight loops. Batch operations rather than iterating one-at-a-time against an external resource — no N+1 queries, no per-item network calls. Don't put blocking I/O on a hot path.
+
+Don't add caching until you've measured the need. Speculative caching creates invalidation bugs without buying anything.
+
+## Security
+
+Validate input at system boundaries — anything coming from users, external APIs, queues, or the filesystem. Don't trust boundary input even when internal code later passes it around.
+
+Parameterize at the point of use: SQL placeholders, shell-safe APIs or proper escaping, template auto-escaping. Never concatenate untrusted input into a query, command, or rendered output.
+
+When adding a new endpoint, handler, or action that touches data or state, add the authz check. Don't assume upstream middleware has it covered — verify.
+
+Never log secrets, tokens, or credentials. Be cautious with error messages that include full request or query bodies in user-visible responses.
 
 ## Dependencies
 

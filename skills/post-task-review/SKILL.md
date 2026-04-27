@@ -69,10 +69,10 @@ Each agent is also instructed: if you spot something outside your lens that's a 
 Hot paths, allocations inside loops, N+1 queries, algorithmic complexity (quadratic behavior on potentially large inputs), unbounded growth, leaks, sync work that blocks, I/O on the critical path, redundant computation, missing caching where it matters, oversized data in memory.
 
 **2. Code Quality, Readability & Maintainability**
-Clarity and naming, flat vs nested control flow, dead code, duplication, error handling gaps, comments that explain *what* instead of *why*, magic numbers, functions doing multiple things, single-responsibility violations. **God files** (one file owning many unrelated concerns, or growing beyond what a reader can hold in their head) and **god functions** (too long, multiple responsibilities, deep nesting) are explicit targets — flag them and propose the split.
+Clarity and naming, flat vs nested control flow, dead code, duplication, error handling gaps, comments that explain *what* instead of *why*, magic numbers, functions doing multiple things, single-responsibility violations. **God files** (one file owning many unrelated concerns, or growing beyond what a reader can hold in their head) and **god functions** (too long, multiple responsibilities, deep nesting) are explicit targets — flag them and propose the split. **Drift-prone duplication:** logic in this change that must stay behaviorally aligned with existing or sibling code (so a future change has to update both copies at once to stay correct) but isn't shared — propose extracting it. Distinguish from incidental similarity: pieces that only look alike but represent separate concepts that may evolve independently should stay apart, not get force-merged.
 
 **3. Architecture & Organization**
-Layer violations, business logic leaking into controllers, ORM models, or framework code, dependency direction (domain must not depend on infrastructure), module boundaries, coupling, cohesion, where state lives, abstractions that leak their internals, missing or wrong seams between components.
+Layer violations, business logic leaking into controllers, ORM models, or framework code, dependency direction (domain must not depend on infrastructure), module boundaries, coupling, cohesion, where state lives, abstractions that leak their internals, missing or wrong seams between components. **Functional-equivalence check:** could this be implemented with materially less code, fewer moving parts, or fewer layers while still meeting the requirements? Look for incidental complexity — speculative configurability, indirection that doesn't pay for itself, abstractions added without a clear cost they're paying down, single-implementation interfaces, wrappers that just forward calls. If yes, propose the concrete simpler version, not just a vibe.
 
 **4. Testing & Correctness**
 Coverage for each changed behavior, edge cases, regression risks, tests that only prove "it runs" vs validate logic, missing tests for new branches or error paths, tests coupled to implementation details instead of observable behavior, missing negative tests for bug fixes.
@@ -94,21 +94,27 @@ When all six return:
 
 Drop findings that don't survive validation. Note them internally if relevant but don't waste the user's time with false positives.
 
-### 4. Present summary and act
+### 4. Classify, summarize, act
 
-Give the user a concise summary — what was found, what you're about to do, what needs their input. Structure:
+Each surviving finding gets classified into **fix directly** or **surface for discussion**. Default is **fix** — surface only when one of the conditions below applies. The point of the skill is to clean up your own work, not to forward a checklist of every minor finding to the user.
+
+**Fix directly when** the fix is obvious AND the code is related to what you just changed. "Related" means in or adjacent to your change set — same files, same module, same logical area. This covers quality, consistency, dead code, performance, missing tests, security, naming, small refactors. Don't ask permission for these even if they're a step beyond the original task — that's the skill working as intended.
+
+**Surface for discussion when:**
+
+- **The right fix is unclear** — multiple plausible approaches with real tradeoffs, and you'd be guessing at the user's preference. Don't guess; ask.
+- **Intended behavior is unclear** — the fix would change user-visible behavior (features, UX, API contracts, defaults, error messages) and the correct behavior isn't obvious from context. Behavior calls belong to the user.
+- **Genuinely out of scope** — the issue lives in code unrelated to this change set, and pulling it in would balloon the task. Flag it so the user can decide whether to take it on now, schedule it, or ignore.
+- **Larger architectural redesign** — implies restructuring beyond a localized fix. Surface so the user can decide direction.
+
+Then summarize and act:
 
 - **Found:** N blocking, M recommended, K optional
 - **Fixing directly:** one-line description of each fix (keep this tight — the user doesn't need every file:line)
-- **Surfacing for discussion:** architectural red flags or behavioral changes, each with context and proposed path
+- **Surfacing for discussion:** items in the categories above, each with context and proposed path
 - **Verification plan:** which tests/lint will run after
 
-Then fix everything in the "fixing directly" list. **Except:**
-
-- **Architectural red flags** — findings that imply a larger redesign, questionable layering decisions, or a structural problem that predates this task and would benefit from user input. Surface these instead of silently fixing. The user explicitly wants bigger design issues surfaced and resolved together, not patched over.
-- **Changes to product behavior or user-facing functionality** — anything that alters features, UX, API contracts, defaults, error messages users see, or observable behavior of the product. Surface for user sign-off before touching.
-
-Everything else: fix it. Don't prompt for approval on quality, consistency, dead code, performance, missing tests, or security fixes — those are in-scope.
+Then fix everything in the "fixing directly" list.
 
 ### 5. Verify and report
 
@@ -128,9 +134,8 @@ Then return to the original task's completion message. The review is a gate, not
 ## Rules
 
 - Never trust a subagent finding without opening the file. Validate first, act second.
-- Never silently change product behavior. Surface it.
-- Never silently rework the architecture because one review agent said so. Surface it.
-- Do fix quality, consistency, dead code, test gaps, performance issues, security issues, and codebase-pattern violations directly — that's the point of the skill.
+- Default to fix, not surface — use the classification rule in step 4. Over-surfacing turns this skill into a checklist for the user instead of a self-cleanup pass.
+- Do fix quality, consistency, dead code, test gaps, performance issues, security issues, and codebase-pattern violations directly when the fix is obvious and the code is related — that's the point of the skill.
 - If a finding contradicts something the user said earlier in the conversation, surface it — don't override user intent.
 - If tests fail after your fixes, do not declare done. Fix the regression or roll back that specific change and surface the conflict.
 

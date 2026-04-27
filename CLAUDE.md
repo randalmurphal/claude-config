@@ -8,7 +8,7 @@ Every line of code should be understandable without needing to hold surrounding 
 
 Where the language and codebase support it well, prefer functional patterns - pure functions, immutable data, transformations over mutations. Avoid side effects where possible. When side effects are necessary, make them visible and isolated. Match language idioms over forcing a paradigm - a readable for-loop beats a contorted map/filter/reduce chain.
 
-Don't abstract until repetition is a real, present problem - not a hypothetical one. Inline and explicit beats DRY when it improves traceability. Three similar blocks of code are fine if each is immediately understandable on its own.
+Pursue the simplest correct solution — easiest to read and trace. "Simple" means easy to understand, not easy to write or shortest in lines; sometimes the obvious approach takes more lines and that's fine. The right test for abstraction isn't "is this duplicated?" but "if behavior X needs to change, must all copies change together to stay correct?" If yes, share the logic now — otherwise copies drift and one gets missed. If two pieces only look alike but represent separate concepts that may evolve independently, leave them apart even when they're similar today. Don't abstract speculatively or to satisfy DRY for its own sake; don't avoid abstraction either when shared logic needs to stay shared. Configurability and indirection follow the same rule: add them when something concrete demands it, not on the chance it might be useful.
 
 Don't enter plan mode ever, user will switch to plan mode if intended to enter plan mode. Planning is fine if necessary, including using the plan agent.
 
@@ -27,8 +27,6 @@ Investigate downstream impact before modifying shared code. Who calls this? Who 
 Think about verification first. Before writing the implementation, identify: what tests will prove this works? What edge cases matter? What existing tests might need to change? This isn't optional - understanding how to verify correctness shapes how you write the code.
 
 ## While Writing Code
-
-Write the simplest correct solution. No abstraction layers, helper utilities, or configurability unless the current task demands it. But "simple" means easy to understand, not easy to write - sometimes the obvious approach takes more lines and that's fine.
 
 Complete implementations. No TODOs, no placeholders, no "you could add X later" suggestions. Finish the work or explain what's blocking.
 
